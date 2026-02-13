@@ -21,6 +21,7 @@ class GalleryPage extends StatefulWidget {
 class _GalleryPageState extends State<GalleryPage> {
   bool _isAuthenticated = false;
   List _items = [];
+  String _currentUserName = ""; // ★ 追加：JSONから取得したユーザー名を保持
   final ScrollController _gridController = ScrollController();
   final GitHubService _githubService = GitHubService();
 
@@ -31,8 +32,34 @@ class _GalleryPageState extends State<GalleryPage> {
       _items = widget.initialItems!;
       _isAuthenticated = true;
     } else {
-      // 起動時に保存されたIDをチェック
-      _checkSavedGistId();
+      // ★ URLパラメータと保存されたIDのチェックを開始
+      _handleInitialLoad();
+    }
+  }
+
+  // --- 追加：初期ロードの優先順位制御 ---
+  Future<void> _handleInitialLoad() async {
+    // 1. URLパラメータ (?id=xxxx) をチェック
+    final String? urlId = Uri.base.queryParameters['id'];
+
+    if (urlId != null && urlId.isNotEmpty) {
+      debugPrint("URL parameter 'id' found: $urlId");
+      await loadJson(urlId);
+      return; // URLにIDがあればここで終了
+    }
+
+    // 2. SharedPreferences に保存されたIDをチェック
+    final prefs = await SharedPreferences.getInstance();
+    final String? savedId = prefs.getString('last_gist_id');
+
+    if (savedId != null && savedId.isNotEmpty) {
+      debugPrint("Saved ID found in SharedPreferences: $savedId");
+      await loadJson(savedId);
+    } else {
+      // 3. どちらもなければダイアログを表示
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _showPasswordDialog(),
+      );
     }
   }
 
@@ -134,25 +161,32 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> loadJson(String inputKey) async {
     final String url =
         'https://gist.githubusercontent.com/Yuji-HAMADA/$inputKey/raw/gallary_data.json';
+    
+    debugPrint("Fetching from: $url");
+
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         
-        // ★ 成功時にIDを保存！
+        // ★ 成功時にIDを保存！ (URLパラメータ経由の場合も保存されます)
         await _saveGistId(inputKey);
 
-        setState(() {
-          _items = data;
-          _isAuthenticated = true;
-        });
-        _restoreScrollPosition();
+        if (mounted) {
+          setState(() {
+            // ★ 修正：新しいJSON構造に合わせて取得先を変更
+            _items = data['tweets'] ?? []; 
+            _currentUserName = data['user_screen_name'] ?? "";
+            _isAuthenticated = true;
+          });
+          _restoreScrollPosition();
+        }
       } else {
         _showErrorSnackBar("Invalid Password (ID)");
-        // 失敗した場合はID入力を再度促す
-        _showPasswordDialog(canCancel: true);
+        if (mounted) _showPasswordDialog(canCancel: true);
       }
     } catch (e) {
+      debugPrint("Load error: $e");
       _showErrorSnackBar("Network error or invalid ID");
     }
   }
@@ -206,27 +240,40 @@ class _GalleryPageState extends State<GalleryPage> {
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
     final bool isHashtagFilter = currentTitle.startsWith('#');
-    final bool showLinkButton = isUserFilter || isHashtagFilter;
 
-    String twitterId = isUserFilter 
-        ? currentTitle.substring(currentTitle.indexOf('@')).replaceFirst('@', '') 
-        : '';
+    // ★ 修正：タイトル決定ロジック
+    String displayTitle = 'X-Post-Gallery'; 
+    if (isHashtagFilter) {
+      displayTitle = currentTitle;
+    } else if (_currentUserName.isNotEmpty) {
+      displayTitle = '@$_currentUserName'; // Pythonから来た名前を優先
+    } else if (widget.title != null) {
+      displayTitle = widget.title!;
+    }
+
+    // ★ 修正：twitterId の取得先も displayTitle を参考にするよう改善
+    String twitterId = displayTitle.startsWith('@') 
+        ? displayTitle.replaceFirst('@', '') 
+        : (isUserFilter ? currentTitle.substring(currentTitle.indexOf('@')).replaceFirst('@', '') : '');
+    
+    final bool showLinkButton = isUserFilter || isHashtagFilter || displayTitle.startsWith('@');
     String hashtagKeyword = isHashtagFilter ? currentTitle.replaceFirst('#', '') : '';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isHashtagFilter ? hashtagKeyword : (widget.title ?? 'X-Post-Gallery')),
+        title: Text(displayTitle), // ★ 修正：決定したタイトルを表示
         actions: [
           if (showLinkButton)
             IconButton(
               icon: Icon(isHashtagFilter ? Icons.tag : Icons.alternate_email),
               onPressed: () => isHashtagFilter ? _launchXHashtag(hashtagKeyword) : _launchX(twitterId),
             ),
-          if (!showLinkButton)
-            IconButton(
-              icon: const Icon(Icons.vpn_key_outlined),
-              onPressed: () => _showPasswordDialog(canCancel: true),
-            ),
+
+          IconButton(
+            icon: const Icon(Icons.vpn_key_outlined),
+            onPressed: () => _showPasswordDialog(canCancel: true),
+          ),
+          
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _handleUpdateData,

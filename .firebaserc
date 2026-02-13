@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "review-gallery"
-  }
+    "default": "x-post-gallery"
+  },
+  "targets": {},
+  "etags": {}
 }

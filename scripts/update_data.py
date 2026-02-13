@@ -3,6 +3,7 @@ import re
 import os
 
 def convert():
+    # 実行場所がプロジェクトルートの場合、パスを調整してください
     input_file = 'data/tweets.js'
     output_file = 'assets/data/data.json'
     
@@ -16,30 +17,47 @@ def convert():
         json_str = re.sub(r'^window\.YTD\.tweets\.part0\s*=\s*', '', content)
         data = json.loads(json_str)
 
-    new_data = []
-    for item in data:
-        tweet = item.get('tweet', {})
-        media_list = tweet.get('extended_entities', {}).get('media', [])
-        
-        if media_list:
-            # ★ 修正：すべての画像URLを抽出してリストにする
-            media_urls = [m.get('media_url_https', '') for m in media_list if m.get('media_url_https')]
-            
-            new_data.append({
-                'full_text': tweet.get('full_text', ''),
-                'created_at': tweet.get('created_at', ''),
-                # 'media_url' ではなく 'media_urls' (リスト) として保存
-                'media_urls': media_urls, 
-                'id_str': tweet.get('id_str', '')
-            })
+    new_tweets = []
+    detected_user = ""
 
-    # assets/data ディレクトリがなければ作成
+    for item in data:
+        # extract_media.py の出力構造 [ {"tweet": {...}}, ... ] に対応
+        tweet = item.get('tweet', {})
+        full_text = tweet.get('full_text', '')
+
+        # 本人のポスト（RTでない）からユーザー名を特定
+        if not detected_user and not full_text.startswith("RT @"):
+            match = re.match(r'@([^:]+):', full_text)
+            if match:
+                detected_user = match.group(1)
+
+        # extended_entities もしくは entities からメディアを取得
+        media_list = tweet.get('extended_entities', {}).get('media', [])
+        if not media_list:
+            media_list = tweet.get('entities', {}).get('media', [])
+
+        if media_list:
+            media_urls = [m.get('media_url_https', '') for m in media_list if m.get('media_url_https')]
+            if media_urls:
+                new_tweets.append({
+                    'full_text': full_text,
+                    'created_at': tweet.get('created_at', ''),
+                    'media_urls': media_urls, 
+                    'id_str': tweet.get('id_str', '')
+                })
+
+    # メタデータ付きの構造で保存
+    final_output = {
+        "user_screen_name": detected_user or "Unknown",
+        "tweets": new_tweets
+    }
+
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(new_data, f, ensure_ascii=False, indent=2)
+        json.dump(final_output, f, ensure_ascii=False, indent=2)
     
-    print(f"変換完了！ {len(new_data)} 件のデータを {output_file} に保存しました。")
+    print(f"✅ 変換完了！ User: @{detected_user}, {len(new_tweets)} 件のデータを保存しました。")
 
 if __name__ == "__main__":
     convert()
