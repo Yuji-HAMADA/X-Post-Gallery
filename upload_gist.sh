@@ -2,7 +2,7 @@
 
 # --- デフォルト値の設定 ---
 NUM=100
-USER="Yuji20359094"
+USER="travelbeauty8"
 MODE="all"
 
 # --- 引数の解析 (u: ユーザー名, m: モード, n: 件数) ---

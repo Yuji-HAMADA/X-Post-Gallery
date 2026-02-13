@@ -13,7 +13,7 @@ async def run():
     # -n オプション（デフォルト100）
     parser.add_argument("-n", "--num", type=int, default=100, help="取得件数")
     # ユーザー名を引数で受け取れるようにする
-    parser.add_argument("-u", "--user", type=str, default="Yuji20359094", help="対象ユーザーID")
+    parser.add_argument("-u", "--user", type=str, default="travelbeauty8", help="対象ユーザーID")
     # 取得モード（未使用だが将来の拡張用に追加）
     parser.add_argument("--mode", type=str, default="all", choices=["all", "post_only", "repost_only"], help="取得モード")
     # ターゲットID（位置引数として維持）
