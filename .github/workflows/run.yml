@@ -68,15 +68,26 @@ jobs:
           AUTH_DATA: ${{ secrets.AUTH_JSON }}
         run: |
           mkdir -p data
-          echo "$AUTH_DATA" > data/auth.json
+          # 1. echoではなくprintfを使用して、クォテーションや特殊文字をそのまま書き出す
+          printf "%s" "$AUTH_DATA" > data/auth.json
+          
+          # 2. デバッグ用：ファイルが空でないか、有効なJSONかを実行前にチェック
+          echo "=== Auth File Validation ==="
+          if [ ! -s data/auth.json ]; then
+            echo "❌ Error: data/auth.json is empty. Check GitHub Secret: AUTH_JSON"
+            exit 1
+          fi
+          
+          # Pythonを使用してJSONの構文チェックのみ行う（中身は表示しない）
+          python3 -c "import json; json.load(open('data/auth.json'))" && echo "✅ auth.json is valid JSON" || (echo "❌ Error: auth.json is NOT valid JSON format"; exit 1)
 
       - name: Run Script
         env:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
           chmod +x gh_upload_gist.sh
-          # --- 修正: ユーザー名、モード、件数をすべて gh_upload_gist.sh に渡す ---
+          # 引数をダブルクォートで囲み、スペースや特殊文字による予期せぬ挙動を防ぐ
           ./gh_upload_gist.sh \
             -u "${{ github.event.inputs.target_user }}" \
             -m "${{ github.event.inputs.mode }}" \
-            -n ${{ github.event.inputs.num_reposts }}
+            -n "${{ github.event.inputs.num_reposts }}"
