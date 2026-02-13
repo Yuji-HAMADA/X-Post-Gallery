@@ -12,10 +12,10 @@ class GitHubService {
       : (dotenv.env['GITHUB_TOKEN'] ?? '');
 
   final String owner = 'Yuji-HAMADA';
-  final String repo = 'review_gallery';
+  final String repo = 'x-post-gallery';
   final String workflowId = 'run.yml';
 
-  // --- 修正箇所: 認証ヘッダーの形式を少し現代的に ---
+  // ヘッダーをゲッターで定義して、毎回新しいマップを返すようにする
   Map<String, String> get _headers => {
     'Authorization': 'Bearer $token', // 'token $token' でも動きますが、今は Bearer が推奨
     'Accept': 'application/vnd.github.v3+json',
@@ -26,7 +26,7 @@ class GitHubService {
     required String user,
     required String mode,
   }) async {
-    // デバッグ用: Webコンソールでトークンが読み込まれているか1文字目だけ確認
+    // デバッグ用にトークンの状態をログに出力
     if (token.isEmpty) {
       print("🚨 GitHub Token is empty!");
     } else {
@@ -43,7 +43,7 @@ class GitHubService {
       body: jsonEncode({
         'ref': 'main',
         'inputs': {
-          'num_reposts': count.toString(),
+          'num_posts': count.toString(),
           'target_user': user,
           'mode': mode,
         },

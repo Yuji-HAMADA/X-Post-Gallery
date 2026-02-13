@@ -16,8 +16,7 @@ on:
         options:
           - all
           - post_only
-          - repost_only
-      num_reposts:
+      num_posts:
         description: '取得件数'
         required: true
         default: '100'
@@ -90,4 +89,4 @@ jobs:
           ./gh_upload_gist.sh \
             -u "${{ github.event.inputs.target_user }}" \
             -m "${{ github.event.inputs.mode }}" \
-            -n "${{ github.event.inputs.num_reposts }}"
+            -n "${{ github.event.inputs.num_posts }}"

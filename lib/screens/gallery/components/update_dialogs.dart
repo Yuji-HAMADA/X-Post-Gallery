@@ -42,7 +42,6 @@ class UpdateDialogs {
                   items: const [
                     DropdownMenuItem(value: 'all', child: Text("All (Post & RT)")),
                     DropdownMenuItem(value: 'post_only', child: Text("Post Only")),
-                    DropdownMenuItem(value: 'repost_only', child: Text("Repost Only")),
                   ],
                   onChanged: (value) {
                     if (value != null) setDialogState(() => selectedMode = value);

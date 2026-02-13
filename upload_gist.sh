@@ -11,7 +11,7 @@ while getopts u:m:n: OPT; do
     u) USER=$OPTARG ;;
     m) MODE=$OPTARG ;;
     n) NUM=$OPTARG ;;
-    *) echo "Usage: $0 [-u user_id] [-m all|post_only|repost_only] [-n num]"
+    *) echo "Usage: $0 [-u user_id] [-m all|post_only] [-n num]"
        exit 1 ;;
   esac
 done
