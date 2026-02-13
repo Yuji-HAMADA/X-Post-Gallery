@@ -1,4 +1,4 @@
-# review_gallary
+# x_post_gallery
 
 A new Flutter project.
 

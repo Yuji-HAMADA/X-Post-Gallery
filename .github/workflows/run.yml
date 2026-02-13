@@ -5,9 +5,9 @@ on:
     # --- Flutterや手動実行からの入力を受け取る設定 ---
     inputs:
       target_user:
-        description: '対象ユーザーID (例: Yuji20359094)'
+        description: '対象ユーザーID (例: travelbeauty8)'
         required: true
-        default: 'Yuji20359094'
+        default: 'travelbeauty8'
       mode:
         description: '取得モード'
         required: true

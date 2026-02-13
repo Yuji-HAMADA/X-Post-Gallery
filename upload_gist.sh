@@ -27,7 +27,7 @@ fi
 # 2. X（Twitter）からの抽出
 echo "Step 2: Extracting $NUM items for @$USER (Mode: $MODE)..."
 # --- Pythonにすべての引数を渡す ---
-python3 scripts/extract_posts.py -u "$USER" --mode "$MODE" -n "$NUM"
+python3 scripts/extract_media.py -u "$USER" --mode "$MODE" -n "$NUM"
 
 # 3. Flutter用データへの変換
 echo "Step 3: Updating data format..."

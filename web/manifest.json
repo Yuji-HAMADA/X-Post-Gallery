@@ -1,6 +1,6 @@
 {
-    "name": "review_gallary",
-    "short_name": "review_gallary",
+    "name": "x_post_gallery",
+    "short_name": "x_post_gallery",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

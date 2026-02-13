@@ -5,7 +5,7 @@
     "**/.firebaserc": true,
     "**/.dart_tool": true,
     "**/.flutter-plugins*": true,
-    "**/review_gallary.iml": true,
+    "**/x_post_gallery.iml": true,
     "**/.metadata": true
   }
 }
