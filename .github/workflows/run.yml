@@ -1,0 +1,82 @@
+name: Extract and Post to Gist
+
+on:
+  workflow_dispatch:
+    # --- Flutterや手動実行からの入力を受け取る設定 ---
+    inputs:
+      target_user:
+        description: '対象ユーザーID (例: Yuji20359094)'
+        required: true
+        default: 'Yuji20359094'
+      mode:
+        description: '取得モード'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - post_only
+          - repost_only
+      num_reposts:
+        description: '取得件数'
+        required: true
+        default: '100'
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/gh_upload_gist.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+            
+      - name: Install Python dependencies
+        run: pip install playwright pandas --quiet
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(pip show playwright | grep Version | cut -d ' ' -f 2)" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      - name: Install Playwright dependencies (Always required)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+
+      - name: Create Auth File
+        env:
+          AUTH_DATA: ${{ secrets.AUTH_JSON }}
+        run: |
+          mkdir -p data
+          echo "$AUTH_DATA" > data/auth.json
+
+      - name: Run Script
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          chmod +x gh_upload_gist.sh
+          # --- 修正: ユーザー名、モード、件数をすべて gh_upload_gist.sh に渡す ---
+          ./gh_upload_gist.sh \
+            -u "${{ github.event.inputs.target_user }}" \
+            -m "${{ github.event.inputs.mode }}" \
+            -n ${{ github.event.inputs.num_reposts }}

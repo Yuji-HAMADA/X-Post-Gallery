@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "title": "Pixel 6 のカメラ性能",
+    "image_url": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe",
+    "review": "さすがの解像感。夜景も綺麗に撮れそう。"
+  },
+  {
+    "id": 2,
+    "title": "Ubuntu 開発環境",
+    "image_url": "https://images.unsplash.com/photo-1547082299-de196ea013d6",
+    "review": "32GBメモリのおかげでビルド中もブラウザがサクサク。"
+  },
+  {
+    "id": 3,
+    "title": "祝・初ビルド成功",
+    "image_url": "https://images.unsplash.com/photo-1496171367470-9ed9a91ea931",
+    "review": "28分の戦いに勝利した記念の一枚。"
+  }  
+]

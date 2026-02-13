@@ -1,0 +1,11 @@
+{
+  "files.exclude": {
+    "**/.firebase": true,
+    "**/firebase.json": true,
+    "**/.firebaserc": true,
+    "**/.dart_tool": true,
+    "**/.flutter-plugins*": true,
+    "**/review_gallary.iml": true,
+    "**/.metadata": true
+  }
+}
