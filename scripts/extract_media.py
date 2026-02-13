@@ -54,24 +54,22 @@ async def run():
 
         base_query = f"from:{target_user} filter:images"
 
-        # --- モード別のクエリ決定（すべて最新順 f=live ベース） ---
+        # --- モード別のクエリ決定 ---
         if args.mode == "post_only":
-            # 自分のポストのみ（画像あり、リポストなし）
+            # 自分の純粋なポストのみ（画像あり、リポスト除外）
             query = f"from:{target_user} filter:images -filter:reposts"
-            print(f"🎬 モード: ポストのみ", flush=True)
-
-        elif args.mode == "repost_only":
-            # リポストのみ（後でPython側でさらに厳密にフィルタリング）
-            query = f"from:{target_user} include:nativeretweets -filter:replies"
-            print(f"🔄 モード: リポストのみ", flush=True)
+            print(f"🎬 モード: ポストのみ (自分の投稿のみ)", flush=True)
 
         else:
-            # 全部（ポストもリポストも画像付きで最新順）
-            query = f"from:{target_user} include:nativeretweets -filter:replies"
-            print(f"✨ モード: 全部", flush=True)
+            # 全部（ポストもリポストも混在）
+            # include:nativeretweets は無くても "from:user" で Liveタブならリポストは含まれます
+            # より確実かつシンプルにアカウント名だけで検索
+            query = f"from:{target_user}"
+            print(f"✨ モード: 全部 (ポスト + リポスト)", flush=True)
 
         # 🚀 URLの組み立て
         encoded_query = quote(query)
+        # f=live は必須（これが無いと時系列がバラバラな「話題」タブになります）
         url = f"https://x.com/search?q={encoded_query}&f=live"
         
         print(f"🚀 アクセスURL: {url}")
