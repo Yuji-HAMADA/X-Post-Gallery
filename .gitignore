@@ -47,7 +47,7 @@ app.*.map.json
 venv/
 data/auth.json
 data/debug_screen.png
-data/tweets.json
+data/tweets.js
 assets/data/data.json
 assets/data/gallary_data.json
 

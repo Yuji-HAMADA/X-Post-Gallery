@@ -1,4 +1,4 @@
-package com.example.review_gallary
+package com.example.x_post_gallery
 
 import io.flutter.embedding.android.FlutterActivity
 

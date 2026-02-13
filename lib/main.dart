@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // インポート追加
-import 'package:review_gallary/screens/gallery/gallery_page.dart';
+import 'package:x_post_gallery/screens/gallery/gallery_page.dart';
 
 // async に変更して読み込みを待機する
 void main() async {
