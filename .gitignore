@@ -54,4 +54,9 @@ assets/data/gallary_data.json
 # Firebase related
 .firebase/
 
+# Environment variables
 .env
+
+# Google Services (e.g. APIs or Firebase)
+android/app/google-services.json
+lib/firebase_options.dart
