@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:label="x_post_gallery"
+        android:label="PostViewer"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

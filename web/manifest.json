@@ -1,6 +1,6 @@
 {
-    "name": "x_post_gallery",
-    "short_name": "x_post_gallery",
+    "name": "PostViewer",
+    "short_name": "PostViewer",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
