@@ -266,14 +266,20 @@ class _GalleryPageState extends State<GalleryPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(displayTitle), // ★ 修正：決定したタイトルを表示
+        title: showLinkButton
+            ? GestureDetector(
+                onTap: () => isHashtagFilter ? _launchXHashtag(hashtagKeyword) : _launchX(twitterId),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(child: Text(displayTitle, overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.open_in_new, size: 14, color: Colors.grey),
+                  ],
+                ),
+              )
+            : Text(displayTitle),
         actions: [
-          if (showLinkButton)
-            IconButton(
-              icon: Icon(isHashtagFilter ? Icons.tag : Icons.alternate_email),
-              onPressed: () => isHashtagFilter ? _launchXHashtag(hashtagKeyword) : _launchX(twitterId),
-            ),
-
           IconButton(
             icon: const Icon(Icons.vpn_key_outlined),
             onPressed: () => _showPasswordDialog(canCancel: true),
@@ -329,7 +335,7 @@ class _GalleryPageState extends State<GalleryPage> {
   Widget _buildErrorWidget() => const Center(child: Icon(Icons.broken_image, color: Colors.grey));
 
   // --- 外部連携ロジック ---
-  Future<void> _launchXHashtag(String keyword) async => _openUrl(Uri.parse('https://x.com/hashtag/${Uri.encodeComponent(keyword)}'));
+  Future<void> _launchXHashtag(String keyword) async => _openUrl(Uri.parse('https://x.com/search?q=${Uri.encodeComponent('#$keyword')}&src=typed_query&f=media'));
   Future<void> _launchX(String twitterId) async => _openUrl(Uri.parse('https://x.com/$twitterId'));
   Future<void> _openUrl(Uri url) async {
     try {

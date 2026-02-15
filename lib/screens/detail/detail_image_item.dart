@@ -355,7 +355,7 @@ class _DetailImageItemState extends State<DetailImageItem>
     HapticFeedback.mediumImpact();
     final String url;
     if (tag.startsWith('#')) {
-      url = 'https://x.com/hashtag/${Uri.encodeComponent(tag.substring(1))}';
+      url = 'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
     } else if (tag.startsWith('@')) {
       url = 'https://x.com/${tag.substring(1)}';
     } else {
