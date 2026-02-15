@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -145,9 +147,10 @@ class _DetailImageItemState extends State<DetailImageItem>
           child: Container(
             width: screenWidth,
             constraints: BoxConstraints(
-              minHeight: 100,
+              minHeight: 0, // ここは0にして、画像の高さに完全に任せる
+              // minHeight: 100,
               maxHeight: _isZoomed
-                  ? MediaQuery.of(context).size.height
+                  ? math.max(MediaQuery.of(context).size.height, screenWidth / ratio)
                   : screenWidth / ratio,
             ),
             child: _buildZoomableImage(url, itemId, i),
