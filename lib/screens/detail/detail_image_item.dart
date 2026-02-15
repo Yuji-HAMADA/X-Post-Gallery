@@ -1,5 +1,8 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:linkify/linkify.dart' as linkify_pkg;
 import 'package:url_launcher/url_launcher.dart';
 import '../gallery/gallery_page.dart';
 
@@ -25,6 +28,7 @@ class _DetailImageItemState extends State<DetailImageItem>
   bool _isZoomed = false;
 
   final Map<int, double> _resolvedRatios = {};
+  final List<GestureRecognizer> _urlRecognizers = [];
 
   @override
   void initState() {
@@ -51,7 +55,13 @@ class _DetailImageItemState extends State<DetailImageItem>
     // 箱（Map）自体もクリアする
     _controllers.clear();
 
-    // 2. 既存のコントローラーを破棄
+    // 2. URL用のGestureRecognizerを破棄
+    for (var r in _urlRecognizers) {
+      r.dispose();
+    }
+    _urlRecognizers.clear();
+
+    // 3. 既存のコントローラーを破棄
     _animationController.dispose();
 
     super.dispose();
@@ -229,67 +239,80 @@ class _DetailImageItemState extends State<DetailImageItem>
   }
 
   Widget _buildTextDetail() {
+    // 前回ビルド時のrecognizerを破棄
+    for (var r in _urlRecognizers) {
+      r.dispose();
+    }
+    _urlRecognizers.clear();
+
+    final text = widget.item['full_text'] ?? '';
+    final elements = linkify_pkg.linkify(
+      text,
+      linkifiers: [
+        const UrlLinkifier(),
+        UserTagLinkifier(),
+        HashtagLinkifier(),
+      ],
+      options: const LinkifyOptions(humanize: false),
+    );
+
+    const defaultStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 16,
+      height: 1.6,
+    );
+    const linkStyle = TextStyle(
+      color: Colors.blueAccent,
+      fontWeight: FontWeight.bold,
+      fontSize: 16,
+      height: 1.6,
+    );
+
+    final spans = <InlineSpan>[];
+    for (final element in elements) {
+      if (element is UrlElement) {
+        final isTag =
+            element.url.startsWith('@') || element.url.startsWith('#');
+        if (isTag) {
+          // ハッシュタグ・ユーザー名: タップ＝アプリ内検索、長押し＝Xで開く
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.baseline,
+              baseline: TextBaseline.alphabetic,
+              child: GestureDetector(
+                onTap: () => _onTagTap(element.url),
+                onLongPress: () => _onTagLongPress(element.url),
+                child: Text(element.text, style: linkStyle),
+              ),
+            ),
+          );
+        } else {
+          // 通常URL: タップで外部ブラウザ
+          final recognizer = TapGestureRecognizer()
+            ..onTap = () => _onUrlTap(element.url);
+          _urlRecognizers.add(recognizer);
+          spans.add(TextSpan(
+            text: element.text,
+            style: const TextStyle(
+              color: Colors.blueAccent,
+              fontWeight: FontWeight.bold,
+            ),
+            recognizer: recognizer,
+          ));
+        }
+      } else {
+        spans.add(TextSpan(text: element.text));
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 30.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Linkify(
-            onOpen: (link) async {
-              // 1. タップされたURLをログ出力
-              debugPrint("Link tapped: ${link.url}");
-
-              // --- 判定ロジック：ユーザー名(@) または ハッシュタグ(#) ---
-              if (link.url.startsWith('@') || link.url.startsWith('#')) {
-                final allItems = widget.item['all_items'] as List?;
-                if (allItems == null) return;
-
-                final filtered = allItems.where((i) {
-                  final text =
-                      (i['tweet']?['full_text'] ?? i['full_text'] ?? '')
-                          .toString();
-                  return text.toLowerCase().contains(link.url.toLowerCase());
-                }).toList();
-
-                if (filtered.isNotEmpty) {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => GalleryPage(
-                        initialItems: filtered,
-                        title: link.url,
-                      ),
-                    ),
-                  );
-                }
-              } else {
-                // --- 通常のURL（http等）タップ時の処理 ---
-                final uri = Uri.parse(link.url);
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                } else {
-                  debugPrint("Could not launch ${link.url}");
-                }
-              }
-            },
-            text: widget.item['full_text'] ?? '',
-            // ★ ここに HashtagLinkifier() を追加！
-            linkifiers: [
-              const UrlLinkifier(),
-              UserTagLinkifier(),
-              HashtagLinkifier(), // これを忘れると # がリンクになりません
-            ],
-            // ★ ここを追加：Webでの誤作動を防ぐためのオプション
-            options: const LinkifyOptions(humanize: false),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              height: 1.6,
-            ),
-            linkStyle: const TextStyle(
-              color: Colors.blueAccent,
-              fontWeight: FontWeight.bold,
-            ),
+          Text.rich(
+            TextSpan(children: spans),
+            style: defaultStyle,
           ),
           const SizedBox(height: 40),
           Text(
@@ -300,6 +323,60 @@ class _DetailImageItemState extends State<DetailImageItem>
         ],
       ),
     );
+  }
+
+  /// ハッシュタグ・ユーザー名タップ → アプリ内検索
+  void _onTagTap(String tag) async {
+    debugPrint("Tag tapped: $tag");
+    final allItems = widget.item['all_items'] as List?;
+    if (allItems == null) return;
+
+    final filtered = allItems.where((i) {
+      final text =
+          (i['tweet']?['full_text'] ?? i['full_text'] ?? '').toString();
+      return text.toLowerCase().contains(tag.toLowerCase());
+    }).toList();
+
+    if (filtered.isNotEmpty) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => GalleryPage(
+            initialItems: filtered,
+            title: tag,
+          ),
+        ),
+      );
+    }
+  }
+
+  /// ハッシュタグ・ユーザー名長押し → Xのページを外部ブラウザで開く
+  void _onTagLongPress(String tag) async {
+    HapticFeedback.mediumImpact();
+    final String url;
+    if (tag.startsWith('#')) {
+      url = 'https://x.com/hashtag/${Uri.encodeComponent(tag.substring(1))}';
+    } else if (tag.startsWith('@')) {
+      url = 'https://x.com/${tag.substring(1)}';
+    } else {
+      return;
+    }
+    debugPrint("Tag long-pressed: $tag → $url");
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  /// 通常URLタップ → 外部ブラウザで開く
+  void _onUrlTap(String url) async {
+    debugPrint("URL tapped: $url");
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint("Could not launch $url");
+    }
   }
 }
 
