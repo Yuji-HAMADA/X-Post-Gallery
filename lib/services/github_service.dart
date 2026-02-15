@@ -60,7 +60,8 @@ class GitHubService {
     if (response.statusCode == 200) {
       List gists = jsonDecode(response.body);
       for (var gist in gists) {
-        if (gist['files'].containsKey('gallary_data.json')) {
+        if (gist['files'].containsKey('data.json') ||
+            gist['files'].containsKey('gallary_data.json')) {
           return gist['id'];
         }
       }

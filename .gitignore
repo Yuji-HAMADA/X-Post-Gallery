@@ -49,7 +49,6 @@ data/auth.json
 data/debug_screen.png
 data/tweets.js
 assets/data/data.json
-assets/data/gallary_data.json
 
 # Firebase related
 .firebase/

@@ -159,13 +159,18 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> loadJson(String inputKey) async {
-    final String url =
-        'https://gist.githubusercontent.com/Yuji-HAMADA/$inputKey/raw/gallary_data.json';
-    
-    debugPrint("Fetching from: $url");
+    final String baseUrl =
+        'https://gist.githubusercontent.com/Yuji-HAMADA/$inputKey/raw/';
+
+    debugPrint("Fetching from: ${baseUrl}data.json");
 
     try {
-      final response = await http.get(Uri.parse(url));
+      var response = await http.get(Uri.parse('${baseUrl}data.json'));
+      // data.json が見つからなければ旧ファイル名にフォールバック
+      if (response.statusCode == 404) {
+        debugPrint("Falling back to gallary_data.json");
+        response = await http.get(Uri.parse('${baseUrl}gallary_data.json'));
+      }
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         

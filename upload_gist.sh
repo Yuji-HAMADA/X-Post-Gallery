@@ -33,9 +33,12 @@ python3 scripts/extract_media.py -u "$USER" --mode "$MODE" -n "$NUM"
 echo "Step 3: Updating data format..."
 python3 scripts/update_data.py
 
-# 4. ファイルのリネーム
-echo "Step 4: Renaming data file..."
-mv assets/data/data.json assets/data/gallary_data.json
+# 4. ファイルの検証
+echo "Step 4: Verifying data file..."
+if [ ! -f "assets/data/data.json" ]; then
+    echo "❌ Error: assets/data/data.json was not generated."
+    exit 1
+fi
 
 # 5. 現在時刻の取得
 current_time=$(date "+%Y/%m/%d-%H:%M:%S")
@@ -43,7 +46,7 @@ description="Gallery Data ($NUM items) for @$USER ($MODE) on ${current_time}-JST
 
 # 6. Gist作成とIDの表示
 echo "Step 5 & 6: Creating Secret Gist..."
-gist_url=$(gh gist create assets/data/gallary_data.json -p -d "$description")
+gist_url=$(gh gist create assets/data/data.json -p -d "$description")
 
 if [ $? -eq 0 ]; then
     gist_id=$(basename "$gist_url")
