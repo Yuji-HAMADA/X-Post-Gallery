@@ -60,12 +60,24 @@ def merge_data(gist_id, local_file):
             found_filename = filename
             break
 
-        except (subprocess.CalledProcessError, json.JSONDecodeError):
+        except subprocess.CalledProcessError as e:
+            print(f"  ⚠️ '{filename}': gh error: {e.stderr.strip()}")
+            continue
+        except json.JSONDecodeError as e:
+            print(f"  ⚠️ '{filename}': JSON parse error: {e}")
             continue
     
     if found_filename is None:
-        print(f"❌ Error: Failed to fetch Gist data. Checked: {candidate_files}")
-        sys.exit(1)
+        print(f"⚠️ No existing data found in Gist. Checked: {candidate_files}")
+        print(f"ℹ️ Treating as first run — using local data only.")
+        final_output = {
+            "user_screen_name": user_screen_name,
+            "tweets": local_tweets
+        }
+        with open(local_file, 'w', encoding='utf-8') as f:
+            json.dump(final_output, f, ensure_ascii=False, indent=2)
+        print(f"✨ Saved: {len(local_tweets)} items.")
+        return
 
     # 3. マージ処理 (New + Old)
     # 重複排除用セット
