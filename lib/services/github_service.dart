@@ -69,6 +69,41 @@ class GitHubService {
     return null;
   }
 
+  /// update_mygist.yml をトリガーする
+  Future<bool> triggerUpdateMygistWorkflow({
+    required String gistId,
+    required int count,
+  }) async {
+    if (token.isEmpty) {
+      print("🚨 GitHub Token is empty!");
+    }
+
+    final url = Uri.parse(
+      'https://api.github.com/repos/$owner/$repo/actions/workflows/update_mygist.yml/dispatches',
+    );
+
+    final response = await http.post(
+      url,
+      headers: _headers,
+      body: jsonEncode({
+        'ref': 'main',
+        'inputs': {
+          'gist_id': gistId,
+          'num_posts': count.toString(),
+        },
+      }),
+    );
+
+    return response.statusCode == 204;
+  }
+
+  /// Gist IDが実際に存在するか検証する
+  Future<bool> validateGistExists(String gistId) async {
+    final url = Uri.parse('https://api.github.com/gists/$gistId');
+    final response = await http.get(url, headers: _headers);
+    return response.statusCode == 200;
+  }
+
   Future<String> getWorkflowStatus() async {
     final url = Uri.parse(
       'https://api.github.com/repos/$owner/$repo/actions/runs?per_page=1',

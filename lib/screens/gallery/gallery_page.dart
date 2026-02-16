@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../detail/detail_page.dart';
 import '../../services/github_service.dart';
-import 'components/update_dialogs.dart';
 
 class GalleryPage extends StatefulWidget {
   final List? initialItems;
@@ -86,55 +86,215 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   // --- ロジック：データ更新処理 ---
-  Future<void> _handleUpdateData() async {
-    final config = await UpdateDialogs.showUpdateConfigDialog(context);
-    if (config == null) return;
+  static const int _defaultRefreshCount = 18;
 
-    final String targetUser = config['user'];
-    final int count = config['count'];
-    final String selectedMode = config['mode'];
+  Future<bool> _isRefreshAuthenticated() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('refresh_authenticated') ?? false;
+  }
 
-    bool triggered = await _githubService.triggerWorkflow(
-      count: count,
-      user: targetUser,
-      mode: selectedMode,
+  /// ショートタップ：初回→認証ダイアログ、2回目以降→デフォルト値でrefresh実行
+  Future<void> _handleRefreshTap() async {
+    if (await _isRefreshAuthenticated()) {
+      await _executeRefresh(_defaultRefreshCount);
+    } else {
+      await _showRefreshAuthDialog();
+    }
+  }
+
+  /// ロングプレス：初回→認証ダイアログ、2回目以降→画像数指定ダイアログ→refresh実行
+  Future<void> _handleRefreshLongPress() async {
+    if (await _isRefreshAuthenticated()) {
+      final count = await _showCountDialog();
+      if (count != null) {
+        await _executeRefresh(count);
+      }
+    } else {
+      await _showRefreshAuthDialog();
+    }
+  }
+
+  /// 初回認証ダイアログ：パスワードとGist IDを入力
+  Future<void> _showRefreshAuthDialog() async {
+    final pwController = TextEditingController();
+    final gistIdController = TextEditingController();
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('認証'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pwController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'パスワード',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: gistIdController,
+              decoration: const InputDecoration(
+                labelText: 'Gist ID',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, {
+              'password': pwController.text,
+              'gistId': gistIdController.text.trim(),
+            }),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
 
-    if (!triggered) {
-      _showErrorSnackBar("Failed to trigger update.");
+    if (result == null) return;
+
+    final password = result['password']!;
+    final gistId = result['gistId']!;
+
+    // パスワード検証
+    final correctPw = dotenv.env['PW_REFRESH'] ?? '';
+    if (password != correctPw) {
+      _showErrorSnackBar('パスワードが正しくありません');
       return;
     }
 
-    UpdateDialogs.showProcessingDialog(
-      context, 
-      count: count, 
-      user: targetUser, 
-      mode: selectedMode
+    // Gist ID存在確認
+    final gistExists = await _githubService.validateGistExists(gistId);
+    if (!gistExists) {
+      _showErrorSnackBar('指定されたGist IDが見つかりません');
+      return;
+    }
+
+    // SharedPreferencesに認証済みとGist IDを記録
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('refresh_authenticated', true);
+    await prefs.setString('last_gist_id', gistId);
+
+    // ギャラリーデータをロード
+    await loadJson(gistId);
+
+    // 画像数指定ダイアログ → refresh実行
+    final count = await _showCountDialog();
+    if (count != null) {
+      await _executeRefresh(count);
+    }
+  }
+
+  /// 画像数入力ダイアログ
+  Future<int?> _showCountDialog() async {
+    final countController = TextEditingController(text: '$_defaultRefreshCount');
+
+    return showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('更新設定'),
+        content: TextField(
+          controller: countController,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            labelText: '取得画像数',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(
+              context,
+              int.tryParse(countController.text) ?? _defaultRefreshCount,
+            ),
+            child: const Text('実行'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// update_mygist.yml をトリガーし、完了までポーリング
+  Future<void> _executeRefresh(int count) async {
+    final prefs = await SharedPreferences.getInstance();
+    final gistId = prefs.getString('last_gist_id') ?? '';
+
+    if (gistId.isEmpty) {
+      _showErrorSnackBar('Gist IDが設定されていません');
+      return;
+    }
+
+    final triggered = await _githubService.triggerUpdateMygistWorkflow(
+      gistId: gistId,
+      count: count,
     );
 
-    String status = "";
+    if (!triggered) {
+      _showErrorSnackBar('ワークフローの起動に失敗しました');
+      return;
+    }
+
+    // 処理中ダイアログ
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 20),
+              const Text('ギャラリーを更新中...', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text('$count 件取得中', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text('数分かかる場合があります', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ポーリング
+    String status = '';
     int retryCount = 0;
-    while (status != "completed" && retryCount < 120) {
+    while (status != 'completed' && retryCount < 120) {
       try {
         await Future.delayed(const Duration(seconds: 10));
         status = await _githubService.getWorkflowStatus();
-        print("Polling... Status: $status (Try $retryCount)");
+        debugPrint('Polling... Status: $status (Try $retryCount)');
       } catch (e) {
-        status = "error"; 
+        status = 'error';
       }
       retryCount++;
     }
 
     if (mounted) Navigator.pop(context);
 
-    if (status == "completed") {
-      String? newId = await _githubService.fetchLatestGistId();
-      if (newId != null) {
-        UpdateDialogs.showSuccessDialog(context, newId);
-        loadJson(newId);
+    if (status == 'completed') {
+      await loadJson(gistId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('更新完了'), backgroundColor: Colors.green),
+        );
       }
     } else {
-      _showErrorSnackBar("Update timed out or failed.");
+      _showErrorSnackBar('更新がタイムアウトまたは失敗しました');
     }
   }
 
@@ -162,14 +322,15 @@ class _GalleryPageState extends State<GalleryPage> {
     final String baseUrl =
         'https://gist.githubusercontent.com/Yuji-HAMADA/$inputKey/raw/';
 
-    debugPrint("Fetching from: ${baseUrl}data.json");
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+    debugPrint("Fetching from: ${baseUrl}data.json?t=$cacheBuster");
 
     try {
-      var response = await http.get(Uri.parse('${baseUrl}data.json'));
+      var response = await http.get(Uri.parse('${baseUrl}data.json?t=$cacheBuster'));
       // data.json が見つからなければ旧ファイル名にフォールバック
       if (response.statusCode == 404) {
         debugPrint("Falling back to gallary_data.json");
-        response = await http.get(Uri.parse('${baseUrl}gallary_data.json'));
+        response = await http.get(Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'));
       }
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
@@ -285,9 +446,13 @@ class _GalleryPageState extends State<GalleryPage> {
             onPressed: () => _showPasswordDialog(canCancel: true),
           ),
           
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _handleUpdateData,
+          GestureDetector(
+            onTap: _handleRefreshTap,
+            onLongPress: _handleRefreshLongPress,
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.refresh),
+            ),
           ),
         ],
       ),
