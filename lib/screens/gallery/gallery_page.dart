@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../detail/detail_page.dart';
 import '../../services/github_service.dart';
 
+const String _externalPwRefresh = String.fromEnvironment('PW_REFRESH');
+
 class GalleryPage extends StatefulWidget {
   final List? initialItems;
   final String? title;
@@ -167,7 +169,9 @@ class _GalleryPageState extends State<GalleryPage> {
     final gistId = result['gistId']!;
 
     // パスワード検証
-    final correctPw = dotenv.env['PW_REFRESH'] ?? '';
+    final correctPw = _externalPwRefresh.isNotEmpty
+        ? _externalPwRefresh
+        : (dotenv.env['PW_REFRESH'] ?? '');
     if (password != correctPw) {
       _showErrorSnackBar('パスワードが正しくありません');
       return;
