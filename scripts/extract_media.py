@@ -16,6 +16,7 @@ def parse_args():
     parser.add_argument("-n", "--num", type=int, default=100)
     parser.add_argument("-u", "--user", type=str, required=True, help="Target user ID")
     parser.add_argument("--mode", type=str, default="post_only", choices=["all", "post_only"])
+    parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
     parser.add_argument("target_id", nargs="?", default=None)
     return parser.parse_args()
 
@@ -105,28 +106,56 @@ async def run():
         await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(10000)
 
+        # 既知IDの読み込み（スキップ対象）
+        skip_ids = set()
+        if args.skip_ids_file and os.path.exists(args.skip_ids_file):
+            with open(args.skip_ids_file, 'r') as f:
+                skip_ids = {line.strip() for line in f if line.strip()}
+            print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
+
         new_tweets, seen_ids = [], set()
-        
+        stall_count = 0
+        MAX_STALLS = 5
+        skipped_count = 0
+
         while len(new_tweets) < args.num:
             articles = await page.query_selector_all('article')
+            prev_seen = len(seen_ids)
             for article in articles:
                 data = await extract_tweet_data(article)
                 if not data: continue
-                
+
                 tid = data["tweet"]["id_str"]
                 if tid in seen_ids: continue
-                
                 seen_ids.add(tid)
+
+                if tid in skip_ids:
+                    skipped_count += 1
+                    continue
+
                 new_tweets.append(data)
                 print(f"  [{len(new_tweets)}] Saved: @{tid}")
 
                 if args.target_id and tid == args.target_id:
                     print(f"🎯 Reached target ID: {tid}"); break
                 if len(new_tweets) >= args.num: break
-            
+
             if len(new_tweets) >= args.num: break
+
+            # スクロールしても新しいarticleが出てこなければ終端
+            if len(seen_ids) > prev_seen:
+                stall_count = 0
+            else:
+                stall_count += 1
+                if stall_count >= MAX_STALLS:
+                    print(f"\n⚠️ No more posts found after {MAX_STALLS} scrolls. Stopping.")
+                    break
+
             await page.mouse.wheel(0, 2000)
             await asyncio.sleep(4)
+
+        if skipped_count:
+            print(f"⏭️ Skipped {skipped_count} already-known posts.")
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")

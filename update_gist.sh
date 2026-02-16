@@ -26,9 +26,34 @@ fi
 # 1. 必要なディレクトリの強制作成
 mkdir -p assets/data data
 
-# 2. X（Twitter）からの抽出
-echo "Step 2: Extracting $NUM posts from @$USER..."
-python3 scripts/extract_media.py -u "$USER" --mode post_only -n "$NUM"
+# 2. Gist から既存IDを取得（重複スキップ用）
+SKIP_IDS_FILE="data/known_ids.txt"
+echo "Step 1: Fetching existing IDs from Gist ($GIST_ID)..."
+python3 -c "
+import subprocess, json, sys
+candidate_files = ['data.json', 'gallary_data.json']
+for fn in candidate_files:
+    try:
+        r = subprocess.run(['gh','gist','view','$GIST_ID','--filename',fn,'--raw'], capture_output=True, text=True, check=True)
+        data = json.loads(r.stdout)
+        tweets = data.get('tweets', data) if isinstance(data, dict) else data
+        ids = []
+        for t in tweets:
+            tid = t.get('id_str') or t.get('tweet',{}).get('id_str','')
+            if tid: ids.append(tid)
+        with open('$SKIP_IDS_FILE','w') as f:
+            f.write('\n'.join(ids))
+        print(f'✅ Found {len(ids)} existing IDs from \"{fn}\".')
+        sys.exit(0)
+    except Exception:
+        continue
+print('⚠️ No existing Gist data found. Starting fresh.')
+open('$SKIP_IDS_FILE','w').close()
+"
+
+# 3. X（Twitter）からの抽出（既知IDをスキップ）
+echo "Step 2: Extracting $NUM new posts from @$USER..."
+python3 scripts/extract_media.py -u "$USER" --mode post_only -n "$NUM" --skip-ids-file "$SKIP_IDS_FILE"
 if [ $? -ne 0 ]; then
     echo "❌ Error: Extraction failed."
     exit 1
