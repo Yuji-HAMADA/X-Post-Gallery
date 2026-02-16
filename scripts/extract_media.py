@@ -14,7 +14,7 @@ AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=100)
-    parser.add_argument("-u", "--user", type=str, default="travelbeauty8")
+    parser.add_argument("-u", "--user", type=str, required=True, help="Target user ID")
     parser.add_argument("--mode", type=str, default="all", choices=["all", "post_only"])
     parser.add_argument("target_id", nargs="?", default=None)
     return parser.parse_args()

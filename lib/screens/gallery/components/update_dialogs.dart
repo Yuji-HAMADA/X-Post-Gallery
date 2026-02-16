@@ -21,7 +21,7 @@ class UpdateDialogs {
                   controller: userController,
                   decoration: const InputDecoration(
                     labelText: "Target X User ID",
-                    hintText: "e.g. senbee888",
+                    hintText: "e.g. username without @",
                     prefixText: "@",
                   ),
                 ),

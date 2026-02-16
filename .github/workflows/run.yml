@@ -7,7 +7,7 @@ on:
       target_user:
         description: '対象ユーザーID (例: travelbeauty8)'
         required: true
-        default: 'travelbeauty8'
+        default: ''
       mode:
         description: '取得モード'
         required: true
