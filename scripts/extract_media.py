@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=100)
     parser.add_argument("-u", "--user", type=str, required=True, help="Target user ID")
-    parser.add_argument("--mode", type=str, default="all", choices=["all", "post_only"])
+    parser.add_argument("--mode", type=str, default="post_only", choices=["all", "post_only"])
     parser.add_argument("target_id", nargs="?", default=None)
     return parser.parse_args()
 
