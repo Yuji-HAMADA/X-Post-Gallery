@@ -118,7 +118,13 @@ class _DetailImageItemState extends State<DetailImageItem>
         children: [
           _buildImageSlider(imageUrls),
           // ズーム中だけテキストを非表示にする
-          if (!_isZoomed) _buildTextDetail(),
+          Visibility(
+            visible: !_isZoomed,
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            child: _buildTextDetail(),
+          ),
         ],
       ),
     );
@@ -148,7 +154,6 @@ class _DetailImageItemState extends State<DetailImageItem>
             width: screenWidth,
             constraints: BoxConstraints(
               minHeight: 0, // ここは0にして、画像の高さに完全に任せる
-              // minHeight: 100,
               maxHeight: _isZoomed
                   ? math.max(MediaQuery.of(context).size.height, screenWidth / ratio)
                   : screenWidth / ratio,
@@ -185,6 +190,9 @@ class _DetailImageItemState extends State<DetailImageItem>
             _runAnimationForIndex(index, Matrix4.identity()); // 個別の関数を呼ぶ
             _updateZoomState(false);
           } else {
+            // 他の画像のズームをリセット
+            _resetOtherZooms(index);
+
             // タップした「画像内の相対座標」を取得
             final position = _doubleTapDetails!.localPosition;
             const double scale = 2.0;
@@ -239,6 +247,15 @@ class _DetailImageItemState extends State<DetailImageItem>
 
     // アニメーション開始
     _animationController.forward(from: 0);
+  }
+
+  // 指定したインデックス以外の画像のズームをリセットする
+  void _resetOtherZooms(int activeIndex) {
+    for (var entry in _controllers.entries) {
+      if (entry.key != activeIndex) {
+        entry.value.value = Matrix4.identity();
+      }
+    }
   }
 
   Widget _buildTextDetail() {

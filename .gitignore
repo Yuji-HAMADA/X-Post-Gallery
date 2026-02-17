@@ -47,6 +47,7 @@ app.*.map.json
 venv/
 data/auth.json
 data/debug_screen.png
+data/known_ids.txt
 data/tweets.js
 assets/data/data.json
 
