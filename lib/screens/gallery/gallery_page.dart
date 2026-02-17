@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_page.dart';
+import '../stats/stats_page.dart';
 
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
@@ -436,7 +437,19 @@ class _GalleryPageState extends State<GalleryPage> {
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
             )
-          else
+          else ...[
+            if (items.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.format_list_numbered),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => StatsPage(items: items),
+                    ),
+                  );
+                },
+              ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
               onSelected: (value) {
@@ -466,6 +479,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 ),
               ],
             ),
+          ],
         ],
       ),
       body: !isAuthenticated
