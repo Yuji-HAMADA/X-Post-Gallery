@@ -39,12 +39,23 @@ def convert():
         if media_list:
             media_urls = [m.get('media_url_https', '') for m in media_list if m.get('media_url_https')]
             if media_urls:
-                new_tweets.append({
+                # expanded_url からポストURLを構築 (例: https://x.com/user/status/123/photo/1 → https://x.com/user/status/123)
+                post_url = ''
+                for m in media_list:
+                    eu = m.get('expanded_url', '')
+                    if '/status/' in eu:
+                        post_url = re.sub(r'/photo/\d+$', '', eu)
+                        break
+
+                entry = {
                     'full_text': full_text,
                     'created_at': tweet.get('created_at', ''),
-                    'media_urls': media_urls, 
+                    'media_urls': media_urls,
                     'id_str': tweet.get('id_str', '')
-                })
+                }
+                if post_url:
+                    entry['post_url'] = post_url
+                new_tweets.append(entry)
 
     # メタデータ付きの構造で保存
     final_output = {

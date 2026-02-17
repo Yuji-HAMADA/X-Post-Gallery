@@ -69,6 +69,23 @@ class _DetailImageItemState extends State<DetailImageItem>
     super.dispose();
   }
 
+  String? _getPostUrl() {
+    // update_data.py が付与する post_url を優先
+    final postUrl = widget.item['post_url'] as String?;
+    if (postUrl != null && postUrl.isNotEmpty) return postUrl;
+
+    // expanded_url から構築 (tweet構造が直接ある場合)
+    final media = widget.item['tweet']?['extended_entities']?['media'] as List?;
+    if (media != null && media.isNotEmpty) {
+      final expandedUrl = media[0]['expanded_url']?.toString() ?? '';
+      if (expandedUrl.contains('/status/')) {
+        return expandedUrl.replaceAll(RegExp(r'/photo/\d+$'), '');
+      }
+    }
+
+    return null;
+  }
+
   List<String> _getImageUrls() {
     return widget.item['tweet']?['extended_entities']?['media'] != null
         ? (widget.item['tweet']['extended_entities']['media'] as List)
@@ -339,6 +356,20 @@ class _DetailImageItemState extends State<DetailImageItem>
             "Posted: ${widget.item['tweet']?['created_at'] ?? widget.item['created_at'] ?? 'Unknown'}",
             style: const TextStyle(color: Colors.grey, fontSize: 13),
           ),
+          if (_getPostUrl() != null) ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () => _onUrlTap(_getPostUrl()!),
+              child: const Text(
+                "View on X",
+                style: TextStyle(
+                  color: Colors.blueAccent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 100),
         ],
       ),
