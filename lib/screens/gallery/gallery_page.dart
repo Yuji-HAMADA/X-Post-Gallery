@@ -65,23 +65,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  // 1. 保存されたIDを確認するメソッド
-  Future<void> _checkSavedGistId() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? savedId = prefs.getString('last_gist_id');
-
-    if (savedId != null && savedId.isNotEmpty) {
-      // 保存されたIDがあれば自動でロード
-      loadJson(savedId);
-    } else {
-      // なければダイアログを表示
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _showPasswordDialog(),
-      );
-    }
-  }
-
-  // 2. IDをSharedPreferencesに保存するメソッド
+  // IDをSharedPreferencesに保存するメソッド
   Future<void> _saveGistId(String gistId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('last_gist_id', gistId);

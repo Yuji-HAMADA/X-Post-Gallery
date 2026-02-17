@@ -37,7 +37,7 @@ class UpdateDialogs {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: selectedMode,
+                  initialValue: selectedMode,
                   decoration: const InputDecoration(labelText: "Extraction Mode"),
                   items: const [
                     DropdownMenuItem(value: 'all', child: Text("All (Post & RT)")),
@@ -84,7 +84,7 @@ class UpdateDialogs {
             const SizedBox(height: 8),
             Text("@$user ($mode)", style: const TextStyle(fontSize: 13)),
             Text("Extracting $count items.", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text("This may take a few minutes.", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text("This may take a few minutes.", style: TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
       ),

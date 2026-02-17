@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -26,11 +27,10 @@ class GitHubService {
     required String user,
     required String mode,
   }) async {
-    // デバッグ用にトークンの状態をログに出力
     if (token.isEmpty) {
-      print("🚨 GitHub Token is empty!");
+      debugPrint("GitHub Token is empty!");
     } else {
-      print("🚀 Triggering workflow with token starting with: ${token.substring(0, 1)}...");
+      debugPrint("Triggering workflow with token starting with: ${token.substring(0, 1)}...");
     }
 
     final url = Uri.parse(
@@ -75,7 +75,7 @@ class GitHubService {
     required int count,
   }) async {
     if (token.isEmpty) {
-      print("🚨 GitHub Token is empty!");
+      debugPrint("GitHub Token is empty!");
     }
 
     final url = Uri.parse(

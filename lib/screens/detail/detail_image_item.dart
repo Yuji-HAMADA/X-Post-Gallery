@@ -26,6 +26,7 @@ class _DetailImageItemState extends State<DetailImageItem>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   Animation<Matrix4>? _animation;
+  VoidCallback? _activeAnimationListener;
   TapDownDetails? _doubleTapDetails;
   bool _isZoomed = false;
 
@@ -216,9 +217,9 @@ class _DetailImageItemState extends State<DetailImageItem>
 
             // タップ位置を支点にして拡大する正しい行列
             final Matrix4 result = Matrix4.identity()
-              ..translate(position.dx, position.dy)
-              ..scale(scale)
-              ..translate(-position.dx, -position.dy);
+              ..translateByDouble(position.dx, position.dy, 0.0, 1.0)
+              ..scaleByDouble(scale, scale, 1.0, 1.0)
+              ..translateByDouble(-position.dx, -position.dy, 0.0, 1.0);
             _runAnimationForIndex(index, result); // 個別にアニメーション
             _updateZoomState(true);
           }
@@ -246,8 +247,9 @@ class _DetailImageItemState extends State<DetailImageItem>
 
     // 以前の動きを止め、登録されているリスナーを一旦すべて解除する
     _animationController.stop();
-    // ここで古いリスナー（initStateのもの含む）をすべてクリアします
-    _animationController.clearListeners();
+    if (_activeAnimationListener != null) {
+      _animationController.removeListener(_activeAnimationListener!);
+    }
 
     // 現在のアニメーションを定義
     _animation = Matrix4Tween(begin: controller.value, end: targetMatrix)
@@ -256,11 +258,12 @@ class _DetailImageItemState extends State<DetailImageItem>
         );
 
     // 今回の画像専用のリスナーを新しく登録
-    _animationController.addListener(() {
+    _activeAnimationListener = () {
       if (mounted && _animation != null) {
         controller.value = _animation!.value;
       }
-    });
+    };
+    _animationController.addListener(_activeAnimationListener!);
 
     // アニメーション開始
     _animationController.forward(from: 0);
