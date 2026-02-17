@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument("-u", "--user", required=True, help="Target user ID")
     parser.add_argument("-m", "--mode", default="post_only", choices=["all", "post_only"])
     parser.add_argument("-n", "--num", type=int, default=100, help="最大取得件数")
+    parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止（ストップオンモード）")
     return parser.parse_args()
 
 def fetch_gist_data(gist_id):
@@ -79,7 +80,7 @@ def write_skip_ids_file(ordered_ids):
             f.write(tid + "\n")
     return path
 
-def run_extraction(user, mode, num, skip_ids_file):
+def run_extraction(user, mode, num, skip_ids_file, stop_on_existing=True):
     """extract_media.py を呼び出してポストを取得"""
     cmd = [
         sys.executable, "scripts/extract_media.py",
@@ -87,8 +88,9 @@ def run_extraction(user, mode, num, skip_ids_file):
         "--mode", mode,
         "-n", str(num),
         "--skip-ids-file", skip_ids_file,
-        "--stop-on-existing",
     ]
+    if stop_on_existing:
+        cmd.append("--stop-on-existing")
     print(f"🚀 Running: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     if result.returncode != 0:
@@ -173,7 +175,7 @@ def main():
 
     try:
         # 3. 新規ポスト取得
-        run_extraction(args.user, args.mode, args.num, skip_ids_file)
+        run_extraction(args.user, args.mode, args.num, skip_ids_file, args.stop_on_existing)
     finally:
         os.unlink(skip_ids_file)
 

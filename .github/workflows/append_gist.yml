@@ -21,6 +21,14 @@ on:
         description: '最大取得件数'
         required: true
         default: '100'
+      stop_on_existing:
+        description: '既存IDに当たったら停止（ストップオンモード）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   append-gist:
@@ -80,8 +88,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: |
           chmod +x append_gist.sh
+          STOP_FLAG=""
+          if [ "${{ github.event.inputs.stop_on_existing }}" = "true" ]; then
+            STOP_FLAG="-s"
+          fi
           ./append_gist.sh \
             -g "${{ github.event.inputs.gist_id }}" \
             -u "${{ github.event.inputs.user }}" \
             -m "${{ github.event.inputs.mode }}" \
-            -n "${{ github.event.inputs.num_posts }}"
+            -n "${{ github.event.inputs.num_posts }}" \
+            $STOP_FLAG
