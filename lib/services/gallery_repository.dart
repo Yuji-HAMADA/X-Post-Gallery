@@ -16,6 +16,9 @@ class GalleryRepository {
   static const String _keyRefreshAuth = 'refresh_authenticated';
   static const String _keyScrollIndex = 'grid_last_index';
 
+  /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
+  String? lastGistFilename;
+
   /// Gist からギャラリーデータを取得
   Future<GalleryData> fetchGalleryData(String gistId) async {
     final String baseUrl =
@@ -26,13 +29,16 @@ class GalleryRepository {
 
     var response =
         await http.get(Uri.parse('${baseUrl}data.json?t=$cacheBuster'));
+    String filename = 'data.json';
     if (response.statusCode == 404) {
       debugPrint("Falling back to gallary_data.json");
       response =
           await http.get(Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'));
+      filename = 'gallary_data.json';
     }
 
     if (response.statusCode == 200) {
+      lastGistFilename = filename;
       final data = json.decode(utf8.decode(response.bodyBytes));
       final tweets = (data['tweets'] as List? ?? [])
           .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
@@ -44,6 +50,22 @@ class GalleryRepository {
     } else {
       throw Exception('Invalid Password (ID)');
     }
+  }
+
+  /// 更新用の JSON 文字列を構築
+  String buildGistJson(String userName, List<TweetItem> items) {
+    final tweets = items.map((item) => {
+      'full_text': item.fullText,
+      'created_at': item.createdAt,
+      'media_urls': item.mediaUrls,
+      'id_str': item.id,
+      if (item.postUrl != null) 'post_url': item.postUrl,
+    }).toList();
+
+    return json.encode({
+      'user_screen_name': userName,
+      'tweets': tweets,
+    });
   }
 
   // --- SharedPreferences ヘルパー ---

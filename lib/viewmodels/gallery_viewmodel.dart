@@ -35,6 +35,12 @@ class GalleryViewModel extends ChangeNotifier {
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
+  // --- 選択状態 ---
+  final Set<String> _selectedIds = {};
+  Set<String> get selectedIds => _selectedIds;
+  bool get isSelectionMode => _selectedIds.isNotEmpty;
+  int get selectedCount => _selectedIds.length;
+
   static const int defaultRefreshCount = 18;
 
   // --- アクション ---
@@ -168,6 +174,60 @@ class GalleryViewModel extends ChangeNotifier {
   void clearRefreshStatus() {
     _refreshStatus = RefreshStatus.idle;
     _errorMessage = '';
+  }
+
+  // --- 選択・削除アクション ---
+
+  void toggleSelection(String id) {
+    if (_selectedIds.contains(id)) {
+      _selectedIds.remove(id);
+    } else {
+      _selectedIds.add(id);
+    }
+    notifyListeners();
+  }
+
+  void clearSelection() {
+    _selectedIds.clear();
+    notifyListeners();
+  }
+
+  /// 選択中のアイテムを削除し、Gist を更新
+  Future<bool> deleteSelected() async {
+    final gistId = await _repository.getSavedGistId();
+    final filename = _repository.lastGistFilename;
+
+    if (gistId == null || gistId.isEmpty || filename == null) {
+      _errorMessage = 'Gist ID またはファイル名が不明です';
+      notifyListeners();
+      return false;
+    }
+
+    // 復元用バックアップ
+    final backup = List<TweetItem>.from(_items);
+
+    // ローカル状態を先に更新
+    _items.removeWhere((item) => _selectedIds.contains(item.id));
+
+    // Gist を更新
+    final jsonStr = _repository.buildGistJson(_userName, _items);
+    final success = await _githubService.updateGistFile(
+      gistId: gistId,
+      filename: filename,
+      content: jsonStr,
+    );
+
+    if (success) {
+      _selectedIds.clear();
+      notifyListeners();
+      return true;
+    } else {
+      // 失敗時は復元
+      _items = backup;
+      _errorMessage = 'Gist の更新に失敗しました';
+      notifyListeners();
+      return false;
+    }
   }
 
   /// スクロール位置の保存・復元

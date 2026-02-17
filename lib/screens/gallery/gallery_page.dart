@@ -273,6 +273,67 @@ class _GalleryPageState extends State<GalleryPage> {
     vm.clearRefreshStatus();
   }
 
+  Future<void> _showDeleteConfirmDialog() async {
+    final vm = context.read<GalleryViewModel>();
+    final count = vm.selectedCount;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('削除確認'),
+        content: Text('$count 件の画像を削除しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('削除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // 処理中インジケータ
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('削除中...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final success = await vm.deleteSelected();
+
+    if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
+
+    if (success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$count 件を削除しました'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      _showErrorSnackBar(vm.errorMessage);
+    }
+  }
+
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
@@ -302,6 +363,8 @@ class _GalleryPageState extends State<GalleryPage> {
         items: widget.initialItems!,
         userName: '',
         isAuthenticated: true,
+        isSelectionMode: false,
+        selectedIds: const {},
       );
     }
 
@@ -310,6 +373,8 @@ class _GalleryPageState extends State<GalleryPage> {
       items: vm.items,
       userName: vm.userName,
       isAuthenticated: vm.status == GalleryStatus.authenticated,
+      isSelectionMode: vm.isSelectionMode,
+      selectedIds: vm.selectedIds,
     );
   }
 
@@ -317,6 +382,8 @@ class _GalleryPageState extends State<GalleryPage> {
     required List<TweetItem> items,
     required String userName,
     required bool isAuthenticated,
+    required bool isSelectionMode,
+    required Set<String> selectedIds,
   }) {
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
@@ -346,48 +413,63 @@ class _GalleryPageState extends State<GalleryPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: showLinkButton
-            ? GestureDetector(
-                onTap: () => isHashtagFilter
-                    ? _launchXHashtag(hashtagKeyword)
-                    : _launchX(twitterId),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                        child: Text(displayTitle,
-                            overflow: TextOverflow.ellipsis)),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.open_in_new,
-                        size: 14, color: Colors.grey),
-                  ],
-                ),
+        leading: isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => context.read<GalleryViewModel>().clearSelection(),
               )
-            : Text(displayTitle),
+            : null,
+        title: isSelectionMode
+            ? Text('${selectedIds.length}件選択中')
+            : (showLinkButton
+                ? GestureDetector(
+                    onTap: () => isHashtagFilter
+                        ? _launchXHashtag(hashtagKeyword)
+                        : _launchX(twitterId),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                            child: Text(displayTitle,
+                                overflow: TextOverflow.ellipsis)),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.open_in_new,
+                            size: 14, color: Colors.grey),
+                      ],
+                    ),
+                  )
+                : Text(displayTitle)),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.vpn_key_outlined),
-            onPressed: () => _showPasswordDialog(canCancel: true),
-          ),
-          GestureDetector(
-            onTap: _handleRefreshTap,
-            onLongPress: _handleRefreshLongPress,
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: Icon(Icons.refresh),
+          if (isSelectionMode)
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.redAccent),
+              onPressed: _showDeleteConfirmDialog,
+            )
+          else ...[
+            IconButton(
+              icon: const Icon(Icons.vpn_key_outlined),
+              onPressed: () => _showPasswordDialog(canCancel: true),
             ),
-          ),
+            GestureDetector(
+              onTap: _handleRefreshTap,
+              onLongPress: _handleRefreshLongPress,
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.refresh),
+              ),
+            ),
+          ],
         ],
       ),
       body: !isAuthenticated
           ? const Center(child: Text("Waiting for authentication..."))
           : (items.isEmpty
               ? const Center(child: CircularProgressIndicator())
-              : _buildGridView(items)),
+              : _buildGridView(items, selectedIds)),
     );
   }
 
-  Widget _buildGridView(List<TweetItem> items) {
+  Widget _buildGridView(List<TweetItem> items, Set<String> selectedIds) {
     return GridView.builder(
       controller: _gridController,
       padding: const EdgeInsets.all(4),
@@ -397,31 +479,62 @@ class _GalleryPageState extends State<GalleryPage> {
         mainAxisSpacing: 4,
       ),
       itemCount: items.length,
-      itemBuilder: (context, index) => _buildGridItem(items, index),
+      itemBuilder: (context, index) =>
+          _buildGridItem(items, index, selectedIds),
     );
   }
 
-  Widget _buildGridItem(List<TweetItem> items, int index) {
+  Widget _buildGridItem(
+      List<TweetItem> items, int index, Set<String> selectedIds) {
     final item = items[index];
     final String imageUrl = item.thumbnailUrl;
+    final bool isSelected = selectedIds.contains(item.id);
+    final bool isSelectionMode = selectedIds.isNotEmpty;
 
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DetailPage(
-            items: items,
-            initialIndex: index,
+      onTap: () {
+        if (isSelectionMode) {
+          context.read<GalleryViewModel>().toggleSelection(item.id);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DetailPage(
+                items: items,
+                initialIndex: index,
+              ),
+            ),
+          );
+        }
+      },
+      onLongPress: () {
+        // サブギャラリーでは選択不可
+        if (widget.initialItems != null) return;
+        context.read<GalleryViewModel>().toggleSelection(item.id);
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            decoration: BoxDecoration(color: Colors.grey[900]),
+            child: imageUrl.isNotEmpty
+                ? Image.network(imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (c, e, s) => _buildErrorWidget())
+                : _buildErrorWidget(),
           ),
-        ),
-      ),
-      child: Container(
-        decoration: BoxDecoration(color: Colors.grey[900]),
-        child: imageUrl.isNotEmpty
-            ? Image.network(imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => _buildErrorWidget())
-            : _buildErrorWidget(),
+          if (isSelected)
+            Container(
+              color: Colors.blue.withValues(alpha: 0.4),
+              child: const Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.check_circle, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

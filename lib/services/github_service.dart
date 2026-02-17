@@ -104,6 +104,25 @@ class GitHubService {
     return response.statusCode == 200;
   }
 
+  /// Gist ファイルの内容を更新する
+  Future<bool> updateGistFile({
+    required String gistId,
+    required String filename,
+    required String content,
+  }) async {
+    final url = Uri.parse('https://api.github.com/gists/$gistId');
+    final response = await http.patch(
+      url,
+      headers: _headers,
+      body: jsonEncode({
+        'files': {
+          filename: {'content': content},
+        },
+      }),
+    );
+    return response.statusCode == 200;
+  }
+
   Future<String> getWorkflowStatus() async {
     final url = Uri.parse(
       'https://api.github.com/repos/$owner/$repo/actions/runs?per_page=1',
