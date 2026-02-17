@@ -381,11 +381,9 @@ class _GalleryPageState extends State<GalleryPage> {
     final bool isUserFilter = currentTitle.contains('@');
     final bool isHashtagFilter = currentTitle.startsWith('#');
 
-    String displayTitle = 'X-Post-Gallery';
+    String displayTitle = 'PostGallery';
     if (isHashtagFilter) {
       displayTitle = currentTitle;
-    } else if (userName.isNotEmpty) {
-      displayTitle = '@$userName';
     } else if (widget.title != null) {
       displayTitle = widget.title!;
     }
