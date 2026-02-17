@@ -110,16 +110,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  Future<void> _handleRefreshTap() async {
-    final vm = context.read<GalleryViewModel>();
-    if (await vm.isRefreshAuthenticated()) {
-      await _executeRefreshWithDialog(GalleryViewModel.defaultRefreshCount);
-    } else {
-      await _showRefreshAuthDialog();
-    }
-  }
-
-  Future<void> _handleRefreshLongPress() async {
+  Future<void> _handleRefresh() async {
     final vm = context.read<GalleryViewModel>();
     if (await vm.isRefreshAuthenticated()) {
       final count = await _showCountDialog();
@@ -445,20 +436,36 @@ class _GalleryPageState extends State<GalleryPage> {
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
             )
-          else ...[
-            IconButton(
-              icon: const Icon(Icons.vpn_key_outlined),
-              onPressed: () => _showPasswordDialog(canCancel: true),
+          else
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.menu),
+              onSelected: (value) {
+                switch (value) {
+                  case 'key':
+                    _showPasswordDialog(canCancel: true);
+                  case 'refresh':
+                    _handleRefresh();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'key',
+                  child: ListTile(
+                    leading: Icon(Icons.vpn_key_outlined),
+                    title: Text('Gist ID'),
+                    dense: true,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'refresh',
+                  child: ListTile(
+                    leading: Icon(Icons.refresh),
+                    title: Text('更新'),
+                    dense: true,
+                  ),
+                ),
+              ],
             ),
-            GestureDetector(
-              onTap: _handleRefreshTap,
-              onLongPress: _handleRefreshLongPress,
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child: Icon(Icons.refresh),
-              ),
-            ),
-          ],
         ],
       ),
       body: !isAuthenticated
