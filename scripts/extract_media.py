@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument("-u", "--user", type=str, required=True, help="Target user ID")
     parser.add_argument("--mode", type=str, default="post_only", choices=["all", "post_only"])
     parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
+    parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
     parser.add_argument("target_id", nargs="?", default=None)
     return parser.parse_args()
 
@@ -108,17 +109,25 @@ async def run():
 
         # 既知IDの読み込み（スキップ対象）
         skip_ids = set()
+        # 順序付きID→インデックスマップ（連続一致判定用）
+        gist_id_index = {}
         if args.skip_ids_file and os.path.exists(args.skip_ids_file):
             with open(args.skip_ids_file, 'r') as f:
-                skip_ids = {line.strip() for line in f if line.strip()}
+                ordered_ids = [line.strip() for line in f if line.strip()]
+            skip_ids = set(ordered_ids)
+            gist_id_index = {tid: i for i, tid in enumerate(ordered_ids)}
             print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
 
+        CONSECUTIVE_STOP = 5  # 連続一致でストップする閾値
         new_tweets, seen_ids = [], set()
         stall_count = 0
         MAX_STALLS = 5
         skipped_count = 0
+        hit_existing = False
+        consecutive_count = 0
+        last_gist_index = -1
 
-        while len(new_tweets) < args.num:
+        while len(new_tweets) < args.num and not hit_existing:
             articles = await page.query_selector_all('article')
             prev_seen = len(seen_ids)
             for article in articles:
@@ -130,8 +139,23 @@ async def run():
                 seen_ids.add(tid)
 
                 if tid in skip_ids:
+                    if args.stop_on_existing and gist_id_index:
+                        gist_idx = gist_id_index.get(tid, -1)
+                        if gist_idx >= 0 and last_gist_index >= 0 and gist_idx == last_gist_index + 1:
+                            consecutive_count += 1
+                        else:
+                            consecutive_count = 1
+                        last_gist_index = gist_idx
+                        if consecutive_count >= CONSECUTIVE_STOP:
+                            print(f"🛑 {CONSECUTIVE_STOP} consecutive existing IDs matched in order. Stopping.")
+                            hit_existing = True
+                            break
                     skipped_count += 1
                     continue
+
+                # 新規ポスト → 連続カウントをリセット
+                consecutive_count = 0
+                last_gist_index = -1
 
                 new_tweets.append(data)
                 print(f"  [{len(new_tweets)}] Saved: @{tid}")
@@ -140,7 +164,7 @@ async def run():
                     print(f"🎯 Reached target ID: {tid}"); break
                 if len(new_tweets) >= args.num: break
 
-            if len(new_tweets) >= args.num: break
+            if len(new_tweets) >= args.num or hit_existing: break
 
             # スクロールしても新しいarticleが出てこなければ終端
             if len(seen_ids) > prev_seen:

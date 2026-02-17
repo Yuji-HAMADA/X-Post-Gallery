@@ -3,7 +3,7 @@
 # --- デフォルト値の設定 ---
 NUM=100
 USER="travelbeauty8"
-MODE="all"
+MODE="post_only"
 
 # --- 引数の解析 (u: ユーザー名, m: モード, n: 件数) ---
 while getopts u:m:n: OPT; do
