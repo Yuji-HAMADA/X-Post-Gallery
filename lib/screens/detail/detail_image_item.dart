@@ -133,7 +133,10 @@ class _DetailImageItemState extends State<DetailImageItem>
             constraints: BoxConstraints(
               minHeight: 0,
               maxHeight: _isZoomed
-                  ? math.max(MediaQuery.of(context).size.height, screenWidth / ratio)
+                  ? math.max(
+                      MediaQuery.of(context).size.height,
+                      screenWidth / ratio,
+                    )
                   : screenWidth / ratio,
             ),
             child: _buildZoomableImage(url, widget.item.id, i),
@@ -275,14 +278,16 @@ class _DetailImageItemState extends State<DetailImageItem>
           final recognizer = TapGestureRecognizer()
             ..onTap = () => _onUrlTap(element.url);
           _urlRecognizers.add(recognizer);
-          spans.add(TextSpan(
-            text: element.text,
-            style: const TextStyle(
-              color: Colors.blueAccent,
-              fontWeight: FontWeight.bold,
+          spans.add(
+            TextSpan(
+              text: element.text,
+              style: const TextStyle(
+                color: Colors.blueAccent,
+                fontWeight: FontWeight.bold,
+              ),
+              recognizer: recognizer,
             ),
-            recognizer: recognizer,
-          ));
+          );
         }
       } else {
         spans.add(TextSpan(text: element.text));
@@ -294,10 +299,7 @@ class _DetailImageItemState extends State<DetailImageItem>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text.rich(
-            TextSpan(children: spans),
-            style: defaultStyle,
-          ),
+          Text.rich(TextSpan(children: spans), style: defaultStyle),
           const SizedBox(height: 40),
           Text(
             "Posted: ${widget.item.createdAt}",
@@ -335,10 +337,7 @@ class _DetailImageItemState extends State<DetailImageItem>
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => GalleryPage(
-            initialItems: filtered,
-            title: tag,
-          ),
+          builder: (context) => GalleryPage(initialItems: filtered, title: tag),
         ),
       );
     }
@@ -349,7 +348,8 @@ class _DetailImageItemState extends State<DetailImageItem>
     HapticFeedback.mediumImpact();
     final String url;
     if (tag.startsWith('#')) {
-      url = 'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
+      url =
+          'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
     } else if (tag.startsWith('@')) {
       url = 'https://x.com/${tag.substring(1)}';
     } else {

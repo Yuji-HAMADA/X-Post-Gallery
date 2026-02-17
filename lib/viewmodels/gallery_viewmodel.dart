@@ -5,6 +5,7 @@ import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
 
 enum GalleryStatus { initial, loading, authenticated, error }
+
 enum RefreshStatus { idle, running, completed, failed }
 
 const String _externalPwRefresh = String.fromEnvironment('PW_REFRESH');
@@ -16,8 +17,8 @@ class GalleryViewModel extends ChangeNotifier {
   GalleryViewModel({
     GalleryRepository? repository,
     GitHubService? githubService,
-  })  : _repository = repository ?? GalleryRepository(),
-        _githubService = githubService ?? GitHubService();
+  }) : _repository = repository ?? GalleryRepository(),
+       _githubService = githubService ?? GitHubService();
 
   // --- 状態 ---
   GalleryStatus _status = GalleryStatus.initial;

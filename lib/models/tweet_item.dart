@@ -43,12 +43,9 @@ class TweetItem {
     return TweetItem(
       id: (json['id'] ?? json['id_str'] ?? json['tweet']?['id_str'] ?? '')
           .toString(),
-      fullText: json['full_text'] ??
-          json['tweet']?['full_text'] ??
-          '',
-      createdAt: json['created_at'] ??
-          json['tweet']?['created_at'] ??
-          'Unknown',
+      fullText: json['full_text'] ?? json['tweet']?['full_text'] ?? '',
+      createdAt:
+          json['created_at'] ?? json['tweet']?['created_at'] ?? 'Unknown',
       mediaUrls: mediaUrls,
       postUrl: (postUrl != null && postUrl.isNotEmpty) ? postUrl : null,
     );

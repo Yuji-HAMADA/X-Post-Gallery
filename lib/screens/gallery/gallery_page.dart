@@ -34,7 +34,9 @@ class _GalleryPageState extends State<GalleryPage> {
     final vm = context.read<GalleryViewModel>();
     final found = await vm.handleInitialLoad();
     if (!found && mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showPasswordDialog());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _showPasswordDialog(),
+      );
     }
     if (found) {
       _restoreScrollPosition();
@@ -189,8 +191,9 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<int?> _showCountDialog() async {
-    final countController =
-        TextEditingController(text: '${GalleryViewModel.defaultRefreshCount}');
+    final countController = TextEditingController(
+      text: '${GalleryViewModel.defaultRefreshCount}',
+    );
 
     return showDialog<int>(
       context: context,
@@ -235,13 +238,19 @@ class _GalleryPageState extends State<GalleryPage> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 20),
-              const Text('ギャラリーを更新中...',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'ギャラリーを更新中...',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
-              Text('$count 件取得中',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              const Text('数分かかる場合があります',
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                '$count 件取得中',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const Text(
+                '数分かかる場合があります',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
             ],
           ),
         ),
@@ -333,8 +342,11 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   // --- 外部連携 ---
-  Future<void> _launchXHashtag(String keyword) async => _openUrl(Uri.parse(
-      'https://x.com/search?q=${Uri.encodeComponent('#$keyword')}&src=typed_query&f=media'));
+  Future<void> _launchXHashtag(String keyword) async => _openUrl(
+    Uri.parse(
+      'https://x.com/search?q=${Uri.encodeComponent('#$keyword')}&src=typed_query&f=media',
+    ),
+  );
   Future<void> _launchX(String twitterId) async =>
       _openUrl(Uri.parse('https://x.com/$twitterId'));
   Future<void> _openUrl(Uri url) async {
@@ -391,44 +403,52 @@ class _GalleryPageState extends State<GalleryPage> {
     String twitterId = displayTitle.startsWith('@')
         ? displayTitle.replaceFirst('@', '')
         : (isUserFilter
-            ? currentTitle
-                .substring(currentTitle.indexOf('@'))
-                .replaceFirst('@', '')
-            : '');
+              ? currentTitle
+                    .substring(currentTitle.indexOf('@'))
+                    .replaceFirst('@', '')
+              : '');
 
     final bool showLinkButton =
         isUserFilter || isHashtagFilter || displayTitle.startsWith('@');
-    String hashtagKeyword =
-        isHashtagFilter ? currentTitle.replaceFirst('#', '') : '';
+    String hashtagKeyword = isHashtagFilter
+        ? currentTitle.replaceFirst('#', '')
+        : '';
 
     return Scaffold(
       appBar: AppBar(
         leading: isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => context.read<GalleryViewModel>().clearSelection(),
+                onPressed: () =>
+                    context.read<GalleryViewModel>().clearSelection(),
               )
             : null,
         title: isSelectionMode
             ? Text('${selectedIds.length}件選択中')
             : (showLinkButton
-                ? GestureDetector(
-                    onTap: () => isHashtagFilter
-                        ? _launchXHashtag(hashtagKeyword)
-                        : _launchX(twitterId),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                            child: Text(displayTitle,
-                                overflow: TextOverflow.ellipsis)),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.open_in_new,
-                            size: 14, color: Colors.grey),
-                      ],
-                    ),
-                  )
-                : Text(displayTitle)),
+                  ? GestureDetector(
+                      onTap: () => isHashtagFilter
+                          ? _launchXHashtag(hashtagKeyword)
+                          : _launchX(twitterId),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              displayTitle,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.open_in_new,
+                            size: 14,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
+                    )
+                  : Text(displayTitle)),
         actions: [
           if (isSelectionMode)
             IconButton(
@@ -483,8 +503,8 @@ class _GalleryPageState extends State<GalleryPage> {
       body: !isAuthenticated
           ? const Center(child: Text("Waiting for authentication..."))
           : (items.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : _buildGridView(items, selectedIds)),
+                ? const Center(child: CircularProgressIndicator())
+                : _buildGridView(items, selectedIds)),
     );
   }
 
@@ -504,7 +524,10 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildGridItem(
-      List<TweetItem> items, int index, Set<String> selectedIds) {
+    List<TweetItem> items,
+    int index,
+    Set<String> selectedIds,
+  ) {
     final item = items[index];
     final String imageUrl = item.thumbnailUrl;
     final bool isSelected = selectedIds.contains(item.id);
@@ -518,10 +541,8 @@ class _GalleryPageState extends State<GalleryPage> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => DetailPage(
-                items: items,
-                initialIndex: index,
-              ),
+              builder: (context) =>
+                  DetailPage(items: items, initialIndex: index),
             ),
           );
         }
@@ -537,10 +558,12 @@ class _GalleryPageState extends State<GalleryPage> {
           Container(
             decoration: BoxDecoration(color: Colors.grey[900]),
             child: imageUrl.isNotEmpty
-                ? Image.network(imageUrl,
+                ? Image.network(
+                    imageUrl,
                     fit: BoxFit.cover,
                     alignment: Alignment.topCenter,
-                    errorBuilder: (c, e, s) => _buildErrorWidget())
+                    errorBuilder: (c, e, s) => _buildErrorWidget(),
+                  )
                 : _buildErrorWidget(),
           ),
           if (isSelected)
@@ -550,7 +573,11 @@ class _GalleryPageState extends State<GalleryPage> {
                 alignment: Alignment.topRight,
                 child: Padding(
                   padding: EdgeInsets.all(4),
-                  child: Icon(Icons.check_circle, color: Colors.white, size: 24),
+                  child: Icon(
+                    Icons.check_circle,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
               ),
             ),

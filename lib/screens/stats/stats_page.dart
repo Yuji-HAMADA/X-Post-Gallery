@@ -73,9 +73,7 @@ class _StatsPageState extends State<StatsPage> {
         title: Text(_mode == StatsMode.user ? 'Users' : 'Hashtags'),
         actions: [
           IconButton(
-            icon: Icon(
-              _mode == StatsMode.user ? Icons.tag : Icons.person,
-            ),
+            icon: Icon(_mode == StatsMode.user ? Icons.tag : Icons.person),
             tooltip: _mode == StatsMode.user ? 'Hashtags' : 'Users',
             onPressed: () {
               setState(() {
@@ -107,10 +105,7 @@ class _StatsPageState extends State<StatsPage> {
                     )
                   : const Icon(Icons.image, color: Colors.grey),
             ),
-            title: Text(
-              entry.name,
-              overflow: TextOverflow.ellipsis,
-            ),
+            title: Text(entry.name, overflow: TextOverflow.ellipsis),
             trailing: Text(
               '${entry.count}',
               style: const TextStyle(
@@ -123,10 +118,8 @@ class _StatsPageState extends State<StatsPage> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => GalleryPage(
-                    initialItems: entry.items,
-                    title: entry.name,
-                  ),
+                  builder: (context) =>
+                      GalleryPage(initialItems: entry.items, title: entry.name),
                 ),
               );
             },

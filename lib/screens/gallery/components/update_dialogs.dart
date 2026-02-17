@@ -3,9 +3,15 @@ import 'package:flutter/services.dart';
 
 class UpdateDialogs {
   // 1. 入力設定ダイアログ
-  static Future<Map<String, dynamic>?> showUpdateConfigDialog(BuildContext context) async {
-    final TextEditingController userController = TextEditingController(text: "travelbeauty8");
-    final TextEditingController countController = TextEditingController(text: "100");
+  static Future<Map<String, dynamic>?> showUpdateConfigDialog(
+    BuildContext context,
+  ) async {
+    final TextEditingController userController = TextEditingController(
+      text: "travelbeauty8",
+    );
+    final TextEditingController countController = TextEditingController(
+      text: "100",
+    );
     String selectedMode = 'all';
 
     return showDialog<Map<String, dynamic>>(
@@ -38,13 +44,22 @@ class UpdateDialogs {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   initialValue: selectedMode,
-                  decoration: const InputDecoration(labelText: "Extraction Mode"),
+                  decoration: const InputDecoration(
+                    labelText: "Extraction Mode",
+                  ),
                   items: const [
-                    DropdownMenuItem(value: 'all', child: Text("All (Post & RT)")),
-                    DropdownMenuItem(value: 'post_only', child: Text("Post Only")),
+                    DropdownMenuItem(
+                      value: 'all',
+                      child: Text("All (Post & RT)"),
+                    ),
+                    DropdownMenuItem(
+                      value: 'post_only',
+                      child: Text("Post Only"),
+                    ),
                   ],
                   onChanged: (value) {
-                    if (value != null) setDialogState(() => selectedMode = value);
+                    if (value != null)
+                      setDialogState(() => selectedMode = value);
                   },
                 ),
               ],
@@ -70,7 +85,12 @@ class UpdateDialogs {
   }
 
   // 2. 待機中ダイアログ
-  static void showProcessingDialog(BuildContext context, {required int count, required String user, required String mode}) {
+  static void showProcessingDialog(
+    BuildContext context, {
+    required int count,
+    required String user,
+    required String mode,
+  }) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -80,11 +100,20 @@ class UpdateDialogs {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 20),
-            const Text("Updating Gallery...", style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              "Updating Gallery...",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Text("@$user ($mode)", style: const TextStyle(fontSize: 13)),
-            Text("Extracting $count items.", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text("This may take a few minutes.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(
+              "Extracting $count items.",
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const Text(
+              "This may take a few minutes.",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ],
         ),
       ),

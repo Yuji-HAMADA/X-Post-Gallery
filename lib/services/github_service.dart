@@ -8,8 +8,8 @@ const String _externalToken = String.fromEnvironment('GITHUB_TOKEN');
 
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
-  final String token = _externalToken.isNotEmpty 
-      ? _externalToken 
+  final String token = _externalToken.isNotEmpty
+      ? _externalToken
       : (dotenv.env['GITHUB_TOKEN'] ?? '');
 
   final String owner = 'Yuji-HAMADA';
@@ -30,13 +30,15 @@ class GitHubService {
     if (token.isEmpty) {
       debugPrint("GitHub Token is empty!");
     } else {
-      debugPrint("Triggering workflow with token starting with: ${token.substring(0, 1)}...");
+      debugPrint(
+        "Triggering workflow with token starting with: ${token.substring(0, 1)}...",
+      );
     }
 
     final url = Uri.parse(
       'https://api.github.com/repos/$owner/$repo/actions/workflows/$workflowId/dispatches',
     );
-    
+
     final response = await http.post(
       url,
       headers: _headers,
@@ -49,7 +51,7 @@ class GitHubService {
         },
       }),
     );
-    
+
     return response.statusCode == 204;
   }
 
@@ -87,10 +89,7 @@ class GitHubService {
       headers: _headers,
       body: jsonEncode({
         'ref': 'main',
-        'inputs': {
-          'gist_id': gistId,
-          'num_posts': count.toString(),
-        },
+        'inputs': {'gist_id': gistId, 'num_posts': count.toString()},
       }),
     );
 

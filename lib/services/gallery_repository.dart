@@ -27,13 +27,15 @@ class GalleryRepository {
 
     debugPrint("Fetching from: ${baseUrl}data.json?t=$cacheBuster");
 
-    var response =
-        await http.get(Uri.parse('${baseUrl}data.json?t=$cacheBuster'));
+    var response = await http.get(
+      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
+    );
     String filename = 'data.json';
     if (response.statusCode == 404) {
       debugPrint("Falling back to gallary_data.json");
-      response =
-          await http.get(Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'));
+      response = await http.get(
+        Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'),
+      );
       filename = 'gallary_data.json';
     }
 
@@ -54,18 +56,19 @@ class GalleryRepository {
 
   /// 更新用の JSON 文字列を構築
   String buildGistJson(String userName, List<TweetItem> items) {
-    final tweets = items.map((item) => {
-      'full_text': item.fullText,
-      'created_at': item.createdAt,
-      'media_urls': item.mediaUrls,
-      'id_str': item.id,
-      if (item.postUrl != null) 'post_url': item.postUrl,
-    }).toList();
+    final tweets = items
+        .map(
+          (item) => {
+            'full_text': item.fullText,
+            'created_at': item.createdAt,
+            'media_urls': item.mediaUrls,
+            'id_str': item.id,
+            if (item.postUrl != null) 'post_url': item.postUrl,
+          },
+        )
+        .toList();
 
-    return json.encode({
-      'user_screen_name': userName,
-      'tweets': tweets,
-    });
+    return json.encode({'user_screen_name': userName, 'tweets': tweets});
   }
 
   // --- SharedPreferences ヘルパー ---
