@@ -539,6 +539,7 @@ class _GalleryPageState extends State<GalleryPage> {
             child: imageUrl.isNotEmpty
                 ? Image.network(imageUrl,
                     fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
                     errorBuilder: (c, e, s) => _buildErrorWidget())
                 : _buildErrorWidget(),
           ),
