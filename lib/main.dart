@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // インポート追加
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:provider/provider.dart';
 import 'package:x_post_gallery/screens/gallery/gallery_page.dart';
+import 'package:x_post_gallery/viewmodels/gallery_viewmodel.dart';
 
-// async に変更して読み込みを待機する
 void main() async {
-  // これが重要！
   await dotenv.load(fileName: ".env");
-  
+
   runApp(const ReViewGallery());
 }
 
@@ -15,15 +15,18 @@ class ReViewGallery extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ReViewGallery',
-      debugShowCheckedModeBanner: false, // 右上のリボンを消すとより綺麗です
-      theme: ThemeData(
-        useMaterial3: true, 
-        colorSchemeSeed: Colors.indigo,
-        brightness: Brightness.dark, // ギャラリーならダークモードもおすすめ
+    return ChangeNotifierProvider(
+      create: (_) => GalleryViewModel(),
+      child: MaterialApp(
+        title: 'ReViewGallery',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorSchemeSeed: Colors.indigo,
+          brightness: Brightness.dark,
+        ),
+        home: const GalleryPage(),
       ),
-      home: const GalleryPage(),
     );
   }
 }

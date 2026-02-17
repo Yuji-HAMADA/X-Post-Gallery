@@ -42,6 +42,7 @@ dependencies:
   linkify: ^5.0.0
   url_launcher: ^6.3.2
   firebase_core: ^4.4.0
+  provider: ^6.1.0
 
 dev_dependencies:
   flutter_test:
