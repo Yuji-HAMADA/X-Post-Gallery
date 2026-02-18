@@ -400,28 +400,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) Navigator.pop(context);
 
     if (vm.appendStatus == AppendStatus.completed) {
-      // 画面遷移なしで表示を更新：vm.items を対象ユーザ／ハッシュタグでフィルタして反映
-      if (mounted && widget.initialItems != null) {
-        List<TweetItem> filtered;
-        if (user != null) {
-          final userTag = '@$user';
-          final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
-          filtered = vm.items.where((item) {
-            return pattern.allMatches(item.fullText).any(
-              (m) => m.group(0)!.toLowerCase() == userTag.toLowerCase(),
-            );
-          }).toList();
-        } else {
-          final hashTag = '#$hashtag';
-          final pattern = RegExp(r'#[^\s#]+');
-          filtered = vm.items.where((item) {
-            return pattern.allMatches(item.fullText).any(
-              (m) => m.group(0)!.toLowerCase() == hashTag.toLowerCase(),
-            );
-          }).toList();
-        }
-        setState(() => _localItems = filtered);
-      }
+      _refilterLocalItems(vm); // 画面遷移なしで追加後の状態に更新
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('追加完了'), backgroundColor: Colors.green),
@@ -529,6 +508,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
 
     if (success) {
+      _refilterLocalItems(vm); // サブギャラリーの表示をGist削除後の状態に更新
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -540,6 +520,40 @@ class _GalleryPageState extends State<GalleryPage> {
     } else {
       _showErrorSnackBar(vm.errorMessage);
     }
+  }
+
+  /// vm.items をタイトルのフィルタ条件で絞り込み _localItems を更新する
+  void _refilterLocalItems(GalleryViewModel vm) {
+    if (widget.initialItems == null) return;
+    final currentTitle = widget.title ?? '';
+    final isUserFilter = currentTitle.contains('@');
+    final isHashtagFilter = currentTitle.startsWith('#');
+
+    List<TweetItem> filtered;
+    if (isUserFilter) {
+      final twitterId = currentTitle.startsWith('@')
+          ? currentTitle.replaceFirst('@', '')
+          : currentTitle.substring(currentTitle.indexOf('@')).replaceFirst('@', '');
+      final userTag = '@$twitterId';
+      final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
+      filtered = vm.items.where((item) {
+        return pattern.allMatches(item.fullText).any(
+          (m) => m.group(0)!.toLowerCase() == userTag.toLowerCase(),
+        );
+      }).toList();
+    } else if (isHashtagFilter) {
+      final hashtagKeyword = currentTitle.replaceFirst('#', '');
+      final hashTag = '#$hashtagKeyword';
+      final pattern = RegExp(r'#[^\s#]+');
+      filtered = vm.items.where((item) {
+        return pattern.allMatches(item.fullText).any(
+          (m) => m.group(0)!.toLowerCase() == hashTag.toLowerCase(),
+        );
+      }).toList();
+    } else {
+      filtered = vm.items;
+    }
+    setState(() => _localItems = filtered);
   }
 
   void _showErrorSnackBar(String message) {
@@ -568,19 +582,20 @@ class _GalleryPageState extends State<GalleryPage> {
 
   @override
   Widget build(BuildContext context) {
-    // フィルタ済みサブギャラリーの場合はViewModelを使わない
-    // Append後は _localItems で再フィルタ済みリストを使う
+    final vm = context.watch<GalleryViewModel>();
+
+    // フィルタ済みサブギャラリー：アイテムは静的リスト（Append後は _localItems）
+    // 選択・削除状態は ViewModel を共有する
     if (widget.initialItems != null) {
       return _buildScaffold(
         items: _localItems ?? widget.initialItems!,
         userName: '',
         isAuthenticated: true,
-        isSelectionMode: false,
-        selectedIds: const {},
+        isSelectionMode: vm.isSelectionMode,
+        selectedIds: vm.selectedIds,
       );
     }
 
-    final vm = context.watch<GalleryViewModel>();
     return _buildScaffold(
       items: vm.items,
       userName: vm.userName,
@@ -767,8 +782,6 @@ class _GalleryPageState extends State<GalleryPage> {
         }
       },
       onLongPress: () {
-        // サブギャラリーでは選択不可
-        if (widget.initialItems != null) return;
         context.read<GalleryViewModel>().toggleSelection(item.id);
       },
       child: Stack(
