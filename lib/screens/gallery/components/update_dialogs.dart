@@ -58,8 +58,9 @@ class UpdateDialogs {
                     ),
                   ],
                   onChanged: (value) {
-                    if (value != null)
+                    if (value != null) {
                       setDialogState(() => selectedMode = value);
+                    }
                   },
                 ),
               ],
