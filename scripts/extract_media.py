@@ -14,22 +14,25 @@ AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=100)
-    parser.add_argument("-u", "--user", type=str, required=True, help="Target user ID")
+    parser.add_argument("-u", "--user", type=str, default=None, help="Target user ID (--user または --hashtag のどちらか必須)")
+    parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
     parser.add_argument("--mode", type=str, default="post_only", choices=["all", "post_only"])
     parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
     parser.add_argument("target_id", nargs="?", default=None)
     return parser.parse_args()
 
-def build_search_url(user, mode):
+def build_search_url(user, hashtag, mode):
     # どちらのモードでも画像付き(filter:images)を必須にする
-    if mode == "post_only":
+    if hashtag:
+        query = f"#{hashtag} filter:images"
+    elif mode == "post_only":
         # 本人の投稿かつ画像付き、リポストは除外
         query = f"from:{user} filter:images -filter:reposts"
     else:
         # 本人のリポストや返信も含めるが、画像付きに限定
         query = f"from:{user} filter:images"
-    
+
     return f"https://x.com/search?q={quote(query)}&f=live"
 
 async def extract_tweet_data(article):
@@ -92,12 +95,15 @@ async def extract_tweet_data(article):
 
 async def run():
     args = parse_args()
+    if not args.user and not args.hashtag:
+        print("❌ Error: --user または --hashtag のどちらかが必要です。"); return
     if not os.path.exists(AUTH_PATH):
         print(f"❌ Error: {AUTH_PATH} not found."); return
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    url = build_search_url(args.user, args.mode)
-    print(f"🚀 Mode: {args.mode} | Target: {args.user} | URL: {url}")
+    url = build_search_url(args.user, args.hashtag, args.mode)
+    target_label = f"#{args.hashtag}" if args.hashtag else f"@{args.user}"
+    print(f"🚀 Mode: {args.mode} | Target: {target_label} | URL: {url}")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)

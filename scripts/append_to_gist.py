@@ -17,7 +17,8 @@ TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-g", "--gist-id", required=True, help="Append対象のGist ID")
-    parser.add_argument("-u", "--user", required=True, help="Target user ID")
+    parser.add_argument("-u", "--user", default=None, help="Target user ID (--user または --hashtag のどちらか必須)")
+    parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
     parser.add_argument("-m", "--mode", default="post_only", choices=["all", "post_only"])
     parser.add_argument("-n", "--num", type=int, default=100, help="最大取得件数")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止（ストップオンモード）")
@@ -80,15 +81,18 @@ def write_skip_ids_file(ordered_ids):
             f.write(tid + "\n")
     return path
 
-def run_extraction(user, mode, num, skip_ids_file, stop_on_existing=True):
+def run_extraction(user, hashtag, mode, num, skip_ids_file, stop_on_existing=True):
     """extract_media.py を呼び出してポストを取得"""
     cmd = [
         sys.executable, "scripts/extract_media.py",
-        "-u", user,
         "--mode", mode,
         "-n", str(num),
         "--skip-ids-file", skip_ids_file,
     ]
+    if user:
+        cmd.extend(["-u", user])
+    elif hashtag:
+        cmd.extend(["--hashtag", hashtag])
     if stop_on_existing:
         cmd.append("--stop-on-existing")
     print(f"🚀 Running: {' '.join(cmd)}")
@@ -165,6 +169,13 @@ def append_tweets(existing_tweets, new_tweets):
 def main():
     args = parse_args()
 
+    if not args.user and not args.hashtag:
+        print("❌ Error: --user または --hashtag のどちらかが必要です。")
+        sys.exit(1)
+
+    target_label = f"#{args.hashtag}" if args.hashtag else f"@{args.user}"
+    print(f"🎯 Target: {target_label}")
+
     # 1. 既存Gistデータ取得
     gist_filename, user_screen_name, existing_tweets = fetch_gist_data(args.gist_id)
     existing_ids_ordered = get_existing_ids_ordered(existing_tweets)
@@ -175,7 +186,7 @@ def main():
 
     try:
         # 3. 新規ポスト取得
-        run_extraction(args.user, args.mode, args.num, skip_ids_file, args.stop_on_existing)
+        run_extraction(args.user, args.hashtag, args.mode, args.num, skip_ids_file, args.stop_on_existing)
     finally:
         os.unlink(skip_ids_file)
 

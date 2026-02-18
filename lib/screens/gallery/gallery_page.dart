@@ -229,7 +229,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   // --- Append 関連 ---
 
-  Future<void> _handleAppend(String twitterId) async {
+  Future<void> _handleAppend({String? user, String? hashtag}) async {
     final vm = context.read<GalleryViewModel>();
     final config = await _showAppendConfigDialog();
     if (config == null) return;
@@ -240,7 +240,8 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     await _executeAppendWithDialog(
-      user: twitterId,
+      user: user,
+      hashtag: hashtag,
       mode: config['mode'] as String,
       count: config['count'] as int,
       stopOnExisting: config['stopOnExisting'] as bool,
@@ -356,11 +357,13 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _executeAppendWithDialog({
-    required String user,
+    String? user,
+    String? hashtag,
     required String mode,
     required int count,
     required bool stopOnExisting,
   }) async {
+    final targetLabel = user != null ? '@$user' : '#$hashtag';
     if (mounted) {
       showDialog(
         context: context,
@@ -373,7 +376,7 @@ class _GalleryPageState extends State<GalleryPage> {
               const SizedBox(height: 20),
               const Text('追加中...', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Text('@$user / $count 件', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text('$targetLabel / $count 件', style: const TextStyle(fontSize: 12, color: Colors.grey)),
               Text(
                 stopOnExisting ? 'ストップオンモード' : 'スキップモード',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -388,6 +391,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final vm = context.read<GalleryViewModel>();
     await vm.executeAppend(
       user: user,
+      hashtag: hashtag,
       mode: mode,
       count: count,
       stopOnExisting: stopOnExisting,
@@ -396,15 +400,26 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) Navigator.pop(context);
 
     if (vm.appendStatus == AppendStatus.completed) {
-      // 画面遷移なしで表示を更新：vm.items を対象ユーザでフィルタして反映
+      // 画面遷移なしで表示を更新：vm.items を対象ユーザ／ハッシュタグでフィルタして反映
       if (mounted && widget.initialItems != null) {
-        final userTag = '@$user';
-        final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
-        final filtered = vm.items.where((item) {
-          return pattern.allMatches(item.fullText).any(
-            (m) => m.group(0)!.toLowerCase() == userTag.toLowerCase(),
-          );
-        }).toList();
+        List<TweetItem> filtered;
+        if (user != null) {
+          final userTag = '@$user';
+          final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
+          filtered = vm.items.where((item) {
+            return pattern.allMatches(item.fullText).any(
+              (m) => m.group(0)!.toLowerCase() == userTag.toLowerCase(),
+            );
+          }).toList();
+        } else {
+          final hashTag = '#$hashtag';
+          final pattern = RegExp(r'#[^\s#]+');
+          filtered = vm.items.where((item) {
+            return pattern.allMatches(item.fullText).any(
+              (m) => m.group(0)!.toLowerCase() == hashTag.toLowerCase(),
+            );
+          }).toList();
+        }
         setState(() => _localItems = filtered);
       }
       if (mounted) {
@@ -648,12 +663,15 @@ class _GalleryPageState extends State<GalleryPage> {
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
             )
-          else if (isUserFilter) ...[
-            // 画面A（ユーザーフィルター）: 追加ボタンのみ
+          else if (isUserFilter || isHashtagFilter) ...[
+            // ユーザー／ハッシュタグフィルター画面: 追加ボタンのみ
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: '追加',
-              onPressed: () => _handleAppend(twitterId),
+              onPressed: () => _handleAppend(
+                user: isUserFilter ? twitterId : null,
+                hashtag: isHashtagFilter ? hashtagKeyword : null,
+              ),
             ),
           ] else ...[
             // 通常画面: リスト統計 + ハンバーガーメニュー

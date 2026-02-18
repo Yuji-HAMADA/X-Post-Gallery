@@ -7,8 +7,13 @@ on:
         description: '対象Gist ID'
         required: true
       user:
-        description: 'ユーザID (例: travelbeauty8)'
-        required: true
+        description: 'ユーザID (例: travelbeauty8)　※ hashtag と排他'
+        required: false
+        default: ''
+      hashtag:
+        description: 'ハッシュタグ (#なし、例: aiart)　※ user と排他'
+        required: false
+        default: ''
       mode:
         description: '取得モード'
         required: true
@@ -92,9 +97,18 @@ jobs:
           if [ "${{ github.event.inputs.stop_on_existing }}" = "true" ]; then
             STOP_FLAG="-s"
           fi
+          TARGET_FLAG=""
+          if [ -n "${{ github.event.inputs.user }}" ]; then
+            TARGET_FLAG="-u ${{ github.event.inputs.user }}"
+          elif [ -n "${{ github.event.inputs.hashtag }}" ]; then
+            TARGET_FLAG="-t ${{ github.event.inputs.hashtag }}"
+          else
+            echo "❌ Error: user または hashtag のどちらかを指定してください"
+            exit 1
+          fi
           ./append_gist.sh \
             -g "${{ github.event.inputs.gist_id }}" \
-            -u "${{ github.event.inputs.user }}" \
+            $TARGET_FLAG \
             -m "${{ github.event.inputs.mode }}" \
             -n "${{ github.event.inputs.num_posts }}" \
             $STOP_FLAG

@@ -205,9 +205,10 @@ class GalleryViewModel extends ChangeNotifier {
     return true;
   }
 
-  /// append_gist.yml をトリガーしてポーリング
+  /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
   Future<void> executeAppend({
-    required String user,
+    String? user,
+    String? hashtag,
     required String mode,
     required int count,
     required bool stopOnExisting,
@@ -225,6 +226,7 @@ class GalleryViewModel extends ChangeNotifier {
     final triggered = await _githubService.triggerAppendGistWorkflow(
       gistId: gistId,
       user: user,
+      hashtag: hashtag,
       mode: mode,
       count: count,
       stopOnExisting: stopOnExisting,

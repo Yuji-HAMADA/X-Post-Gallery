@@ -122,10 +122,11 @@ class GitHubService {
     return response.statusCode == 200;
   }
 
-  /// append_gist.yml をトリガーする
+  /// append_gist.yml をトリガーする（user と hashtag は排他）
   Future<bool> triggerAppendGistWorkflow({
     required String gistId,
-    required String user,
+    String? user,
+    String? hashtag,
     required String mode,
     required int count,
     required bool stopOnExisting,
@@ -145,7 +146,8 @@ class GitHubService {
         'ref': 'main',
         'inputs': {
           'gist_id': gistId,
-          'user': user,
+          'user': user ?? '',
+          'hashtag': hashtag ?? '',
           'mode': mode,
           'num_posts': count.toString(),
           'stop_on_existing': stopOnExisting ? 'true' : 'false',
