@@ -14,6 +14,7 @@ class GalleryData {
 class GalleryRepository {
   static const String _keyGistId = 'last_gist_id';
   static const String _keyRefreshAuth = 'refresh_authenticated';
+  static const String _keyAppendAuth = 'append_authenticated';
   static const String _keyScrollIndex = 'grid_last_index';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
@@ -91,6 +92,16 @@ class GalleryRepository {
   Future<void> setRefreshAuthenticated(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyRefreshAuth, value);
+  }
+
+  Future<bool> isAppendAuthenticated() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyAppendAuth) ?? false;
+  }
+
+  Future<void> setAppendAuthenticated(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyAppendAuth, value);
   }
 
   Future<int?> getSavedScrollIndex() async {

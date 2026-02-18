@@ -19,6 +19,7 @@ class GalleryPage extends StatefulWidget {
 
 class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
+  List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
 
   @override
   void initState() {
@@ -226,6 +227,197 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
+  // --- Append 関連 ---
+
+  Future<void> _handleAppend(String twitterId) async {
+    final vm = context.read<GalleryViewModel>();
+    final config = await _showAppendConfigDialog();
+    if (config == null) return;
+
+    if (!await vm.isAppendAuthenticated()) {
+      final authed = await _showAppendAuthDialog();
+      if (!authed) return;
+    }
+
+    await _executeAppendWithDialog(
+      user: twitterId,
+      mode: config['mode'] as String,
+      count: config['count'] as int,
+      stopOnExisting: config['stopOnExisting'] as bool,
+    );
+  }
+
+  Future<Map<String, dynamic>?> _showAppendConfigDialog() async {
+    final countController = TextEditingController(text: '100');
+    bool stopOnExisting = true;
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('追加設定'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('重複ポストの処理', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                RadioGroup<bool>(
+                  groupValue: stopOnExisting,
+                  onChanged: (v) => setDialogState(() => stopOnExisting = v!),
+                  child: Column(
+                    children: [
+                      RadioListTile<bool>(
+                        value: true,
+                        title: const Text('ストップオンモード'),
+                        subtitle: const Text('既存IDに当たったら停止'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      RadioListTile<bool>(
+                        value: false,
+                        title: const Text('スキップモード'),
+                        subtitle: const Text('既存IDをスキップして続行'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: countController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    labelText: '取得件数',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, {
+                'mode': 'post_only',
+                'count': int.tryParse(countController.text) ?? 100,
+                'stopOnExisting': stopOnExisting,
+              }),
+              child: const Text('実行'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _showAppendAuthDialog() async {
+    final vm = context.read<GalleryViewModel>();
+    final pwController = TextEditingController();
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('認証'),
+        content: TextField(
+          controller: pwController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'パスワード',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => Navigator.pop(context, pwController.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, pwController.text),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null) return false;
+
+    final success = await vm.authenticateAppend(password: result);
+    if (!success) {
+      _showErrorSnackBar(vm.errorMessage);
+    }
+    return success;
+  }
+
+  Future<void> _executeAppendWithDialog({
+    required String user,
+    required String mode,
+    required int count,
+    required bool stopOnExisting,
+  }) async {
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 20),
+              const Text('追加中...', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text('@$user / $count 件', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                stopOnExisting ? 'ストップオンモード' : 'スキップモード',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const Text('数分かかる場合があります', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final vm = context.read<GalleryViewModel>();
+    await vm.executeAppend(
+      user: user,
+      mode: mode,
+      count: count,
+      stopOnExisting: stopOnExisting,
+    );
+
+    if (mounted) Navigator.pop(context);
+
+    if (vm.appendStatus == AppendStatus.completed) {
+      // 画面遷移なしで表示を更新：vm.items を対象ユーザでフィルタして反映
+      if (mounted && widget.initialItems != null) {
+        final userTag = '@$user';
+        final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
+        final filtered = vm.items.where((item) {
+          return pattern.allMatches(item.fullText).any(
+            (m) => m.group(0)!.toLowerCase() == userTag.toLowerCase(),
+          );
+        }).toList();
+        setState(() => _localItems = filtered);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('追加完了'), backgroundColor: Colors.green),
+        );
+      }
+    } else if (vm.appendStatus == AppendStatus.failed) {
+      _showErrorSnackBar(vm.errorMessage);
+    }
+    vm.clearAppendStatus();
+  }
+
   Future<void> _executeRefreshWithDialog(int count) async {
     // 処理中ダイアログを表示
     if (mounted) {
@@ -362,9 +554,10 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   Widget build(BuildContext context) {
     // フィルタ済みサブギャラリーの場合はViewModelを使わない
+    // Append後は _localItems で再フィルタ済みリストを使う
     if (widget.initialItems != null) {
       return _buildScaffold(
-        items: widget.initialItems!,
+        items: _localItems ?? widget.initialItems!,
         userName: '',
         isAuthenticated: true,
         isSelectionMode: false,
@@ -455,7 +648,15 @@ class _GalleryPageState extends State<GalleryPage> {
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
             )
-          else ...[
+          else if (isUserFilter) ...[
+            // 画面A（ユーザーフィルター）: 追加ボタンのみ
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: '追加',
+              onPressed: () => _handleAppend(twitterId),
+            ),
+          ] else ...[
+            // 通常画面: リスト統計 + ハンバーガーメニュー
             if (items.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.format_list_numbered),

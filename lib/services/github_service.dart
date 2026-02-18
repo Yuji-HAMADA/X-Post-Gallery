@@ -122,6 +122,40 @@ class GitHubService {
     return response.statusCode == 200;
   }
 
+  /// append_gist.yml をトリガーする
+  Future<bool> triggerAppendGistWorkflow({
+    required String gistId,
+    required String user,
+    required String mode,
+    required int count,
+    required bool stopOnExisting,
+  }) async {
+    if (token.isEmpty) {
+      debugPrint("GitHub Token is empty!");
+    }
+
+    final url = Uri.parse(
+      'https://api.github.com/repos/$owner/$repo/actions/workflows/append_gist.yml/dispatches',
+    );
+
+    final response = await http.post(
+      url,
+      headers: _headers,
+      body: jsonEncode({
+        'ref': 'main',
+        'inputs': {
+          'gist_id': gistId,
+          'user': user,
+          'mode': mode,
+          'num_posts': count.toString(),
+          'stop_on_existing': stopOnExisting ? 'true' : 'false',
+        },
+      }),
+    );
+
+    return response.statusCode == 204;
+  }
+
   Future<String> getWorkflowStatus() async {
     final url = Uri.parse(
       'https://api.github.com/repos/$owner/$repo/actions/runs?per_page=1',

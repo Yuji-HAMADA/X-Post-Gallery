@@ -8,7 +8,9 @@ enum GalleryStatus { initial, loading, authenticated, error }
 
 enum RefreshStatus { idle, running, completed, failed }
 
-const String _externalPwRefresh = String.fromEnvironment('PW_REFRESH');
+enum AppendStatus { idle, running, completed, failed }
+
+const String _externalPwAdmin = String.fromEnvironment('PW_ADMIN');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -26,6 +28,9 @@ class GalleryViewModel extends ChangeNotifier {
 
   RefreshStatus _refreshStatus = RefreshStatus.idle;
   RefreshStatus get refreshStatus => _refreshStatus;
+
+  AppendStatus _appendStatus = AppendStatus.idle;
+  AppendStatus get appendStatus => _appendStatus;
 
   List<TweetItem> _items = [];
   List<TweetItem> get items => _items;
@@ -95,9 +100,9 @@ class GalleryViewModel extends ChangeNotifier {
     required String password,
     required String gistId,
   }) async {
-    final correctPw = _externalPwRefresh.isNotEmpty
-        ? _externalPwRefresh
-        : (dotenv.env['PW_REFRESH'] ?? '');
+    final correctPw = _externalPwAdmin.isNotEmpty
+        ? _externalPwAdmin
+        : (dotenv.env['PW_ADMIN'] ?? '');
 
     if (password != correctPw) {
       _errorMessage = 'パスワードが正しくありません';
@@ -174,6 +179,91 @@ class GalleryViewModel extends ChangeNotifier {
   /// RefreshStatusをリセット（SnackBar表示後など）
   void clearRefreshStatus() {
     _refreshStatus = RefreshStatus.idle;
+    _errorMessage = '';
+  }
+
+  // --- Append アクション ---
+
+  /// Append認証済みかどうか
+  Future<bool> isAppendAuthenticated() {
+    return _repository.isAppendAuthenticated();
+  }
+
+  /// Appendパスワードを検証して保存
+  Future<bool> authenticateAppend({required String password}) async {
+    final correctPw = _externalPwAdmin.isNotEmpty
+        ? _externalPwAdmin
+        : (dotenv.env['PW_ADMIN'] ?? '');
+
+    if (password != correctPw) {
+      _errorMessage = 'パスワードが正しくありません';
+      notifyListeners();
+      return false;
+    }
+
+    await _repository.setAppendAuthenticated(true);
+    return true;
+  }
+
+  /// append_gist.yml をトリガーしてポーリング
+  Future<void> executeAppend({
+    required String user,
+    required String mode,
+    required int count,
+    required bool stopOnExisting,
+  }) async {
+    final gistId = await _repository.getSavedGistId();
+    if (gistId == null || gistId.isEmpty) {
+      _errorMessage = 'Gist IDが設定されていません';
+      notifyListeners();
+      return;
+    }
+
+    _appendStatus = AppendStatus.running;
+    notifyListeners();
+
+    final triggered = await _githubService.triggerAppendGistWorkflow(
+      gistId: gistId,
+      user: user,
+      mode: mode,
+      count: count,
+      stopOnExisting: stopOnExisting,
+    );
+
+    if (!triggered) {
+      _errorMessage = 'ワークフローの起動に失敗しました';
+      _appendStatus = AppendStatus.failed;
+      notifyListeners();
+      return;
+    }
+
+    // ポーリング
+    String pollStatus = '';
+    int retryCount = 0;
+    while (pollStatus != 'completed' && retryCount < 120) {
+      try {
+        await Future.delayed(const Duration(seconds: 10));
+        pollStatus = await _githubService.getWorkflowStatus();
+        debugPrint('Append polling... Status: $pollStatus (Try $retryCount)');
+      } catch (e) {
+        pollStatus = 'error';
+      }
+      retryCount++;
+    }
+
+    if (pollStatus == 'completed') {
+      await loadGallery(gistId);
+      _appendStatus = AppendStatus.completed;
+    } else {
+      _errorMessage = '追加がタイムアウトまたは失敗しました';
+      _appendStatus = AppendStatus.failed;
+    }
+    notifyListeners();
+  }
+
+  /// AppendStatusをリセット
+  void clearAppendStatus() {
+    _appendStatus = AppendStatus.idle;
     _errorMessage = '';
   }
 
