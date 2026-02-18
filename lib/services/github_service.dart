@@ -96,11 +96,21 @@ class GitHubService {
     return response.statusCode == 204;
   }
 
-  /// Gist IDが実際に存在するか検証する
-  Future<bool> validateGistExists(String gistId) async {
+  /// Gist のメタデータ（存在確認 + updated_at）を取得する
+  Future<Map<String, dynamic>> fetchGistMetadata(String gistId) async {
     final url = Uri.parse('https://api.github.com/gists/$gistId');
     final response = await http.get(url, headers: _headers);
-    return response.statusCode == 200;
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return {'exists': true, 'updatedAt': data['updated_at'] as String?};
+    }
+    return {'exists': false, 'updatedAt': null};
+  }
+
+  /// Gist IDが実際に存在するか検証する
+  Future<bool> validateGistExists(String gistId) async {
+    final meta = await fetchGistMetadata(gistId);
+    return meta['exists'] as bool;
   }
 
   /// Gist ファイルの内容を更新する

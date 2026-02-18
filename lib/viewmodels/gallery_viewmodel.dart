@@ -79,7 +79,20 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await _repository.fetchGalleryData(gistId);
+      // Web版は GitHub API (metadata) をスキップして直接 CDN fetch
+      String? remoteUpdatedAt;
+      if (!kIsWeb) {
+        final meta = await _githubService.fetchGistMetadata(gistId);
+        if (!(meta['exists'] as bool)) {
+          throw Exception('Invalid Password (ID)');
+        }
+        remoteUpdatedAt = meta['updatedAt'] as String?;
+      }
+
+      final data = await _repository.fetchGalleryData(
+        gistId,
+        remoteUpdatedAt: remoteUpdatedAt,
+      );
       await _repository.saveGistId(gistId);
 
       _items = data.items;
@@ -311,6 +324,7 @@ class GalleryViewModel extends ChangeNotifier {
     );
 
     if (success) {
+      await _repository.clearCache(); // Gist更新後はキャッシュ破棄
       _selectedIds.clear();
       notifyListeners();
       return true;
