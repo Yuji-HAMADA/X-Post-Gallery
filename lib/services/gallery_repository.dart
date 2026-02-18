@@ -83,10 +83,7 @@ class GalleryRepository {
     final tweets = (data['tweets'] as List? ?? [])
         .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
         .toList();
-    return GalleryData(
-      userName: data['user_screen_name'] ?? '',
-      items: tweets,
-    );
+    return GalleryData(userName: data['user_screen_name'] ?? '', items: tweets);
   }
 
   /// 更新用の JSON 文字列を構築

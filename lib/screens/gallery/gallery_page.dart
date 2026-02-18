@@ -262,7 +262,10 @@ class _GalleryPageState extends State<GalleryPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('重複ポストの処理', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  '重複ポストの処理',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 4),
                 RadioGroup<bool>(
                   groupValue: stopOnExisting,
@@ -374,14 +377,23 @@ class _GalleryPageState extends State<GalleryPage> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 20),
-              const Text('追加中...', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                '追加中...',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
-              Text('$targetLabel / $count 件', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                '$targetLabel / $count 件',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
               Text(
                 stopOnExisting ? 'ストップオンモード' : 'スキップモード',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
-              const Text('数分かかる場合があります', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text(
+                '数分かかる場合があります',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
             ],
           ),
         ),
@@ -533,22 +545,24 @@ class _GalleryPageState extends State<GalleryPage> {
     if (isUserFilter) {
       final twitterId = currentTitle.startsWith('@')
           ? currentTitle.replaceFirst('@', '')
-          : currentTitle.substring(currentTitle.indexOf('@')).replaceFirst('@', '');
+          : currentTitle
+                .substring(currentTitle.indexOf('@'))
+                .replaceFirst('@', '');
       final userTag = '@$twitterId';
       final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
       filtered = vm.items.where((item) {
-        return pattern.allMatches(item.fullText).any(
-          (m) => m.group(0)!.toLowerCase() == userTag.toLowerCase(),
-        );
+        return pattern
+            .allMatches(item.fullText)
+            .any((m) => m.group(0)!.toLowerCase() == userTag.toLowerCase());
       }).toList();
     } else if (isHashtagFilter) {
       final hashtagKeyword = currentTitle.replaceFirst('#', '');
       final hashTag = '#$hashtagKeyword';
       final pattern = RegExp(r'#[^\s#]+');
       filtered = vm.items.where((item) {
-        return pattern.allMatches(item.fullText).any(
-          (m) => m.group(0)!.toLowerCase() == hashTag.toLowerCase(),
-        );
+        return pattern
+            .allMatches(item.fullText)
+            .any((m) => m.group(0)!.toLowerCase() == hashTag.toLowerCase());
       }).toList();
     } else {
       filtered = vm.items;
