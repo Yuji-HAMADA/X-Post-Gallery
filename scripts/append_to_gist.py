@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument("-m", "--mode", default="post_only", choices=["all", "post_only"])
     parser.add_argument("-n", "--num", type=int, default=100, help="最大取得件数")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止（ストップオンモード）")
+    parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行（通常は安全のため中断）")
     return parser.parse_args()
 
 def fetch_gist_data(gist_id):
@@ -180,6 +181,13 @@ def main():
     gist_filename, user_screen_name, existing_tweets = fetch_gist_data(args.gist_id)
     existing_ids_ordered = get_existing_ids_ordered(existing_tweets)
     print(f"📋 Existing IDs: {len(existing_ids_ordered)}")
+
+    # 安全チェック: Appendなのに0件は異常。上書き事故を防ぐため中断する
+    if len(existing_tweets) == 0 and not args.force_empty:
+        print("⚠️  警告: GistのTweet数が0件です。")
+        print("   Appendモードなのに既存データが空なのは異常な状態の可能性があります。")
+        print("   意図的に空のGistへAppendしたい場合は --force-empty を付けて再実行してください。")
+        sys.exit(1)
 
     # 2. 既存IDファイルを作成（順序付き：連続一致判定用）
     skip_ids_file = write_skip_ids_file(existing_ids_ordered)

@@ -34,6 +34,14 @@ on:
         options:
           - 'true'
           - 'false'
+      force_empty:
+        description: 'Gistが0件でも強制続行（通常は使用しない）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   append-gist:
@@ -97,6 +105,10 @@ jobs:
           if [ "${{ github.event.inputs.stop_on_existing }}" = "true" ]; then
             STOP_FLAG="-s"
           fi
+          FORCE_FLAG=""
+          if [ "${{ github.event.inputs.force_empty }}" = "true" ]; then
+            FORCE_FLAG="-f"
+          fi
           TARGET_FLAG=""
           if [ -n "${{ github.event.inputs.user }}" ]; then
             TARGET_FLAG="-u ${{ github.event.inputs.user }}"
@@ -111,4 +123,5 @@ jobs:
             $TARGET_FLAG \
             -m "${{ github.event.inputs.mode }}" \
             -n "${{ github.event.inputs.num_posts }}" \
-            $STOP_FLAG
+            $STOP_FLAG \
+            $FORCE_FLAG
