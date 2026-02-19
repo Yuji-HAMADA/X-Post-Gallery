@@ -48,16 +48,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 5. Gistの更新
-echo "Step 5: Updating Gist..."
-gh gist edit "$GIST_ID" assets/data/data.json
-
-if [ $? -eq 0 ]; then
-    echo "------------------------------------------"
-    echo "✅ Success! Gist Updated."
-    echo "Gist ID    : $GIST_ID"
-    echo "------------------------------------------"
-else
-    echo "❌ Error: Failed to update Gist."
-    exit 1
-fi
+# 5. Gist更新は merge_gist_data.py 内で実行済み
+echo "------------------------------------------"
+echo "✅ Success! Pipeline completed."
+echo "Gist ID    : $GIST_ID"
+echo "------------------------------------------"
