@@ -48,8 +48,13 @@ def fetch_gist_data(gist_id):
         if not raw_url:
             continue
         try:
+            token = os.environ.get("GH_TOKEN", "")
+            curl_cmd = ["curl", "-sL"]
+            if token:
+                curl_cmd += ["-H", f"Authorization: Bearer {token}"]
+            curl_cmd.append(raw_url)
             dl = subprocess.run(
-                ["curl", "-sL", raw_url],
+                curl_cmd,
                 capture_output=True, text=True, check=True,
             )
             data = json.loads(dl.stdout)
