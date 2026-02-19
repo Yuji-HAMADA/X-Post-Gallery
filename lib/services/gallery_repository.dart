@@ -7,8 +7,13 @@ import '../models/tweet_item.dart';
 class GalleryData {
   final String userName;
   final List<TweetItem> items;
+  final Map<String, String> userGists; // username -> gist_id
 
-  const GalleryData({required this.userName, required this.items});
+  const GalleryData({
+    required this.userName,
+    required this.items,
+    this.userGists = const {},
+  });
 }
 
 class GalleryRepository {
@@ -83,11 +88,46 @@ class GalleryRepository {
     final tweets = (data['tweets'] as List? ?? [])
         .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
         .toList();
-    return GalleryData(userName: data['user_screen_name'] ?? '', items: tweets);
+    final userGistsRaw = data['user_gists'] as Map<String, dynamic>? ?? {};
+    final userGists = userGistsRaw.map((k, v) => MapEntry(k, v.toString()));
+    return GalleryData(
+      userName: data['user_screen_name'] ?? '',
+      items: tweets,
+      userGists: userGists,
+    );
   }
 
-  /// 更新用の JSON 文字列を構築
-  String buildGistJson(String userName, List<TweetItem> items) {
+  /// ユーザー別Gistからツイートを取得（バッチ形式: {"users":{"username":{"tweets":[...]}}}）
+  Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
+    final String baseUrl =
+        'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+    final response = await http.get(
+      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(utf8.decode(response.bodyBytes));
+      final users = data['users'] as Map<String, dynamic>?;
+      if (users != null && users.containsKey(username)) {
+        final userData = users[username] as Map<String, dynamic>;
+        return (userData['tweets'] as List? ?? [])
+            .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      // フォールバック: 旧形式（users キーなし）
+      return (data['tweets'] as List? ?? [])
+          .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load user gallery ($gistId)');
+  }
+
+  /// 更新用の JSON 文字列を構築（マスターGist用）
+  String buildGistJson(
+    String userName,
+    List<TweetItem> items, {
+    Map<String, String> userGists = const {},
+  }) {
     final tweets = items
         .map(
           (item) => {
@@ -100,7 +140,45 @@ class GalleryRepository {
         )
         .toList();
 
-    return json.encode({'user_screen_name': userName, 'tweets': tweets});
+    return json.encode({
+      'user_screen_name': userName,
+      if (userGists.isNotEmpty) 'user_gists': userGists,
+      'tweets': tweets,
+    });
+  }
+
+  /// バッチGist内の対象ユーザーのツイートを更新した全体JSONを返す
+  Future<String> buildUserBatchGistJson(
+    String gistId,
+    String username,
+    List<TweetItem> remainingItems,
+  ) async {
+    final String baseUrl =
+        'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+    final response = await http.get(
+      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch batch gist ($gistId)');
+    }
+    final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final users = (data['users'] as Map<String, dynamic>?) ?? {};
+    users[username] = {
+      'tweets': remainingItems
+          .map(
+            (item) => {
+              'full_text': item.fullText,
+              'created_at': item.createdAt,
+              'media_urls': item.mediaUrls,
+              'id_str': item.id,
+              if (item.postUrl != null) 'post_url': item.postUrl,
+            },
+          )
+          .toList(),
+    };
+    data['users'] = users;
+    return json.encode(data);
   }
 
   // --- SharedPreferences ヘルパー ---

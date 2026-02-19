@@ -38,6 +38,9 @@ class GalleryViewModel extends ChangeNotifier {
   String _userName = '';
   String get userName => _userName;
 
+  Map<String, String> _userGists = {};
+  Map<String, String> get userGists => _userGists;
+
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
@@ -97,6 +100,7 @@ class GalleryViewModel extends ChangeNotifier {
 
       _items = data.items;
       _userName = data.userName;
+      _userGists = data.userGists;
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
     } catch (e) {
@@ -105,6 +109,21 @@ class GalleryViewModel extends ChangeNotifier {
       _status = GalleryStatus.error;
     }
     notifyListeners();
+  }
+
+  /// ユーザーの全ツイートを取得（Gist分割対応）
+  Future<List<TweetItem>> fetchUserItems(String username) async {
+    final gistId = _userGists[username];
+    if (gistId != null) {
+      return await _repository.fetchUserGist(gistId, username);
+    }
+    // マスターデータからフィルタ（1件のみユーザー等）
+    final pattern = RegExp(r'^@([^:]+):');
+    return _items.where((item) {
+      final m = pattern.firstMatch(item.fullText);
+      return m != null &&
+          m.group(1)?.trim().toLowerCase() == username.toLowerCase();
+    }).toList();
   }
 
   /// リフレッシュ認証を検証し、結果を保存
@@ -219,14 +238,16 @@ class GalleryViewModel extends ChangeNotifier {
   }
 
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
+  /// gistIdOverride: ユーザーGistへの追記時に指定（省略時はマスターGist）
   Future<void> executeAppend({
     String? user,
     String? hashtag,
     required String mode,
     required int count,
     required bool stopOnExisting,
+    String? gistIdOverride,
   }) async {
-    final gistId = await _repository.getSavedGistId();
+    final gistId = gistIdOverride ?? await _repository.getSavedGistId();
     if (gistId == null || gistId.isEmpty) {
       _errorMessage = 'Gist IDが設定されていません';
       notifyListeners();
@@ -267,7 +288,10 @@ class GalleryViewModel extends ChangeNotifier {
     }
 
     if (pollStatus == 'completed') {
-      await loadGallery(gistId);
+      // gistIdOverride がない場合のみマスターをリロード（ユーザーGistは呼び出し側が処理）
+      if (gistIdOverride == null) {
+        await loadGallery(gistId);
+      }
       _appendStatus = AppendStatus.completed;
     } else {
       _errorMessage = '追加がタイムアウトまたは失敗しました';
@@ -315,8 +339,8 @@ class GalleryViewModel extends ChangeNotifier {
     // ローカル状態を先に更新
     _items.removeWhere((item) => _selectedIds.contains(item.id));
 
-    // Gist を更新
-    final jsonStr = _repository.buildGistJson(_userName, _items);
+    // Gist を更新（user_gists マッピングを保持）
+    final jsonStr = _repository.buildGistJson(_userName, _items, userGists: _userGists);
     final success = await _githubService.updateGistFile(
       gistId: gistId,
       filename: filename,
@@ -331,6 +355,41 @@ class GalleryViewModel extends ChangeNotifier {
     } else {
       // 失敗時は復元
       _items = backup;
+      _errorMessage = 'Gist の更新に失敗しました';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
+  Future<bool> deleteSelectedFromUserGist(
+    String gistId,
+    String username,
+    List<TweetItem> currentItems,
+  ) async {
+    final remainingItems =
+        currentItems.where((item) => !_selectedIds.contains(item.id)).toList();
+    try {
+      final jsonStr = await _repository.buildUserBatchGistJson(
+        gistId,
+        username,
+        remainingItems,
+      );
+      final success = await _githubService.updateGistFile(
+        gistId: gistId,
+        filename: 'data.json',
+        content: jsonStr,
+      );
+      if (success) {
+        _selectedIds.clear();
+        notifyListeners();
+      } else {
+        _errorMessage = 'Gist の更新に失敗しました';
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      debugPrint('deleteSelectedFromUserGist error: $e');
       _errorMessage = 'Gist の更新に失敗しました';
       notifyListeners();
       return false;
