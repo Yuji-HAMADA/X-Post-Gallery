@@ -162,7 +162,8 @@ class GalleryRepository {
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch batch gist ($gistId)');
     }
-    final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final data =
+        json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final users = (data['users'] as Map<String, dynamic>?) ?? {};
     users[username] = {
       'tweets': remainingItems

@@ -340,7 +340,11 @@ class GalleryViewModel extends ChangeNotifier {
     _items.removeWhere((item) => _selectedIds.contains(item.id));
 
     // Gist を更新（user_gists マッピングを保持）
-    final jsonStr = _repository.buildGistJson(_userName, _items, userGists: _userGists);
+    final jsonStr = _repository.buildGistJson(
+      _userName,
+      _items,
+      userGists: _userGists,
+    );
     final success = await _githubService.updateGistFile(
       gistId: gistId,
       filename: filename,
@@ -367,8 +371,9 @@ class GalleryViewModel extends ChangeNotifier {
     String username,
     List<TweetItem> currentItems,
   ) async {
-    final remainingItems =
-        currentItems.where((item) => !_selectedIds.contains(item.id)).toList();
+    final remainingItems = currentItems
+        .where((item) => !_selectedIds.contains(item.id))
+        .toList();
     try {
       final jsonStr = await _repository.buildUserBatchGistJson(
         gistId,

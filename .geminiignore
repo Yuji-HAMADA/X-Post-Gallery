@@ -1,0 +1,48 @@
+# Flutter/Dart ビルド成果物
+/build/
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+**/doc/api/
+
+# Python 仮想環境
+venv/
+
+# Android ビルド成果物
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/.gradle/
+
+# IDE 設定
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# 機密・自動生成データ
+data/auth.json
+data/debug_screen.png
+data/known_ids.txt
+data/tweets.js
+assets/data/data.json
+
+# Firebase
+.firebase/
+
+# 環境変数
+# .env
+
+# Google Services
+android/app/google-services.json
+lib/firebase_options.dart
+
+# Git
+.git/
+
+# その他
+*.log
+*.pyc
+__pycache__/
+.DS_Store

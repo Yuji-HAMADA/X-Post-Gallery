@@ -10,8 +10,10 @@ import '../stats/stats_page.dart';
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
   final String? title;
+
   /// ユーザーGistから開いた場合のGist ID（Append/Delete時に使用）
   final String? userGistId;
+
   /// ユーザーGistから開いた場合のユーザー名（Append/Delete時に使用）
   final String? userGistUsername;
 
@@ -800,8 +802,8 @@ class _GalleryPageState extends State<GalleryPage> {
           : (items.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : widget.initialItems != null
-                    ? _buildGridView(items, selectedIds)
-                    : _buildUserGroupedGrid(items, userGists)),
+                ? _buildGridView(items, selectedIds)
+                : _buildUserGroupedGrid(items, userGists)),
     );
   }
 
@@ -840,12 +842,7 @@ class _GalleryPageState extends State<GalleryPage> {
           orElse: () => userItems.first,
         );
         final totalCount = hasOwnGist ? null : userItems.length;
-        return _buildUserCard(
-          username,
-          thumbItem,
-          totalCount,
-          hasOwnGist,
-        );
+        return _buildUserCard(username, thumbItem, totalCount, hasOwnGist);
       },
     );
   }
@@ -884,10 +881,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   Expanded(
                     child: Text(
                       '@$username',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                      ),
+                      style: const TextStyle(fontSize: 10, color: Colors.white),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -967,10 +961,8 @@ class _GalleryPageState extends State<GalleryPage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => GalleryPage(
-              initialItems: userItems,
-              title: '@$username',
-            ),
+            builder: (_) =>
+                GalleryPage(initialItems: userItems, title: '@$username'),
           ),
         );
       }
