@@ -62,3 +62,6 @@ scripts/split_gist_by_user.py
 # Google Services (e.g. APIs or Firebase)
 android/app/google-services.json
 lib/firebase_options.dart
+
+# Backup data (if you want to keep it locally, but not in version control)
+data/backup/ignored/
