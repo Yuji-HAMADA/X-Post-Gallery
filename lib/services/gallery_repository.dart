@@ -97,7 +97,7 @@ class GalleryRepository {
     );
   }
 
-  /// ユーザー別Gistからツイートを取得
+  /// ユーザー別Gistからツイートを取得（階層構造: users -> username -> tweets）
   Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
     debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
     
@@ -105,31 +105,38 @@ class GalleryRepository {
         'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
     
-    // まず data.json で試す
     var url = '${baseUrl}data.json?t=$cacheBuster';
     var response = await http.get(Uri.parse(url));
     
     if (response.statusCode == 404) {
-      // 見つからなければ gallary_data.json で試す
       url = '${baseUrl}gallary_data.json?t=$cacheBuster';
       response = await http.get(Uri.parse(url));
     }
     
-    debugPrint('[fetchUserGist] Response Status: ${response.statusCode}, Length: ${response.contentLength}');
-    
     if (response.statusCode == 200) {
       final data = json.decode(utf8.decode(response.bodyBytes));
       
-      // すべての子Gistはマスター形式（直下に 'tweets'）に統一されたため、直接取得
-      final tweets = (data['tweets'] as List? ?? [])
-          .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
-          .toList();
-      debugPrint('[fetchUserGist] SUCCESS: Found ${tweets.length} tweets');
-      return tweets;
+      // 1. 標準の子Gist形式 (users -> username -> tweets)
+      final users = data['users'] as Map<String, dynamic>?;
+      if (users != null && users.containsKey(username)) {
+        final userData = users[username] as Map<String, dynamic>;
+        return (userData['tweets'] as List? ?? [])
+            .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      
+      // 2. フォールバック: 直下に 'tweets' がある形式
+      if (data is Map<String, dynamic> && data.containsKey('tweets')) {
+        return (data['tweets'] as List? ?? [])
+            .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      
+      debugPrint('[fetchUserGist] ERROR: User not found in Gist');
+      return [];
     }
     
-    debugPrint('[fetchUserGist] ERROR: HTTP ${response.statusCode}');
-    throw Exception('Failed to load user gallery ($gistId, status: ${response.statusCode})');
+    throw Exception('Failed to load user gallery ($gistId)');
   }
 
   /// 更新用の JSON 文字列を構築（マスターGist用）
