@@ -45,10 +45,7 @@ class _UserIdInputDialogState extends State<UserIdInputDialog> {
           onPressed: () => Navigator.of(context).pop(null),
           child: const Text('キャンセル'),
         ),
-        ElevatedButton(
-          onPressed: _submitUserId,
-          child: const Text('表示'),
-        ),
+        ElevatedButton(onPressed: _submitUserId, child: const Text('表示')),
       ],
     );
   }

@@ -26,6 +26,7 @@ data/auth.json
 data/debug_screen.png
 data/known_ids.txt
 data/tweets.js
+data/backup/*
 assets/data/data.json
 
 # Firebase

@@ -5,7 +5,9 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // クラスの外で定義し、const をつけるのがポイント
 const String _externalToken = String.fromEnvironment('GITHUB_TOKEN');
-const String _externalGithubUsername = String.fromEnvironment('GITHUB_USERNAME');
+const String _externalGithubUsername = String.fromEnvironment(
+  'GITHUB_USERNAME',
+);
 
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得

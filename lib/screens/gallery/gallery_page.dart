@@ -75,11 +75,11 @@ class _GalleryPageState extends State<GalleryPage> {
   void _showPasswordDialog({bool canCancel = false}) {
     String gistIdInput = "";
     String passwordInput = "";
-    
+
     void handleUnlock() {
       Navigator.pop(context);
       final vm = context.read<GalleryViewModel>();
-      
+
       if (passwordInput.isNotEmpty && vm.checkAdminPassword(passwordInput)) {
         final defaultId = vm.defaultMasterGistId;
         if (defaultId.isNotEmpty) {
@@ -89,7 +89,7 @@ class _GalleryPageState extends State<GalleryPage> {
           _showErrorSnackBar('デフォルトのマスターGistIDが設定されていません');
         }
       }
-      
+
       if (gistIdInput.isNotEmpty) {
         _loadAndRestore(gistIdInput);
       } else {
@@ -133,10 +133,7 @@ class _GalleryPageState extends State<GalleryPage> {
               onPressed: () => Navigator.pop(context),
               child: const Text("Cancel"),
             ),
-          TextButton(
-            onPressed: handleUnlock,
-            child: const Text("Unlock"),
-          ),
+          TextButton(onPressed: handleUnlock, child: const Text("Unlock")),
         ],
       ),
     );

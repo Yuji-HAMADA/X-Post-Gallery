@@ -100,22 +100,22 @@ class GalleryRepository {
   /// ユーザー別Gistからツイートを取得（階層構造: users -> username -> tweets）
   Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
     debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
-    
+
     final String baseUrl =
         'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-    
+
     var url = '${baseUrl}data.json?t=$cacheBuster';
     var response = await http.get(Uri.parse(url));
-    
+
     if (response.statusCode == 404) {
       url = '${baseUrl}gallary_data.json?t=$cacheBuster';
       response = await http.get(Uri.parse(url));
     }
-    
+
     if (response.statusCode == 200) {
       final data = json.decode(utf8.decode(response.bodyBytes));
-      
+
       // 1. 標準の子Gist形式 (users -> username -> tweets)
       final users = data['users'] as Map<String, dynamic>?;
       if (users != null && users.containsKey(username)) {
@@ -124,18 +124,18 @@ class GalleryRepository {
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
             .toList();
       }
-      
+
       // 2. フォールバック: 直下に 'tweets' がある形式
       if (data is Map<String, dynamic> && data.containsKey('tweets')) {
         return (data['tweets'] as List? ?? [])
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
             .toList();
       }
-      
+
       debugPrint('[fetchUserGist] ERROR: User not found in Gist');
       return [];
     }
-    
+
     throw Exception('Failed to load user gallery ($gistId)');
   }
 
