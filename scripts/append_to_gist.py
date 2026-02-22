@@ -77,12 +77,19 @@ def _tweet_belongs_to_user(tweet, user):
     return False
 
 def get_user_tweets(data, user):
-    """データからユーザのツイートを取得（Master形式前提）"""
-    if not is_master_gist_format(data):
-        return []
-    if not user:
+    """データからユーザのツイートを取得（旧フォーマットからの移行対応）"""
+    if is_master_gist_format(data):
+        if not user:
+            return data.get("tweets", [])
+        return [t for t in data.get("tweets", []) if _tweet_belongs_to_user(t, user)]
+    
+    if isinstance(data, dict):
+        if "users" in data:
+            return data.get("users", {}).get(user, {}).get("tweets", [])
         return data.get("tweets", [])
-    return [t for t in data.get("tweets", []) if _tweet_belongs_to_user(t, user)]
+    if isinstance(data, list):
+        return data
+    return []
 
 # ---------------------------------------------------------------------------
 # Gist 取得
@@ -311,8 +318,17 @@ def create_gist_for_user(user, tweets):
 def update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data, user, merged_tweets):
     """ユーザGistを更新する。GIST_MAX_TWEETSを超える場合は新規Gistを作成し移動する。"""
     if not is_master_gist_format(promote_data):
-        print(f"⚠️  警告: 移動先Gist {promote_gist_id} がMaster形式ではありません。強引に変換します。")
-        promote_data = {"user_screen_name": "", "user_gists": {}, "tweets": []}
+        print(f"⚠️  警告: 移動先Gist {promote_gist_id} がMaster形式ではありません。既存データを保持しつつ変換します。")
+        legacy_tweets = []
+        if isinstance(promote_data, dict):
+            if "users" in promote_data:
+                for u_data in promote_data["users"].values():
+                    legacy_tweets.extend(u_data.get("tweets", []))
+            else:
+                legacy_tweets.extend(promote_data.get("tweets", []))
+        elif isinstance(promote_data, list):
+            legacy_tweets.extend(promote_data)
+        promote_data = {"user_screen_name": "", "user_gists": {}, "tweets": legacy_tweets}
 
     # 他ユーザのツイートも含めた合計件数を計算
     other_tweets = [t for t in promote_data.get("tweets", []) if not _tweet_belongs_to_user(t, user)]
