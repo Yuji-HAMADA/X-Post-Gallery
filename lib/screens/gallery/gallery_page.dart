@@ -284,7 +284,7 @@ class _GalleryPageState extends State<GalleryPage> {
       mode: config['mode'] as String,
       count: config['count'] as int,
       stopOnExisting: config['stopOnExisting'] as bool,
-      gistIdOverride: widget.userGistId,
+      gistIdOverride: widget.userGistId, // ユーザーGistサブギャラリーの場合は追記先を指定
     );
   }
 
