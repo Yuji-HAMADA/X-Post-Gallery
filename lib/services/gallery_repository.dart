@@ -97,52 +97,34 @@ class GalleryRepository {
     );
   }
 
-  /// ユーザー別Gistからツイートを取得（バッチ形式: {"users":{"username":{"tweets":[...]}}}）
+  /// ユーザー別Gistからツイートを取得
   Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
     debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
     
     final String baseUrl =
         'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-    final url = '${baseUrl}data.json?t=$cacheBuster';
-    debugPrint('[fetchUserGist] URL: $url');
     
-    final response = await http.get(Uri.parse(url));
+    // まず data.json で試す
+    var url = '${baseUrl}data.json?t=$cacheBuster';
+    var response = await http.get(Uri.parse(url));
+    
+    if (response.statusCode == 404) {
+      // 見つからなければ gallary_data.json で試す
+      url = '${baseUrl}gallary_data.json?t=$cacheBuster';
+      response = await http.get(Uri.parse(url));
+    }
+    
     debugPrint('[fetchUserGist] Response Status: ${response.statusCode}, Length: ${response.contentLength}');
     
     if (response.statusCode == 200) {
       final data = json.decode(utf8.decode(response.bodyBytes));
-      debugPrint('[fetchUserGist] JSON Top-level keys: ${data.keys.toList()}');
       
-      // データ構造を確認（ユーザー名の値をチェック）
-      if (data is Map<String, dynamic> && data.containsKey(username)) {
-        final usernameValue = data[username];
-        debugPrint('[fetchUserGist] Direct key "$username" found. Value type: ${usernameValue.runtimeType}, Value: $usernameValue');
-        if (usernameValue is String) {
-          debugPrint('[fetchUserGist] WARNING: Username key has string value (likely PENDING/PROCESSING): $usernameValue');
-          throw Exception('User gallery is in PENDING state: $usernameValue');
-        }
-      }
-      
-      final users = data['users'] as Map<String, dynamic>?;
-      debugPrint('[fetchUserGist] "users" key exists: ${users != null}');
-      
-      if (users != null && users.containsKey(username)) {
-        debugPrint('[fetchUserGist] User found in "users" map');
-        final userData = users[username] as Map<String, dynamic>;
-        final tweets = (userData['tweets'] as List? ?? [])
-            .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
-            .toList();
-        debugPrint('[fetchUserGist] SUCCESS: Found ${tweets.length} tweets via "users" structure');
-        return tweets;
-      }
-      
-      // フォールバック: 旧形式（users キーなし）
-      debugPrint('[fetchUserGist] Fallback: Using legacy format (no "users" key)');
+      // すべての子Gistはマスター形式（直下に 'tweets'）に統一されたため、直接取得
       final tweets = (data['tweets'] as List? ?? [])
           .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
           .toList();
-      debugPrint('[fetchUserGist] SUCCESS: Found ${tweets.length} tweets via legacy format');
+      debugPrint('[fetchUserGist] SUCCESS: Found ${tweets.length} tweets');
       return tweets;
     }
     
