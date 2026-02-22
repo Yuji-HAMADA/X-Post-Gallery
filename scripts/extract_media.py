@@ -19,7 +19,6 @@ def parse_args():
     parser.add_argument("--mode", type=str, default="post_only", choices=["all", "post_only"])
     parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
-    parser.add_argument("target_id", nargs="?", default=None)
     return parser.parse_args()
 
 def build_search_url(user, hashtag, mode):
@@ -166,9 +165,8 @@ async def run():
                 new_tweets.append(data)
                 print(f"  [{len(new_tweets)}] Saved: @{tid}")
 
-                if args.target_id and tid == args.target_id:
-                    print(f"🎯 Reached target ID: {tid}"); break
-                if len(new_tweets) >= args.num: break
+                if len(new_tweets) >= args.num:
+                    break
 
             if len(new_tweets) >= args.num or hit_existing: break
 

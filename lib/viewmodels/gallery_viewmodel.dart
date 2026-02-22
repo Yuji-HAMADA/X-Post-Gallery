@@ -141,21 +141,23 @@ class GalleryViewModel extends ChangeNotifier {
     }).toList();
   }
 
-  /// リフレッシュ認証を検証し、結果を保存
-  /// 成功時にギャラリーもロードする
-  Future<bool> authenticateRefresh({
-    required String password,
-    required String gistId,
-  }) async {
-    final correctPw = _externalPwAdmin.isNotEmpty
-        ? _externalPwAdmin
-        : (dotenv.env['PW_ADMIN'] ?? '');
-
-    if (password != correctPw) {
+  /// 管理者パスワードを検証し、認証済み状態を保存（Refresh / Append 共通）
+  Future<bool> authenticateAdmin({required String password}) async {
+    if (!checkAdminPassword(password)) {
       _errorMessage = 'パスワードが正しくありません';
       notifyListeners();
       return false;
     }
+    await _repository.setAdminAuthenticated(true);
+    return true;
+  }
+
+  /// リフレッシュ認証を検証し、成功時にギャラリーもロードする
+  Future<bool> authenticateRefresh({
+    required String password,
+    required String gistId,
+  }) async {
+    if (!await authenticateAdmin(password: password)) return false;
 
     final gistExists = await _githubService.validateGistExists(gistId);
     if (!gistExists) {
@@ -164,15 +166,31 @@ class GalleryViewModel extends ChangeNotifier {
       return false;
     }
 
-    await _repository.setRefreshAuthenticated(true);
     await _repository.saveGistId(gistId);
     await loadGallery(gistId);
     return true;
   }
 
-  /// リフレッシュ認証済みかどうか
-  Future<bool> isRefreshAuthenticated() {
-    return _repository.isRefreshAuthenticated();
+  /// 管理者認証済みかどうか（Refresh / Append 共通）
+  Future<bool> isAdminAuthenticated() {
+    return _repository.isAdminAuthenticated();
+  }
+
+  /// ワークフロー完了をポーリング（10秒間隔、最大120回 = 20分）
+  Future<bool> _pollWorkflowCompletion(String label) async {
+    String pollStatus = '';
+    int retryCount = 0;
+    while (pollStatus != 'completed' && retryCount < 120) {
+      try {
+        await Future.delayed(const Duration(seconds: 10));
+        pollStatus = await _githubService.getWorkflowStatus();
+        debugPrint('$label polling... Status: $pollStatus (Try $retryCount)');
+      } catch (e) {
+        pollStatus = 'error';
+      }
+      retryCount++;
+    }
+    return pollStatus == 'completed';
   }
 
   /// ワークフローをトリガーしてポーリング
@@ -199,21 +217,8 @@ class GalleryViewModel extends ChangeNotifier {
       return;
     }
 
-    // ポーリング
-    String pollStatus = '';
-    int retryCount = 0;
-    while (pollStatus != 'completed' && retryCount < 120) {
-      try {
-        await Future.delayed(const Duration(seconds: 10));
-        pollStatus = await _githubService.getWorkflowStatus();
-        debugPrint('Polling... Status: $pollStatus (Try $retryCount)');
-      } catch (e) {
-        pollStatus = 'error';
-      }
-      retryCount++;
-    }
-
-    if (pollStatus == 'completed') {
+    final completed = await _pollWorkflowCompletion('Refresh');
+    if (completed) {
       final currentGistId = await _repository.getSavedGistId();
       if (currentGistId != null && currentGistId == masterGistId) {
         await loadGallery(currentGistId);
@@ -234,36 +239,15 @@ class GalleryViewModel extends ChangeNotifier {
 
   // --- Append アクション ---
 
-  /// Append認証済みかどうか
-  Future<bool> isAppendAuthenticated() {
-    return _repository.isAppendAuthenticated();
-  }
-
-  /// Appendパスワードを検証して保存
-  Future<bool> authenticateAppend({required String password}) async {
-    final correctPw = _externalPwAdmin.isNotEmpty
-        ? _externalPwAdmin
-        : (dotenv.env['PW_ADMIN'] ?? '');
-
-    if (password != correctPw) {
-      _errorMessage = 'パスワードが正しくありません';
-      notifyListeners();
-      return false;
-    }
-
-    await _repository.setAppendAuthenticated(true);
-    return true;
-  }
-
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
-  /// gistIdOverride: ユーザーGistへの追記時に指定（省略時はマスターGist）
+  /// isUserGist: true の場合はマスターリロードをスキップ（呼び出し側が処理）
   Future<void> executeAppend({
     String? user,
     String? hashtag,
     required String mode,
     required int count,
     required bool stopOnExisting,
-    String? gistIdOverride,
+    bool isUserGist = false,
   }) async {
     final targetGistId = defaultMasterGistId;
     if (targetGistId.isEmpty) {
@@ -291,23 +275,9 @@ class GalleryViewModel extends ChangeNotifier {
       return;
     }
 
-    // ポーリング
-    String pollStatus = '';
-    int retryCount = 0;
-    while (pollStatus != 'completed' && retryCount < 120) {
-      try {
-        await Future.delayed(const Duration(seconds: 10));
-        pollStatus = await _githubService.getWorkflowStatus();
-        debugPrint('Append polling... Status: $pollStatus (Try $retryCount)');
-      } catch (e) {
-        pollStatus = 'error';
-      }
-      retryCount++;
-    }
-
-    if (pollStatus == 'completed') {
-      // gistIdOverride がない場合のみマスターをリロード（ユーザーGistは呼び出し側が処理）
-      if (gistIdOverride == null) {
+    final completed = await _pollWorkflowCompletion('Append');
+    if (completed) {
+      if (!isUserGist) {
         await loadGallery(targetGistId);
       }
       _appendStatus = AppendStatus.completed;

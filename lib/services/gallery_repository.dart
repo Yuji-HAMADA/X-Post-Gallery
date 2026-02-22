@@ -18,14 +18,16 @@ class GalleryData {
 
 class GalleryRepository {
   static const String _keyGistId = 'last_gist_id';
-  static const String _keyRefreshAuth = 'refresh_authenticated';
-  static const String _keyAppendAuth = 'append_authenticated';
+  static const String _keyAdminAuth = 'admin_authenticated';
   static const String _keyScrollIndex = 'grid_last_index';
   static const String _keyCachedData = 'cached_gist_data';
   static const String _keyCachedUpdatedAt = 'cached_updated_at';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
+
+  String _gistRawBaseUrl(String gistId) =>
+      'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
 
   /// Gist からギャラリーデータを取得（キャッシュ対応）
   Future<GalleryData> fetchGalleryData(
@@ -47,8 +49,7 @@ class GalleryRepository {
       }
     }
 
-    final String baseUrl =
-        'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
+    final baseUrl = _gistRawBaseUrl(gistId);
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
 
     debugPrint("Fetching from: ${baseUrl}data.json?t=$cacheBuster");
@@ -101,8 +102,7 @@ class GalleryRepository {
   Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
     debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
 
-    final String baseUrl =
-        'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
+    final baseUrl = _gistRawBaseUrl(gistId);
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
 
     var url = '${baseUrl}data.json?t=$cacheBuster';
@@ -145,22 +145,10 @@ class GalleryRepository {
     List<TweetItem> items, {
     Map<String, String> userGists = const {},
   }) {
-    final tweets = items
-        .map(
-          (item) => {
-            'full_text': item.fullText,
-            'created_at': item.createdAt,
-            'media_urls': item.mediaUrls,
-            'id_str': item.id,
-            if (item.postUrl != null) 'post_url': item.postUrl,
-          },
-        )
-        .toList();
-
     return json.encode({
       'user_screen_name': userName,
       if (userGists.isNotEmpty) 'user_gists': userGists,
-      'tweets': tweets,
+      'tweets': items.map((item) => item.toJson()).toList(),
     });
   }
 
@@ -170,8 +158,7 @@ class GalleryRepository {
     String username,
     List<TweetItem> remainingItems,
   ) async {
-    final String baseUrl =
-        'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
+    final baseUrl = _gistRawBaseUrl(gistId);
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
     final response = await http.get(
       Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
@@ -183,17 +170,7 @@ class GalleryRepository {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final users = (data['users'] as Map<String, dynamic>?) ?? {};
     users[username] = {
-      'tweets': remainingItems
-          .map(
-            (item) => {
-              'full_text': item.fullText,
-              'created_at': item.createdAt,
-              'media_urls': item.mediaUrls,
-              'id_str': item.id,
-              if (item.postUrl != null) 'post_url': item.postUrl,
-            },
-          )
-          .toList(),
+      'tweets': remainingItems.map((item) => item.toJson()).toList(),
     };
     data['users'] = users;
     return json.encode(data);
@@ -211,24 +188,15 @@ class GalleryRepository {
     await prefs.setString(_keyGistId, gistId.trim());
   }
 
-  Future<bool> isRefreshAuthenticated() async {
+  /// Refresh / Append 共通の管理者認証状態（一度通ったら以降は不要）
+  Future<bool> isAdminAuthenticated() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyRefreshAuth) ?? false;
+    return prefs.getBool(_keyAdminAuth) ?? false;
   }
 
-  Future<void> setRefreshAuthenticated(bool value) async {
+  Future<void> setAdminAuthenticated(bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyRefreshAuth, value);
-  }
-
-  Future<bool> isAppendAuthenticated() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyAppendAuth) ?? false;
-  }
-
-  Future<void> setAppendAuthenticated(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyAppendAuth, value);
+    await prefs.setBool(_keyAdminAuth, value);
   }
 
   Future<String?> getCachedData() async {

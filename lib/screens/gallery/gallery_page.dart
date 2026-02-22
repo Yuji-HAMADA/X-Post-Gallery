@@ -150,9 +150,40 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  /// パスワード入力ダイアログ（Refresh / Append 共通）
+  Future<String?> _showPasswordInputDialog(String title) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'パスワード',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => Navigator.pop(context, controller.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleRefresh() async {
     final vm = context.read<GalleryViewModel>();
-    if (await vm.isRefreshAuthenticated()) {
+    if (await vm.isAdminAuthenticated()) {
       final count = await _showCountDialog();
       if (count != null) {
         await _executeRefreshWithDialog(count);
@@ -164,43 +195,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _showRefreshAuthDialog() async {
     final vm = context.read<GalleryViewModel>();
-    final pwController = TextEditingController();
 
-    final result = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('認証'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('ForYou更新を有効にするにはパスワードを入力してください。'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: pwController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'パスワード',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (val) => Navigator.pop(context, val),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, pwController.text),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-
+    final result = await _showPasswordInputDialog('認証');
     if (result == null || result.isEmpty) return;
 
     final masterId = vm.defaultMasterGistId;
@@ -268,9 +264,14 @@ class _GalleryPageState extends State<GalleryPage> {
     final config = await _showAppendConfigDialog();
     if (config == null) return;
 
-    if (!await vm.isAppendAuthenticated()) {
-      final authed = await _showAppendAuthDialog();
-      if (!authed) return;
+    if (!await vm.isAdminAuthenticated()) {
+      final result = await _showPasswordInputDialog('認証');
+      if (result == null) return;
+      final success = await vm.authenticateAdmin(password: result);
+      if (!success) {
+        if (mounted) _showErrorSnackBar(vm.errorMessage);
+        return;
+      }
     }
 
     await _executeAppendWithDialog(
@@ -279,13 +280,13 @@ class _GalleryPageState extends State<GalleryPage> {
       mode: config['mode'] as String,
       count: config['count'] as int,
       stopOnExisting: config['stopOnExisting'] as bool,
-      gistIdOverride: widget.userGistId, // ユーザーGistサブギャラリーの場合は追記先を指定
     );
   }
 
   Future<Map<String, dynamic>?> _showAppendConfigDialog() async {
     final countController = TextEditingController(text: '100');
     bool stopOnExisting = true;
+    String mode = 'post_only';
 
     return showDialog<Map<String, dynamic>>(
       context: context,
@@ -297,6 +298,29 @@ class _GalleryPageState extends State<GalleryPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Text('モード', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                RadioGroup<String>(
+                  groupValue: mode,
+                  onChanged: (v) => setDialogState(() => mode = v!),
+                  child: Column(
+                    children: [
+                      RadioListTile<String>(
+                        value: 'post_only',
+                        title: const Text('投稿のみ'),
+                        subtitle: const Text('リポストを除外'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      RadioListTile<String>(
+                        value: 'all',
+                        title: const Text('すべて'),
+                        subtitle: const Text('リポストを含む'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const Text(
                   '重複ポストの処理',
                   style: TextStyle(fontWeight: FontWeight.bold),
@@ -342,7 +366,7 @@ class _GalleryPageState extends State<GalleryPage> {
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context, {
-                'mode': 'post_only',
+                'mode': mode,
                 'count': int.tryParse(countController.text) ?? 100,
                 'stopOnExisting': stopOnExisting,
               }),
@@ -354,54 +378,14 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  Future<bool> _showAppendAuthDialog() async {
-    final vm = context.read<GalleryViewModel>();
-    final pwController = TextEditingController();
-
-    final result = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('認証'),
-        content: TextField(
-          controller: pwController,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'パスワード',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => Navigator.pop(context, pwController.text),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, pwController.text),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-
-    if (result == null) return false;
-
-    final success = await vm.authenticateAppend(password: result);
-    if (!success) {
-      _showErrorSnackBar(vm.errorMessage);
-    }
-    return success;
-  }
-
   Future<void> _executeAppendWithDialog({
     String? user,
     String? hashtag,
     required String mode,
     required int count,
     required bool stopOnExisting,
-    String? gistIdOverride,
   }) async {
+    final isUserGist = widget.userGistId != null;
     final targetLabel = user != null ? '@$user' : '#$hashtag';
     if (mounted) {
       showDialog(
@@ -443,17 +427,17 @@ class _GalleryPageState extends State<GalleryPage> {
       mode: mode,
       count: count,
       stopOnExisting: stopOnExisting,
-      gistIdOverride: gistIdOverride,
+      isUserGist: isUserGist,
     );
 
     if (mounted) Navigator.pop(context);
 
     if (vm.appendStatus == AppendStatus.completed) {
-      if (gistIdOverride != null && widget.userGistUsername != null) {
+      if (isUserGist && widget.userGistUsername != null) {
         // ユーザーGist: 追記後のデータを再取得して _localItems を更新
         try {
           final newItems = await vm.fetchUserItems(widget.userGistUsername!);
-          setState(() => _localItems = newItems);
+          if (mounted) setState(() => _localItems = newItems);
         } catch (_) {
           // 取得失敗時は現状維持
         }
@@ -652,6 +636,7 @@ class _GalleryPageState extends State<GalleryPage> {
     );
 
     if (userIdInput == null || userIdInput.isEmpty) return;
+    if (!mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     final userIdLower = userIdInput.trim().toLowerCase();

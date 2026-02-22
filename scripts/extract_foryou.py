@@ -14,8 +14,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=100, help="取得する最大件数")
     parser.add_argument("--skip-ids-file", type=str, default="", help="スキップすべきIDのリストが書かれたファイルへのパス")
-    # gist-id の引数は不要になったため削除（または互換性のため残しても良いですが、ここでは新しい設計に合わせます）
-    parser.add_argument("--gist-id", type=str, default=None, help="Deprecated: use --skip-ids-file instead")
     return parser.parse_args()
 
 def load_skip_ids(skip_ids_file):

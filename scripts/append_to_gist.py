@@ -64,77 +64,113 @@ def is_multi_user_format(data):
 def get_user_tweets(data, user):
     """データからユーザのツイートを取得"""
     if is_master_gist_format(data):
-        if not user: return data.get("tweets", [])
+        if not user:
+            return data.get("tweets", [])
         return [t for t in data.get("tweets", []) if _tweet_belongs_to_user(t, user)]
     if is_multi_user_format(data):
         return data.get("users", {}).get(user, {}).get("tweets", [])
     # fallback
-    if isinstance(data, dict) and "tweets" in data: return data["tweets"]
+    if isinstance(data, dict) and "tweets" in data:
+        return data["tweets"]
     return data if isinstance(data, list) else []
 
 def _tweet_belongs_to_user(tweet, user):
-    if f"x.com/{user}/status/" in tweet.get("post_url", ""): return True
-    if tweet.get("full_text", "").startswith(f"@{user}:"): return True
+    if f"x.com/{user}/status/" in tweet.get("post_url", ""):
+        return True
+    if tweet.get("full_text", "").startswith(f"@{user}:"):
+        return True
     return False
 
 # ---------------------------------------------------------------------------
-# Gist 取得 (略)
+# Gist 取得
 # ---------------------------------------------------------------------------
 
 def fetch_gist_data(gist_id):
     try:
-        result = subprocess.run(["gh", "api", f"gists/{gist_id}"], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ["gh", "api", f"gists/{gist_id}"],
+            capture_output=True, text=True, check=True,
+        )
         gist_meta = json.loads(result.stdout)
     except Exception as e:
-        print(f"❌ Failed to fetch Gist metadata: {e}"); sys.exit(1)
+        print(f"❌ Failed to fetch Gist metadata: {e}")
+        sys.exit(1)
     candidate_files = ["data.json", "gallary_data.json"]
     files = gist_meta.get("files", {})
     for filename in candidate_files:
-        if filename not in files: continue
+        if filename not in files:
+            continue
         raw_url = files[filename].get("raw_url")
-        if not raw_url: continue
+        if not raw_url:
+            continue
         try:
-            dl = subprocess.run(["curl", "-sf", "-L", raw_url], capture_output=True, text=True)
-            if dl.returncode == 0: return filename, json.loads(dl.stdout)
-        except: pass
-    print("❌ No valid data found in Gist."); sys.exit(1)
+            dl = subprocess.run(
+                ["curl", "-sf", "-L", raw_url],
+                capture_output=True, text=True,
+            )
+            if dl.returncode == 0:
+                return filename, json.loads(dl.stdout)
+        except Exception:
+            pass
+    print("❌ No valid data found in Gist.")
+    sys.exit(1)
 
 def select_promote_gist_from_master(full_data):
+    """user_gists に登録されているGistのうち最後に追加されたIDを返す"""
     user_gists = full_data.get("user_gists", {})
-    if not user_gists: return None
-    seen = set(); unique_gists = []
+    if not user_gists:
+        return None
+    seen = set()
+    unique_gists = []
     for gist_id in user_gists.values():
         if gist_id not in seen:
-            unique_gists.append(gist_id); seen.add(gist_id)
+            unique_gists.append(gist_id)
+            seen.add(gist_id)
     return unique_gists[-1] if unique_gists else None
 
 def get_existing_ids_ordered(tweets):
-    ids = []; seen = set()
+    ids = []
+    seen = set()
     for item in tweets:
         tid = item.get("id_str") or item.get("tweet", {}).get("id_str")
         if tid and tid not in seen:
-            ids.append(tid); seen.add(tid)
+            ids.append(tid)
+            seen.add(tid)
     return ids
 
 def write_skip_ids_file(ordered_ids):
     fd, path = tempfile.mkstemp(suffix=".txt", prefix="skip_ids_")
     with os.fdopen(fd, 'w') as f:
-        for tid in ordered_ids: f.write(tid + "\n")
+        for tid in ordered_ids:
+            f.write(tid + "\n")
     return path
 
 def run_extraction(args, skip_ids_file):
     if args.foryou:
-        cmd = [sys.executable, "scripts/extract_foryou.py", "-n", str(args.num), "--skip-ids-file", skip_ids_file]
+        cmd = [
+            sys.executable, "scripts/extract_foryou.py",
+            "-n", str(args.num),
+            "--skip-ids-file", skip_ids_file,
+        ]
     else:
-        cmd = [sys.executable, "scripts/extract_media.py", "--mode", args.mode, "-n", str(args.num), "--skip-ids-file", skip_ids_file]
-        if args.user: cmd.extend(["-u", args.user])
-        elif args.hashtag: cmd.extend(["--hashtag", args.hashtag])
-        if args.stop_on_existing: cmd.append("--stop-on-existing")
+        cmd = [
+            sys.executable, "scripts/extract_media.py",
+            "--mode", args.mode,
+            "-n", str(args.num),
+            "--skip-ids-file", skip_ids_file,
+        ]
+        if args.user:
+            cmd.extend(["-u", args.user])
+        elif args.hashtag:
+            cmd.extend(["--hashtag", args.hashtag])
+        if args.stop_on_existing:
+            cmd.append("--stop-on-existing")
     print(f"🚀 Running Extraction: {' '.join(cmd)}")
     subprocess.run(cmd)
 
 def parse_tweets_js():
-    if not os.path.exists(TWEETS_JS): return []
+    if not os.path.exists(TWEETS_JS):
+        return []
     with open(TWEETS_JS, 'r', encoding='utf-8') as f:
         content = f.read()
     json_str = re.sub(r'^window\.YTD\.tweets\.part0\s*=\s*', '', content)
@@ -142,34 +178,42 @@ def parse_tweets_js():
     converted = []
     for item in raw_tweets:
         tweet = item.get('tweet', {})
-        media_list = tweet.get('extended_entities', {}).get('media', []) or tweet.get('entities', {}).get('media', [])
-        if not media_list: continue
+        media_list = (
+            tweet.get('extended_entities', {}).get('media', [])
+            or tweet.get('entities', {}).get('media', [])
+        )
+        if not media_list:
+            continue
         media_urls = [m.get('media_url_https', '') for m in media_list if m.get('media_url_https')]
-        if not media_urls: continue
+        if not media_urls:
+            continue
         post_url = ''
         for m in media_list:
             eu = m.get('expanded_url', '')
             if '/status/' in eu:
-                post_url = re.sub(r'/photo/\d+$', '', eu); break
+                post_url = re.sub(r'/photo/\d+$', '', eu)
+                break
         converted.append({
             'full_text': tweet.get('full_text', ''),
             'created_at': tweet.get('created_at', ''),
             'media_urls': media_urls,
             'id_str': tweet.get('id_str', ''),
-            'post_url': post_url
+            'post_url': post_url,
         })
     return converted
 
 def append_tweets(existing_tweets, new_tweets):
-    if not new_tweets: return existing_tweets
+    if not new_tweets:
+        return existing_tweets
     existing_ids = {t.get("id_str") for t in existing_tweets if t.get("id_str")}
     unique_new = [t for t in new_tweets if t.get("id_str") not in existing_ids]
-    if not unique_new: return existing_tweets
+    if not unique_new:
+        return existing_tweets
     print(f"✨ Appended: {len(unique_new)} new tweets")
     return unique_new + existing_tweets
 
 # ---------------------------------------------------------------------------
-# Gist作成・移動 (修正: インメモリ更新に対応)
+# Gist作成・移動 (インメモリ更新)
 # ---------------------------------------------------------------------------
 
 def create_gist_for_user(user, tweets):
@@ -179,10 +223,16 @@ def create_gist_for_user(user, tweets):
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        result = subprocess.run(["gh", "gist", "create", tmp_file, "-p", "--filename", "data.json", "-d", f"Gallery User Data"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["gh", "gist", "create", tmp_file, "-p", "--filename", "data.json", "-d", "Gallery User Data"],
+            capture_output=True, text=True,
+        )
     finally:
-        if os.path.exists(tmp_file): os.unlink(tmp_file)
-    if result.returncode != 0: print(f"❌ Failed: {result.stderr}"); sys.exit(1)
+        if os.path.exists(tmp_file):
+            os.unlink(tmp_file)
+    if result.returncode != 0:
+        print(f"❌ Failed: {result.stderr}")
+        sys.exit(1)
     return result.stdout.strip().rstrip("/").split("/")[-1]
 
 def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, merged_tweets, gist_cache):
@@ -190,10 +240,14 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
     if not is_multi_user_format(promote_data):
         print(f"⚠️  Warning: Target Gist {promote_gist_id} is not in multi-user format. Converting...")
         promote_data = {"users": {}}
-    
+
     users_data = dict(promote_data.get("users", {}))
     # 他の全ユーザの全ポスト数を合計
-    current_total = sum(len(u.get("tweets", [])) for u_name, u in users_data.items() if u_name != user)
+    current_total = sum(
+        len(u.get("tweets", []))
+        for u_name, u in users_data.items()
+        if u_name != user
+    )
 
     if current_total + len(merged_tweets) > GIST_MAX_TWEETS:
         print(f"⚠️  Limit reached ({GIST_MAX_TWEETS}). Creating new Gist...")
@@ -219,20 +273,26 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
     user_groups = group_tweets_by_user(new_tweets)
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
-    
+
     # Gistの取得結果と更新状態をキャッシュして、最後に一括で書き込む
-    gist_cache = {} # { gist_id: {"filename": str, "data": dict, "is_modified": bool} }
-    
+    gist_cache = {}  # { gist_id: {"filename": str, "data": dict, "is_modified": bool} }
+
     migrated_count = 0
 
     for user, tweets in user_groups.items():
         if user == "Unknown":
-            master_tweets = append_tweets(master_tweets, tweets); continue
-        
+            master_tweets = append_tweets(master_tweets, tweets)
+            continue
+
         print(f"--- @{user} ---")
-        promote_gist_id = promote_gist_id_override or user_gists_map.get(user) or select_promote_gist_from_master(master_data)
-        if not promote_gist_id: promote_gist_id = create_gist_for_user(user, [])
-        
+        promote_gist_id = (
+            promote_gist_id_override
+            or user_gists_map.get(user)
+            or select_promote_gist_from_master(master_data)
+        )
+        if not promote_gist_id:
+            promote_gist_id = create_gist_for_user(user, [])
+
         # キャッシュから取得、なければフェッチ
         if promote_gist_id in gist_cache:
             p_filename = gist_cache[promote_gist_id]["filename"]
@@ -240,29 +300,31 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
         else:
             p_filename, p_data = fetch_gist_data(promote_gist_id)
             gist_cache[promote_gist_id] = {"filename": p_filename, "data": p_data, "is_modified": False}
-            
+
         existing = get_user_tweets(p_data, user)
         merged = append_tweets(existing, tweets)
-        
-        if len(merged) == len(existing): continue
-        
-        migrated_count += (len(merged) - len(existing))
-        
+
+        if len(merged) == len(existing):
+            continue
+
+        migrated_count += len(merged) - len(existing)
+
         # メモリ上でデータを更新
-        final_id, updated_data = update_or_migrate_user_gist_in_memory(promote_gist_id, p_data, user, merged, gist_cache)
-        
+        final_id, updated_data = update_or_migrate_user_gist_in_memory(
+            promote_gist_id, p_data, user, merged, gist_cache,
+        )
+
         # キャッシュを更新し、変更フラグを立てる
         if final_id not in gist_cache:
-             # 新規Gistが作成された場合。ファイル名はデフォルトで "data.json"
-             gist_cache[final_id] = {"filename": "data.json", "data": updated_data, "is_modified": False} # 作成時に書き込まれているので False
+            # 新規Gistが作成された場合。作成時に書き込まれているので is_modified=False
+            gist_cache[final_id] = {"filename": "data.json", "data": updated_data, "is_modified": False}
         else:
-             gist_cache[final_id]["data"] = updated_data
-             gist_cache[final_id]["is_modified"] = True
-        
+            gist_cache[final_id]["data"] = updated_data
+            gist_cache[final_id]["is_modified"] = True
+
         user_gists_map[user] = final_id
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
-        rep = dict(merged[0]); rep["gist_id"] = final_id
-        master_tweets.insert(0, rep)
+        master_tweets.insert(0, dict(merged[0]))
 
     print(f"📊 Total migrated to user Gists: {migrated_count} tweets")
 
@@ -287,30 +349,40 @@ def main():
     args = parse_args()
     gist_filename, full_data = fetch_gist_data(args.gist_id)
     if not is_master_gist_format(full_data):
-        print(f"❌ Error: {args.gist_id} is not a Master Gist."); sys.exit(1)
-    
-    # skip_ids作成
+        print(f"❌ Error: {args.gist_id} is not a Master Gist.")
+        sys.exit(1)
+
+    # skip_ids 作成
     if args.user and not args.foryou:
         ug_id = full_data.get("user_gists", {}).get(args.user)
         if ug_id:
             _, p_data = fetch_gist_data(ug_id)
             existing = get_user_tweets(p_data, args.user)
-        else: existing = []
+        else:
+            existing = []
         skip_ids_file = write_skip_ids_file(get_existing_ids_ordered(existing))
     else:
-        skip_ids_file = write_skip_ids_file(get_existing_ids_ordered(full_data.get("tweets", [])))
+        skip_ids_file = write_skip_ids_file(
+            get_existing_ids_ordered(full_data.get("tweets", []))
+        )
 
-    try: run_extraction(args, skip_ids_file)
-    finally: os.unlink(skip_ids_file)
+    try:
+        run_extraction(args, skip_ids_file)
+    finally:
+        os.unlink(skip_ids_file)
 
     new_tweets = parse_tweets_js()
-    if not new_tweets: print("✅ No new tweets."); sys.exit(0)
+    if not new_tweets:
+        print("✅ No new tweets.")
+        sys.exit(0)
 
     final_output = process_multi_user_append(full_data, new_tweets, args.promote_gist_id)
     output_file = "assets/data/data.json"
     os.makedirs("assets/data", exist_ok=True)
-    with open(output_file, 'w', encoding='utf-8') as f: json.dump(final_output, f, ensure_ascii=False, indent=2)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(final_output, f, ensure_ascii=False, indent=2)
     subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
     print(f"✅ Master Gist updated!")
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

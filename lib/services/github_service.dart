@@ -27,55 +27,6 @@ class GitHubService {
     'Accept': 'application/vnd.github.v3+json',
   };
 
-  Future<bool> triggerWorkflow({
-    required int count,
-    required String user,
-    required String mode,
-  }) async {
-    if (token.isEmpty) {
-      debugPrint("GitHub Token is empty!");
-    } else {
-      debugPrint(
-        "Triggering workflow with token starting with: ${token.substring(0, 1)}...",
-      );
-    }
-
-    final url = Uri.parse(
-      'https://api.github.com/repos/$owner/$repo/actions/workflows/$workflowId/dispatches',
-    );
-
-    final response = await http.post(
-      url,
-      headers: _headers,
-      body: jsonEncode({
-        'ref': 'main',
-        'inputs': {
-          'num_posts': count.toString(),
-          'target_user': user,
-          'mode': mode,
-        },
-      }),
-    );
-
-    return response.statusCode == 204;
-  }
-
-  Future<String?> fetchLatestGistId() async {
-    final url = Uri.parse('https://api.github.com/users/$owner/gists');
-    final response = await http.get(url, headers: _headers);
-
-    if (response.statusCode == 200) {
-      List gists = jsonDecode(response.body);
-      for (var gist in gists) {
-        if (gist['files'].containsKey('data.json') ||
-            gist['files'].containsKey('gallary_data.json')) {
-          return gist['id'];
-        }
-      }
-    }
-    return null;
-  }
-
   /// update_mygist.yml をトリガーする
   Future<bool> triggerUpdateMygistWorkflow({
     required String gistId,

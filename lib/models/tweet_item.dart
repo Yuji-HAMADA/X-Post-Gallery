@@ -53,4 +53,12 @@ class TweetItem {
 
   /// Grid表示用サムネイル（mediaUrlsの先頭）
   String get thumbnailUrl => mediaUrls.isNotEmpty ? mediaUrls.first : '';
+
+  Map<String, dynamic> toJson() => {
+    'full_text': fullText,
+    'created_at': createdAt,
+    'media_urls': mediaUrls,
+    'id_str': id,
+    if (postUrl != null) 'post_url': postUrl,
+  };
 }
