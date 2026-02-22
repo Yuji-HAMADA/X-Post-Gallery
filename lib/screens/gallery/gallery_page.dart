@@ -168,16 +168,18 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> _showRefreshAuthDialog() async {
     final vm = context.read<GalleryViewModel>();
     final pwController = TextEditingController();
-    final gistIdController = TextEditingController();
 
-    final result = await showDialog<Map<String, String>>(
+    final result = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('認証'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Text('ForYou更新を有効にするにはパスワードを入力してください。'),
+            const SizedBox(height: 16),
             TextField(
               controller: pwController,
               obscureText: true,
@@ -185,14 +187,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 labelText: 'パスワード',
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: gistIdController,
-              decoration: const InputDecoration(
-                labelText: 'Gist ID',
-                border: OutlineInputBorder(),
-              ),
+              onSubmitted: (val) => Navigator.pop(context, val),
             ),
           ],
         ),
@@ -202,21 +197,24 @@ class _GalleryPageState extends State<GalleryPage> {
             child: const Text('キャンセル'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, {
-              'password': pwController.text,
-              'gistId': gistIdController.text.trim(),
-            }),
+            onPressed: () => Navigator.pop(context, pwController.text),
             child: const Text('OK'),
           ),
         ],
       ),
     );
 
-    if (result == null) return;
+    if (result == null || result.isEmpty) return;
+
+    final masterId = vm.defaultMasterGistId;
+    if (masterId.isEmpty) {
+      _showErrorSnackBar('マスターGist IDが設定されていません');
+      return;
+    }
 
     final success = await vm.authenticateRefresh(
-      password: result['password']!,
-      gistId: result['gistId']!,
+      password: result,
+      gistId: masterId,
     );
 
     if (!success) {
@@ -869,8 +867,8 @@ class _GalleryPageState extends State<GalleryPage> {
                 const PopupMenuItem(
                   value: 'refresh',
                   child: ListTile(
-                    leading: Icon(Icons.refresh),
-                    title: Text('更新'),
+                    leading: Icon(Icons.auto_awesome),
+                    title: Text('ForYou'),
                     dense: true,
                   ),
                 ),
