@@ -6,6 +6,7 @@ import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_page.dart';
 import '../stats/stats_page.dart';
+import 'components/user_id_input_dialog.dart';
 
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
@@ -623,6 +624,51 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
+  Future<void> _handleSearchUser() async {
+    final userIdInput = await showDialog<String>(
+      context: context,
+      builder: (context) => const UserIdInputDialog(),
+    );
+
+    if (userIdInput == null || userIdInput.isEmpty) return;
+
+    final vm = context.read<GalleryViewModel>();
+    final userIdLower = userIdInput.trim().toLowerCase();
+
+    // 1. userGists から検索 (case-insensitive)
+    String? matchedUsername;
+    for (final username in vm.userGists.keys) {
+      if (username.toLowerCase() == userIdLower) {
+        matchedUsername = username;
+        break;
+      }
+    }
+
+    if (matchedUsername != null) {
+      _openUserGallery(matchedUsername, true);
+      return;
+    }
+
+    // 2. マスターアイテムから検索 (case-insensitive)
+    final userRegExp = RegExp(r'^@([^:]+):');
+    for (final item in vm.items) {
+      final m = userRegExp.firstMatch(item.fullText);
+      if (m != null) {
+        final username = m.group(1)!.trim();
+        if (username.toLowerCase() == userIdLower) {
+          matchedUsername = username;
+          break;
+        }
+      }
+    }
+
+    if (matchedUsername != null) {
+      _openUserGallery(matchedUsername, false);
+    } else {
+      _showErrorSnackBar('ユーザー @$userIdInput は見つかりませんでした');
+    }
+  }
+
   // --- 外部連携 ---
   Future<void> _launchXHashtag(String keyword) async => _openUrl(
     Uri.parse(
@@ -773,9 +819,19 @@ class _GalleryPageState extends State<GalleryPage> {
                     _showPasswordDialog(canCancel: true);
                   case 'refresh':
                     _handleRefresh();
+                  case 'search_user':
+                    _handleSearchUser();
                 }
               },
               itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'search_user',
+                  child: ListTile(
+                    leading: Icon(Icons.person_search),
+                    title: Text('ユーザー検索'),
+                    dense: true,
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'key',
                   child: ListTile(

@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // クラスの外で定義し、const をつけるのがポイント
 const String _externalToken = String.fromEnvironment('GITHUB_TOKEN');
+const String _externalGithubUsername = String.fromEnvironment('GITHUB_USERNAME');
 
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
@@ -12,7 +13,9 @@ class GitHubService {
       ? _externalToken
       : (dotenv.env['GITHUB_TOKEN'] ?? '');
 
-  final String owner = 'Yuji-HAMADA';
+  final String owner = _externalGithubUsername.isNotEmpty
+      ? _externalGithubUsername
+      : (dotenv.env['GITHUB_USERNAME'] ?? 'Yuji-HAMADA');
   final String repo = 'x-post-gallery';
   final String workflowId = 'run.yml';
 
