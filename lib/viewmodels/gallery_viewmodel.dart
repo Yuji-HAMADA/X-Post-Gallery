@@ -177,9 +177,9 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// ワークフローをトリガーしてポーリング
   Future<void> executeRefresh(int count) async {
-    final gistId = await _repository.getSavedGistId();
-    if (gistId == null || gistId.isEmpty) {
-      _errorMessage = 'Gist IDが設定されていません';
+    final masterGistId = defaultMasterGistId;
+    if (masterGistId.isEmpty) {
+      _errorMessage = 'マスターGist ID (MASTER_GIST_ID) が設定されていません';
       notifyListeners();
       return;
     }
@@ -188,7 +188,7 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
 
     final triggered = await _githubService.triggerUpdateMygistWorkflow(
-      gistId: gistId,
+      gistId: masterGistId,
       count: count,
     );
 
@@ -214,7 +214,10 @@ class GalleryViewModel extends ChangeNotifier {
     }
 
     if (pollStatus == 'completed') {
-      await loadGallery(gistId);
+      final currentGistId = await _repository.getSavedGistId();
+      if (currentGistId != null && currentGistId == masterGistId) {
+        await loadGallery(currentGistId);
+      }
       _refreshStatus = RefreshStatus.completed;
     } else {
       _errorMessage = '更新がタイムアウトまたは失敗しました';
@@ -262,9 +265,9 @@ class GalleryViewModel extends ChangeNotifier {
     required bool stopOnExisting,
     String? gistIdOverride,
   }) async {
-    final gistId = gistIdOverride ?? await _repository.getSavedGistId();
-    if (gistId == null || gistId.isEmpty) {
-      _errorMessage = 'Gist IDが設定されていません';
+    final targetGistId = defaultMasterGistId;
+    if (targetGistId.isEmpty) {
+      _errorMessage = 'マスターGist ID (MASTER_GIST_ID) が設定されていません';
       notifyListeners();
       return;
     }
@@ -273,7 +276,7 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
 
     final triggered = await _githubService.triggerAppendGistWorkflow(
-      gistId: gistId,
+      gistId: targetGistId,
       user: user,
       hashtag: hashtag,
       mode: mode,
@@ -305,7 +308,7 @@ class GalleryViewModel extends ChangeNotifier {
     if (pollStatus == 'completed') {
       // gistIdOverride がない場合のみマスターをリロード（ユーザーGistは呼び出し側が処理）
       if (gistIdOverride == null) {
-        await loadGallery(gistId);
+        await loadGallery(targetGistId);
       }
       _appendStatus = AppendStatus.completed;
     } else {
