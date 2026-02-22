@@ -11,6 +11,7 @@ enum RefreshStatus { idle, running, completed, failed }
 enum AppendStatus { idle, running, completed, failed }
 
 const String _externalPwAdmin = String.fromEnvironment('PW_ADMIN');
+const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -51,6 +52,20 @@ class GalleryViewModel extends ChangeNotifier {
   int get selectedCount => _selectedIds.length;
 
   static const int defaultRefreshCount = 18;
+
+  // --- Helper ---
+  bool checkAdminPassword(String password) {
+    final correctPw = _externalPwAdmin.isNotEmpty
+        ? _externalPwAdmin
+        : (dotenv.env['PW_ADMIN'] ?? '');
+    return password.isNotEmpty && password == correctPw;
+  }
+
+  String get defaultMasterGistId {
+    return _externalMasterGistId.isNotEmpty
+        ? _externalMasterGistId
+        : (dotenv.env['MASTER_GIST_ID'] ?? '');
+  }
 
   // --- アクション ---
 

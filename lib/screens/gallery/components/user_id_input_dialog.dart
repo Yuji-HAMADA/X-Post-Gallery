@@ -1,7 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../../../viewmodels/gallery_viewmodel.dart';
-import '../gallery_page.dart'; // Assuming GalleryPage is in the parent directory
 
 class UserIdInputDialog extends StatefulWidget {
   const UserIdInputDialog({super.key});

@@ -1,13 +1,15 @@
 """
 指定ユーザ(またはハッシュタグ)のポストを取得し、既存Gistにアペンドする。
-  - 先頭1件はGistの先頭に挿入、残りは末尾に追加
   - 既存IDが見つかったら取得を停止（--stop-on-existing）
   - 3種類のGistフォーマットに対応:
       master : {user_screen_name, user_gists:{user:gist_id}, tweets:[flat]}
       multi  : {users:{user:{tweets:[]}}}
       single : {user_screen_name, tweets:[]}
-  - master形式でuser_gistsが存在する場合: 閾値到達で自動的に移動先Gistを選択し移動
-    マスターGistには代表1件（gist_idフィールド付き）を残す
+  - master形式で対象がユーザの場合:
+      - 既存ユーザ: user_gists に登録されているGistへ追記
+      - 新規ユーザ: 任意の既存Gistを選択し、そこへ追記
+      - 追加することで上限(GIST_MAX_TWEETS)を超える場合は、新規Gistを作成しそこへ保存する
+      - マスターGistには代表1件とgist_id参照を保持する
 """
 import json
 import os
@@ -20,7 +22,6 @@ import tempfile
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
-MIGRATE_THRESHOLD = 2   # この件数以上になったら移動
 GIST_MAX_TWEETS = 1000  # 移動先Gistの上限
 
 def parse_args():
@@ -248,7 +249,7 @@ def parse_tweets_js():
 # ---------------------------------------------------------------------------
 
 def append_tweets(existing_tweets, new_tweets):
-    """新規tweetsを既存に挿入: 先頭1件→先頭、残り→末尾"""
+    """新規tweetsをすべて先頭に挿入"""
     if not new_tweets:
         print("ℹ️ No new tweets to append.")
         return existing_tweets
@@ -259,10 +260,8 @@ def append_tweets(existing_tweets, new_tweets):
         print("ℹ️ All tweets already exist. Nothing to append.")
         return existing_tweets
 
-    first = unique_new[0]
-    rest = unique_new[1:]
-    result = [first] + existing_tweets + rest
-    print(f"✨ Appended: 1 to head + {len(rest)} to tail = {len(unique_new)} new tweets")
+    result = unique_new + existing_tweets
+    print(f"✨ Appended: {len(unique_new)} new tweets to head")
     return result
 
 # ---------------------------------------------------------------------------
@@ -275,6 +274,9 @@ def build_output(full_data, user, merged_tweets, user_gist_id=None):
       - master: flatリストから該当ユーザを除き、代表1件（gist_idフィールド付き）を先頭に追加
       - multi : users[user] = {gist_id, tweets:[代表1件]}
     """
+    if not merged_tweets:
+        return full_data
+
     if is_master_gist_format(full_data) and user:
         updated = dict(full_data)
         # 他ユーザのツイートはそのまま保持
@@ -345,37 +347,50 @@ def create_gist_for_user(user, tweets):
     new_gist_id = gist_url.split("/")[-1]
     return new_gist_id
 
-def migrate_user_tweets(promote_gist_id, user, tweets):
-    """ユーザのツイートを promote Gist（または新規Gist）に移動し、移動先Gist IDを返す"""
-    promote_filename, promote_data = fetch_gist_data(promote_gist_id)
-
+def update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data, user, merged_tweets):
+    """ユーザGistを更新する。GIST_MAX_TWEETSを超える場合は新規Gistを作成し移動する。"""
     if is_multi_user_format(promote_data):
         current_total = sum(
-            len(u.get("tweets", [])) for u in promote_data.get("users", {}).values()
+            len(u.get("tweets", [])) for u_name, u in promote_data.get("users", {}).items() if u_name != user
         )
     elif isinstance(promote_data, dict):
-        current_total = len(promote_data.get("tweets", []))
+        current_total = 0  # single-user format の場合は他ユーザのツイートは0件
     else:
-        current_total = len(promote_data) if isinstance(promote_data, list) else 0
+        current_total = 0
 
-    print(f"📊 移動先Gist ({promote_gist_id[:8]}...): 現在 {current_total} 件")
+    print(f"📊 対象ユーザGist ({promote_gist_id[:8]}...): 他ユーザのツイート {current_total} 件, 今回保存 {len(merged_tweets)} 件")
 
-    if current_total + len(tweets) > GIST_MAX_TWEETS:
+    if current_total + len(merged_tweets) > GIST_MAX_TWEETS:
         print(f"⚠️  追加すると {GIST_MAX_TWEETS} 件を超えるため、新規Gistを作成します...")
-        new_gist_id = create_gist_for_user(user, tweets)
-        print(f"🆕 新規Gist作成: {new_gist_id}  (@{user}: {len(tweets)} 件)")
+        new_gist_id = create_gist_for_user(user, merged_tweets)
+        print(f"🆕 新規Gist作成: {new_gist_id}  (@{user}: {len(merged_tweets)} 件)")
+        
+        # 古いGistからユーザデータを削除する（クリーンアップ）
+        if is_multi_user_format(promote_data) and user in promote_data.get("users", {}):
+            updated_promote = dict(promote_data)
+            del updated_promote["users"][user]
+            fd, tmp_file = tempfile.mkstemp(suffix=".json", prefix="promote_del_")
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(updated_promote, f, ensure_ascii=False, indent=2)
+                subprocess.run(["gh", "gist", "edit", promote_gist_id, "-f", promote_filename, tmp_file])
+                print(f"🧹 古いGist ({promote_gist_id}) から @{user} のデータを削除しました。")
+            finally:
+                if os.path.exists(tmp_file):
+                    os.unlink(tmp_file)
+        
         return new_gist_id
 
     # 既存の promote Gist に追加
     if is_multi_user_format(promote_data):
         updated_promote = dict(promote_data)
         users = dict(updated_promote.get("users", {}))
-        users[user] = {"tweets": tweets}
+        users[user] = {"tweets": merged_tweets}
         updated_promote["users"] = users
     else:
-        updated_promote = {"users": {user: {"tweets": tweets}}}
+        updated_promote = {"users": {user: {"tweets": merged_tweets}}}
 
-    fd, tmp_file = tempfile.mkstemp(suffix=".json", prefix="promote_")
+    fd, tmp_file = tempfile.mkstemp(suffix=".json", prefix="promote_upd_")
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(updated_promote, f, ensure_ascii=False, indent=2)
@@ -388,11 +403,11 @@ def migrate_user_tweets(promote_gist_id, user, tweets):
             os.unlink(tmp_file)
 
     if result.returncode != 0:
-        print(f"❌ 移動先Gist更新失敗: {result.stderr}")
+        print(f"❌ 対象ユーザGist更新失敗: {result.stderr}")
         sys.exit(1)
 
-    after_total = current_total + len(tweets)
-    print(f"✅ @{user} を Gist {promote_gist_id} に追加 ({len(tweets)} 件 → 合計 {after_total} 件)")
+    after_total = current_total + len(merged_tweets)
+    print(f"✅ @{user} のデータを Gist {promote_gist_id} に保存しました (合計 {after_total} 件)")
     return promote_gist_id
 
 # ---------------------------------------------------------------------------
@@ -412,99 +427,112 @@ def main():
     # 1. 既存Gistデータ取得
     gist_filename, full_data = fetch_gist_data(args.gist_id)
 
-    # 2. フォーマット判定とユーザのツイート取得
     master = is_master_gist_format(full_data)
-    multi_user = is_multi_user_format(full_data)
-    existing_tweets = get_user_tweets(full_data, args.user)
+    
+    if master and args.user:
+        # マスターGist & ユーザ指定 の場合: 常にユーザGistへアクセスして追加処理を行う
+        user_gists = full_data.get("user_gists", {})
+        is_existing_user = args.user in user_gists
+        
+        promote_gist_id = args.promote_gist_id
+        if not promote_gist_id:
+            if is_existing_user:
+                promote_gist_id = user_gists[args.user]
+            else:
+                promote_gist_id = select_promote_gist_from_master(full_data)
+                
+        if not promote_gist_id:
+            print("⚠️ 既存のユーザGistが見つかりません。新規作成します。")
+            promote_gist_id = create_gist_for_user(args.user, [])
+            
+        print(f"📌 対象ユーザGist: {promote_gist_id} (既存ユーザ: {is_existing_user})")
+        
+        # ユーザGistから既存ツイートを取得
+        promote_filename, promote_data = fetch_gist_data(promote_gist_id)
+        existing_tweets = get_user_tweets(promote_data, args.user)
+        
+        # 安全チェック
+        if len(existing_tweets) == 0 and not args.force_empty and not is_existing_user:
+             # 新規ユーザなら0件でもOK
+             pass
+        elif len(existing_tweets) == 0 and not args.force_empty:
+             print("⚠️ 警告: 既存ユーザのはずですがGist内のTweet数が0件です。")
+             print("   意図的に空のGistへAppendしたい場合は --force-empty を付けて再実行してください。")
+             sys.exit(1)
 
-    if master:
-        total_items = len(full_data.get("tweets", []))
-        fmt_label = "master"
-    elif multi_user:
-        total_items = sum(len(u.get("tweets", [])) for u in full_data.get("users", {}).values())
-        fmt_label = "multi-user"
-    else:
-        total_items = len(existing_tweets)
-        fmt_label = "single-user"
+        existing_ids_ordered = get_existing_ids_ordered(existing_tweets)
+        skip_ids_file = write_skip_ids_file(existing_ids_ordered)
+        
+        try:
+            # 新規ポスト取得
+            run_extraction(args.user, args.hashtag, args.mode, args.num, skip_ids_file, args.stop_on_existing)
+        finally:
+            os.unlink(skip_ids_file)
 
-    print(f"☁️ Gist: {total_items} items total, {len(existing_tweets)} for {target_label} ({fmt_label}, '{gist_filename}')")
+        new_tweets = parse_tweets_js()
+        print(f"📥 New tweets extracted: {len(new_tweets)}")
 
-    existing_ids_ordered = get_existing_ids_ordered(existing_tweets)
-    print(f"📋 Existing IDs: {len(existing_ids_ordered)}")
+        merged = append_tweets(existing_tweets, new_tweets)
+        
+        # ユーザGistを更新・移動
+        final_user_gist_id = update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data, args.user, merged)
+        
+        # マスターGist用に代表1件を保持するデータを構築
+        final_output = build_output(full_data, args.user, merged, user_gist_id=final_user_gist_id)
+        
+        output_file = "assets/data/data.json"
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(final_output, f, ensure_ascii=False, indent=2)
 
-    # 新規ユーザ判定（安全チェック用）
-    if master:
-        is_new_user = not any(_tweet_belongs_to_user(t, args.user) for t in full_data.get("tweets", [])) if args.user else False
-    elif multi_user:
-        is_new_user = args.user not in full_data.get("users", {})
-    else:
-        is_new_user = False
-
-    # 安全チェック: 0件は異常（新規ユーザの場合は除く）
-    if len(existing_tweets) == 0 and not args.force_empty and not is_new_user:
-        print("⚠️  警告: GistのTweet数が0件です。")
-        print("   Appendモードなのに既存データが空なのは異常な状態の可能性があります。")
-        print("   意図的に空のGistへAppendしたい場合は --force-empty を付けて再実行してください。")
-        sys.exit(1)
-
-    # 3. 既存IDファイルを作成（順序付き：連続一致判定用）
-    skip_ids_file = write_skip_ids_file(existing_ids_ordered)
-
-    try:
-        # 4. 新規ポスト取得
-        run_extraction(args.user, args.hashtag, args.mode, args.num, skip_ids_file, args.stop_on_existing)
-    finally:
-        os.unlink(skip_ids_file)
-
-    # 5. 取得結果をパース
-    new_tweets = parse_tweets_js()
-    print(f"📥 New tweets extracted: {len(new_tweets)}")
-
-    # 6. アペンド
-    merged = append_tweets(existing_tweets, new_tweets)
-
-    # 7. 移動先Gistの決定
-    #    -p 手動指定 > user_gists からの自動選択 > 移動なし
-    promote_gist_id = args.promote_gist_id
-    if not promote_gist_id and args.user and "user_gists" in full_data:
-        promote_gist_id = select_promote_gist_from_master(full_data)
-        if promote_gist_id:
-            print(f"🔍 移動先Gistを自動選択: {promote_gist_id}")
-
-    # 8. 移動判定（閾値到達かつ移動先が決定している場合）
-    user_gist_id = None
-    if promote_gist_id and args.user and len(merged) >= MIGRATE_THRESHOLD:
-        print(f"🔄 @{args.user} が {len(merged)} 件に達しました（閾値: {MIGRATE_THRESHOLD}）→ 移動処理を開始します")
-        user_gist_id = migrate_user_tweets(promote_gist_id, args.user, merged)
-        print(f"📌 移動先Gist: {user_gist_id}")
-        print(f"   マスターGistには代表1件 + gist_id参照を保持します")
-
-    # 9. ローカルに保存
-    output_file = "assets/data/data.json"
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    final_output = build_output(full_data, args.user, merged, user_gist_id=user_gist_id)
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(final_output, f, ensure_ascii=False, indent=2)
-
-    if user_gist_id:
-        print(f"💾 Saved: マスターGist用 (代表1件 + gist_id) to {output_file}")
-    else:
-        print(f"💾 Saved: {len(merged)} tweets for {target_label} to {output_file}")
-
-    # 10. ソースGist更新
-    print(f"☁️ Updating Gist ({args.gist_id})...")
-    result = subprocess.run(
-        ["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        if user_gist_id:
-            print(f"✅ Gist updated! @{args.user} → {user_gist_id}")
+        print(f"☁️ Updating Master Gist ({args.gist_id})...")
+        result = subprocess.run(
+            ["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print(f"✅ Master Gist updated! @{args.user} → {final_user_gist_id}")
         else:
-            print(f"✅ Gist updated successfully! Total for {target_label}: {len(merged)} tweets")
+            print(f"❌ Master Gist update failed: {result.stderr}")
+            sys.exit(1)
+
     else:
-        print(f"❌ Gist update failed: {result.stderr}")
-        sys.exit(1)
+        # マスターGistではない、またはハッシュタグの場合（従来のシンプルな追加処理）
+        existing_tweets = get_user_tweets(full_data, args.user)
+        existing_ids_ordered = get_existing_ids_ordered(existing_tweets)
+        
+        if len(existing_tweets) == 0 and not args.force_empty:
+            print("⚠️ 警告: Gist内のTweet数が0件です。")
+            print("   意図的に空のGistへAppendしたい場合は --force-empty を付けて再実行してください。")
+            sys.exit(1)
+
+        skip_ids_file = write_skip_ids_file(existing_ids_ordered)
+        try:
+            run_extraction(args.user, args.hashtag, args.mode, args.num, skip_ids_file, args.stop_on_existing)
+        finally:
+            os.unlink(skip_ids_file)
+
+        new_tweets = parse_tweets_js()
+        print(f"📥 New tweets extracted: {len(new_tweets)}")
+
+        merged = append_tweets(existing_tweets, new_tweets)
+        final_output = build_output(full_data, args.user, merged, user_gist_id=None)
+
+        output_file = "assets/data/data.json"
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(final_output, f, ensure_ascii=False, indent=2)
+
+        print(f"☁️ Updating Gist ({args.gist_id})...")
+        result = subprocess.run(
+            ["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print(f"✅ Gist updated successfully! Total for {target_label}: {len(merged)} tweets")
+        else:
+            print(f"❌ Gist update failed: {result.stderr}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -73,28 +73,57 @@ class _GalleryPageState extends State<GalleryPage> {
   // --- ダイアログ系（BuildContext必要なのでウィジェットに残す） ---
 
   void _showPasswordDialog({bool canCancel = false}) {
-    String input = "";
+    String gistIdInput = "";
+    String passwordInput = "";
+    
+    void handleUnlock() {
+      Navigator.pop(context);
+      final vm = context.read<GalleryViewModel>();
+      
+      if (passwordInput.isNotEmpty && vm.checkAdminPassword(passwordInput)) {
+        final defaultId = vm.defaultMasterGistId;
+        if (defaultId.isNotEmpty) {
+          _loadAndRestore(defaultId);
+          return;
+        } else {
+          _showErrorSnackBar('デフォルトのマスターGistIDが設定されていません');
+        }
+      }
+      
+      if (gistIdInput.isNotEmpty) {
+        _loadAndRestore(gistIdInput);
+      } else {
+        _showErrorSnackBar('Gist IDまたは正しいパスワードを入力してください');
+        if (mounted) _showPasswordDialog(canCancel: canCancel);
+      }
+    }
+
     showDialog(
       context: context,
       barrierDismissible: canCancel,
       builder: (context) => AlertDialog(
-        title: const Text("Secret Key Required"),
+        title: const Text("Unlock Gallery"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Please enter your Secret Gist ID:"),
+            const Text("Gist IDを入力するか、パスワードを入力してください:"),
+            const SizedBox(height: 10),
+            TextField(
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: "Gist ID",
+              ),
+              onChanged: (value) => gistIdInput = value,
+            ),
             const SizedBox(height: 10),
             TextField(
               obscureText: true,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
-                hintText: "Enter ID here",
+                labelText: "Password",
               ),
-              onChanged: (value) => input = value,
-              onSubmitted: (value) {
-                Navigator.pop(context);
-                _loadAndRestore(value);
-              },
+              onChanged: (value) => passwordInput = value,
+              onSubmitted: (_) => handleUnlock(),
             ),
           ],
         ),
@@ -105,10 +134,7 @@ class _GalleryPageState extends State<GalleryPage> {
               child: const Text("Cancel"),
             ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _loadAndRestore(input);
-            },
+            onPressed: handleUnlock,
             child: const Text("Unlock"),
           ),
         ],
