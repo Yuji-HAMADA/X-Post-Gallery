@@ -201,11 +201,12 @@ def update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data,
         # 旧Gistから削除
         if user in users_data:
             del users_data[user]
+            updated_data = {"users": users_data}
             fd, tmp = tempfile.mkstemp(suffix=".json")
-            with os.fdopen(fd, 'w', encoding='utf-8') as f: json.dump({"users": users_data}, f, ensure_ascii=False, indent=2)
+            with os.fdopen(fd, 'w', encoding='utf-8') as f: json.dump(updated_data, f, ensure_ascii=False, indent=2)
             subprocess.run(["gh", "gist", "edit", promote_gist_id, "-f", promote_filename, tmp])
             os.unlink(tmp)
-        return new_id
+        return new_id, {"users": {user: {"tweets": merged_tweets}}} # 新しいGistのデータ構造を返す
 
     # 追記保存
     users_data[user] = {"tweets": merged_tweets}
@@ -215,7 +216,7 @@ def update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data,
     subprocess.run(["gh", "gist", "edit", promote_gist_id, "-f", promote_filename, tmp])
     os.unlink(tmp)
     print(f"✅ Saved to Gist {promote_gist_id} (Total {current_total + len(merged_tweets)} for all users)")
-    return promote_gist_id
+    return promote_gist_id, updated_data
 
 # ---------------------------------------------------------------------------
 # メイン
@@ -226,6 +227,9 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
     
+    # Gistの取得結果と更新状態をキャッシュしてAPI遅延による上書きを防ぐ
+    gist_cache = {} # { gist_id: {"filename": str, "data": dict} }
+    
     for user, tweets in user_groups.items():
         if user == "Unknown":
             master_tweets = append_tweets(master_tweets, tweets); continue
@@ -234,13 +238,24 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
         promote_gist_id = promote_gist_id_override or user_gists_map.get(user) or select_promote_gist_from_master(master_data)
         if not promote_gist_id: promote_gist_id = create_gist_for_user(user, [])
         
-        p_filename, p_data = fetch_gist_data(promote_gist_id)
+        # キャッシュから取得、なければフェッチ
+        if promote_gist_id in gist_cache:
+            p_filename = gist_cache[promote_gist_id]["filename"]
+            p_data = gist_cache[promote_gist_id]["data"]
+        else:
+            p_filename, p_data = fetch_gist_data(promote_gist_id)
+            gist_cache[promote_gist_id] = {"filename": p_filename, "data": p_data}
+            
         existing = get_user_tweets(p_data, user)
         merged = append_tweets(existing, tweets)
         
         if len(merged) == len(existing): continue
         
-        final_id = update_or_migrate_user_gist(promote_gist_id, p_filename, p_data, user, merged)
+        final_id, updated_data = update_or_migrate_user_gist(promote_gist_id, p_filename, p_data, user, merged)
+        
+        # キャッシュを更新
+        gist_cache[final_id] = {"filename": p_filename, "data": updated_data}
+        
         user_gists_map[user] = final_id
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         rep = dict(merged[0]); rep["gist_id"] = final_id
