@@ -169,7 +169,7 @@ def append_tweets(existing_tweets, new_tweets):
     return unique_new + existing_tweets
 
 # ---------------------------------------------------------------------------
-# Gist作成・移動 (修正: ユーザGist形式を採用)
+# Gist作成・移動 (修正: インメモリ更新に対応)
 # ---------------------------------------------------------------------------
 
 def create_gist_for_user(user, tweets):
@@ -185,8 +185,8 @@ def create_gist_for_user(user, tweets):
     if result.returncode != 0: print(f"❌ Failed: {result.stderr}"); sys.exit(1)
     return result.stdout.strip().rstrip("/").split("/")[-1]
 
-def update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data, user, merged_tweets):
-    """ユーザGistをマルチユーザ形式で更新"""
+def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, merged_tweets, gist_cache):
+    """ユーザGistのデータをメモリ上で更新し、必要なら新規Gistを作成してマイグレーションを行う。"""
     if not is_multi_user_format(promote_data):
         print(f"⚠️  Warning: Target Gist {promote_gist_id} is not in multi-user format. Converting...")
         promote_data = {"users": {}}
@@ -198,24 +198,17 @@ def update_or_migrate_user_gist(promote_gist_id, promote_filename, promote_data,
     if current_total + len(merged_tweets) > GIST_MAX_TWEETS:
         print(f"⚠️  Limit reached ({GIST_MAX_TWEETS}). Creating new Gist...")
         new_id = create_gist_for_user(user, merged_tweets)
-        # 旧Gistから削除
+        # 移行元のGistからユーザのデータを削除（メモリ上）
         if user in users_data:
             del users_data[user]
-            updated_data = {"users": users_data}
-            fd, tmp = tempfile.mkstemp(suffix=".json")
-            with os.fdopen(fd, 'w', encoding='utf-8') as f: json.dump(updated_data, f, ensure_ascii=False, indent=2)
-            subprocess.run(["gh", "gist", "edit", promote_gist_id, "-f", promote_filename, tmp])
-            os.unlink(tmp)
-        return new_id, {"users": {user: {"tweets": merged_tweets}}} # 新しいGistのデータ構造を返す
+            # 移行元Gistの更新をキューに積む
+            gist_cache[promote_gist_id]["data"] = {"users": users_data}
+            gist_cache[promote_gist_id]["is_modified"] = True
+        return new_id, {"users": {user: {"tweets": merged_tweets}}}
 
-    # 追記保存
+    # 追記保存（メモリ上）
     users_data[user] = {"tweets": merged_tweets}
     updated_data = {"users": users_data}
-    fd, tmp = tempfile.mkstemp(suffix=".json")
-    with os.fdopen(fd, 'w', encoding='utf-8') as f: json.dump(updated_data, f, ensure_ascii=False, indent=2)
-    subprocess.run(["gh", "gist", "edit", promote_gist_id, "-f", promote_filename, tmp])
-    os.unlink(tmp)
-    print(f"✅ Saved to Gist {promote_gist_id} (Total {current_total + len(merged_tweets)} for all users)")
     return promote_gist_id, updated_data
 
 # ---------------------------------------------------------------------------
@@ -227,9 +220,11 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
     
-    # Gistの取得結果と更新状態をキャッシュしてAPI遅延による上書きを防ぐ
-    gist_cache = {} # { gist_id: {"filename": str, "data": dict} }
+    # Gistの取得結果と更新状態をキャッシュして、最後に一括で書き込む
+    gist_cache = {} # { gist_id: {"filename": str, "data": dict, "is_modified": bool} }
     
+    migrated_count = 0
+
     for user, tweets in user_groups.items():
         if user == "Unknown":
             master_tweets = append_tweets(master_tweets, tweets); continue
@@ -244,22 +239,45 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             p_data = gist_cache[promote_gist_id]["data"]
         else:
             p_filename, p_data = fetch_gist_data(promote_gist_id)
-            gist_cache[promote_gist_id] = {"filename": p_filename, "data": p_data}
+            gist_cache[promote_gist_id] = {"filename": p_filename, "data": p_data, "is_modified": False}
             
         existing = get_user_tweets(p_data, user)
         merged = append_tweets(existing, tweets)
         
         if len(merged) == len(existing): continue
         
-        final_id, updated_data = update_or_migrate_user_gist(promote_gist_id, p_filename, p_data, user, merged)
+        migrated_count += (len(merged) - len(existing))
         
-        # キャッシュを更新
-        gist_cache[final_id] = {"filename": p_filename, "data": updated_data}
+        # メモリ上でデータを更新
+        final_id, updated_data = update_or_migrate_user_gist_in_memory(promote_gist_id, p_data, user, merged, gist_cache)
+        
+        # キャッシュを更新し、変更フラグを立てる
+        if final_id not in gist_cache:
+             # 新規Gistが作成された場合。ファイル名はデフォルトで "data.json"
+             gist_cache[final_id] = {"filename": "data.json", "data": updated_data, "is_modified": False} # 作成時に書き込まれているので False
+        else:
+             gist_cache[final_id]["data"] = updated_data
+             gist_cache[final_id]["is_modified"] = True
         
         user_gists_map[user] = final_id
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         rep = dict(merged[0]); rep["gist_id"] = final_id
         master_tweets.insert(0, rep)
+
+    print(f"📊 Total migrated to user Gists: {migrated_count} tweets")
+
+    # ループ終了後、変更があったGistのみを一括で更新する
+    for g_id, cache_info in gist_cache.items():
+        if cache_info.get("is_modified"):
+            print(f"☁️ Batch Updating Gist ({g_id})...")
+            fd, tmp = tempfile.mkstemp(suffix=".json")
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(cache_info["data"], f, ensure_ascii=False, indent=2)
+                subprocess.run(["gh", "gist", "edit", g_id, "-f", cache_info["filename"], tmp])
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
 
     master_data["user_gists"] = user_gists_map
     master_data["tweets"] = master_tweets
