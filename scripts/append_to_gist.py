@@ -194,7 +194,7 @@ def run_extraction(args, skip_ids_file):
         cmd = [
             sys.executable, "scripts/extract_foryou.py",
             "-n", str(args.num),
-            "--gist-id", args.gist_id,
+            "--skip-ids-file", skip_ids_file,
         ]
         print(f"🚀 Running ForYou Extraction: {' '.join(cmd)}")
     else:

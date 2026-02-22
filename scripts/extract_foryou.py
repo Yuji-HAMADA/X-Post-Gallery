@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import argparse
-import subprocess
 from playwright.async_api import async_playwright
 
 # extract_media.py から必要な関数と定数をインポート
@@ -14,61 +13,22 @@ from extract_media import extract_tweet_data, AUTH_PATH, DATA_DIR, OUTPUT_FILE
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=100, help="取得する最大件数")
-    parser.add_argument("--gist-id", type=str, default=None, help="既存データのGist ID (重複チェック用)")
+    parser.add_argument("--skip-ids-file", type=str, default="", help="スキップすべきIDのリストが書かれたファイルへのパス")
+    # gist-id の引数は不要になったため削除（または互換性のため残しても良いですが、ここでは新しい設計に合わせます）
+    parser.add_argument("--gist-id", type=str, default=None, help="Deprecated: use --skip-ids-file instead")
     return parser.parse_args()
 
-def get_existing_ids_from_gist(gist_id):
-    """Gistから既存のdata.jsonを取得し、IDのセットを返す"""
-    if not gist_id:
-        return set()
-    
-    print(f"🔍 Fetching existing data from Gist: {gist_id} ...")
-    
-    # 読み込みを試みるファイル名の候補 (優先順)
-    candidate_files = ["data.json", "gallary_data.json", "tweets.js"]
-    
-    for filename in candidate_files:
-        try:
-            # gh コマンドを使って Gist の内容を取得
-            result = subprocess.run(
-                ["gh", "gist", "view", gist_id, "--filename", filename, "--raw"],
-                capture_output=True, text=True, check=True
-            )
-            
-            raw_data = result.stdout.strip()
-            
-            # tweets.js の場合、JSの代入文を除去してJSON部分を取り出す簡易処理
-            if filename == "tweets.js" and "=" in raw_data:
-                parts = raw_data.split('=', 1)
-                if len(parts) > 1:
-                    raw_data = parts[1].strip()
-
-            data = json.loads(raw_data)
-            
-            ids = set()
-            # データ構造の判定
-            items = []
-            if isinstance(data, dict) and "tweets" in data:
-                items = data["tweets"]
-            elif isinstance(data, list):
-                items = data
-            
-            for item in items:
-                tid = item.get("id_str")
-                if not tid and "tweet" in item:
-                    tid = item["tweet"].get("id_str")
-                
+def load_skip_ids(skip_ids_file):
+    """ファイルからスキップすべき既存IDのセットを読み込む"""
+    skip_ids = set()
+    if skip_ids_file and os.path.exists(skip_ids_file):
+        with open(skip_ids_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                tid = line.strip()
                 if tid:
-                    ids.add(tid)
-            
-            print(f"✅ Loaded {len(ids)} existing IDs from Gist (found '{filename}').")
-            return ids
-
-        except (subprocess.CalledProcessError, json.JSONDecodeError):
-            continue
-
-    print("⚠️ No valid data found in Gist. Proceeding as fresh run.")
-    return set()
+                    skip_ids.add(tid)
+        print(f"✅ Loaded {len(skip_ids)} skip IDs from {skip_ids_file}")
+    return skip_ids
 
 async def run():
     args = parse_args()
@@ -78,7 +38,7 @@ async def run():
     os.makedirs(DATA_DIR, exist_ok=True)
     
     # 1. 既存データのIDを取得（停止条件用）
-    seen_ids_in_gist = get_existing_ids_from_gist(args.gist_id)
+    seen_ids_in_gist = load_skip_ids(args.skip_ids_file)
 
     url = "https://x.com/home"
     print(f"🚀 Fetching 'For you' tweets from: {url}")
@@ -107,7 +67,7 @@ async def run():
                 
                 tid = data["tweet"]["id_str"]
                 
-                # 重複チェック: Gistにあるデータならスキップして次へ
+                # 重複チェック: 既存リスト（Masterの代表ポストなど）にあるならスキップ
                 if tid in seen_ids_in_gist:
                     continue
 
