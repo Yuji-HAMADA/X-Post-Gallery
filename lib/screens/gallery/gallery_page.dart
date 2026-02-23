@@ -308,7 +308,10 @@ class _GalleryPageState extends State<GalleryPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('モード', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'モード',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 4),
                 RadioGroup<String>(
                   groupValue: mode,
@@ -388,7 +391,7 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  Future<void> _executeAppendWithDialog({
+  Future<bool> _executeAppendWithDialog({
     String? user,
     String? hashtag,
     required String mode,
@@ -462,7 +465,9 @@ class _GalleryPageState extends State<GalleryPage> {
     } else if (vm.appendStatus == AppendStatus.failed) {
       _showErrorSnackBar(vm.errorMessage);
     }
+    final success = vm.appendStatus == AppendStatus.completed;
     vm.clearAppendStatus();
+    return success;
   }
 
   Future<void> _executeRefreshWithDialog(int count) async {
@@ -725,12 +730,24 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    await _executeAppendWithDialog(
+    final success = await _executeAppendWithDialog(
       user: username,
       mode: config['mode'] as String,
       count: config['count'] as int,
       stopOnExisting: config['stopOnExisting'] as bool,
     );
+    if (!success || !mounted) return;
+
+    // 追加成功後にそのユーザーのギャラリーを開く
+    // マスターGistリロード済みなので userGists に登録されているはず
+    final lowerUsername = username.toLowerCase();
+    final matchedKey = vm.userGists.keys.firstWhere(
+      (k) => k.toLowerCase() == lowerUsername,
+      orElse: () => '',
+    );
+    if (matchedKey.isNotEmpty) {
+      _openUserGallery(matchedKey);
+    }
   }
 
   // --- 外部連携 ---
@@ -773,20 +790,20 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
     final isFavPage = _currentPage == 1;
-    final favoriteItems = vm.items
-        .where((item) {
-          final key = item.username ??
-              RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
-          return key != null && vm.isFavorite(key);
-        })
-        .toList();
+    final favoriteItems = vm.items.where((item) {
+      final key =
+          item.username ??
+          RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
+      return key != null && vm.isFavorite(key);
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
         leading: vm.isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => context.read<GalleryViewModel>().clearSelection(),
+                onPressed: () =>
+                    context.read<GalleryViewModel>().clearSelection(),
               )
             : null,
         title: vm.isSelectionMode
@@ -855,7 +872,11 @@ class _GalleryPageState extends State<GalleryPage> {
               onPageChanged: (page) => setState(() => _currentPage = page),
               children: [
                 _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
-                _buildFavoritesGrid(favoriteItems, vm.userGists, vm.favoriteUsers),
+                _buildFavoritesGrid(
+                  favoriteItems,
+                  vm.userGists,
+                  vm.favoriteUsers,
+                ),
               ],
             ),
     );
@@ -947,8 +968,7 @@ class _GalleryPageState extends State<GalleryPage> {
                         ? Colors.redAccent
                         : null,
                   ),
-                  onPressed: () =>
-                      vm.toggleFavorite(widget.userGistUsername!),
+                  onPressed: () => vm.toggleFavorite(widget.userGistUsername!),
                 ),
               ),
             IconButton(
@@ -1032,8 +1052,10 @@ class _GalleryPageState extends State<GalleryPage> {
     final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
-      final key = item.username ??
-          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ?? '_unknown');
+      final key =
+          item.username ??
+          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
+              '_unknown');
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
@@ -1086,8 +1108,10 @@ class _GalleryPageState extends State<GalleryPage> {
     final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in favoriteItems) {
-      final key = item.username ??
-          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ?? '_unknown');
+      final key =
+          item.username ??
+          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
+              '_unknown');
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
