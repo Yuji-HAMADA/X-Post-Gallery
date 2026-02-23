@@ -35,6 +35,8 @@ def parse_args():
     return parser.parse_args()
 
 def extract_username(tweet):
+    if tweet.get("username"):
+        return tweet["username"]
     m = USER_PATTERN.match(tweet.get("full_text", ""))
     if m:
         return m.group(1).strip()
@@ -81,6 +83,8 @@ def get_user_tweets(data, user):
     return data if isinstance(data, list) else []
 
 def _tweet_belongs_to_user(tweet, user):
+    if tweet.get("username") == user:
+        return True
     if f"x.com/{user}/status/" in tweet.get("post_url", ""):
         return True
     if tweet.get("full_text", "").startswith(f"@{user}:"):
@@ -334,7 +338,12 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
 
         user_gists_map[user] = final_id
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
-        master_tweets.insert(0, dict(merged[0]))
+        latest = merged[0]
+        master_tweets.insert(0, {
+            "id_str": latest.get("id_str", ""),
+            "username": user,
+            "media_urls": latest.get("media_urls", [])[:1],
+        })
 
     print(f"📊 Total migrated to user Gists: {migrated_count} tweets")
 

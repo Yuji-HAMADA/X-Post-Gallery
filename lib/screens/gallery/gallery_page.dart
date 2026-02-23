@@ -866,8 +866,8 @@ class _GalleryPageState extends State<GalleryPage> {
     final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
-      final m = userRegExp.firstMatch(item.fullText);
-      final key = m != null ? m.group(1)!.trim() : '_unknown';
+      final key = item.username ??
+          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ?? '_unknown');
       grouped.putIfAbsent(key, () => []).add(item);
     }
 

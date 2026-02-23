@@ -4,6 +4,7 @@ class TweetItem {
   final String createdAt;
   final List<String> mediaUrls;
   final String? postUrl;
+  final String? username; // マスターGistスリム形式用
 
   const TweetItem({
     required this.id,
@@ -11,6 +12,7 @@ class TweetItem {
     required this.createdAt,
     required this.mediaUrls,
     this.postUrl,
+    this.username,
   });
 
   /// 新旧2形式のJSONを吸収する
@@ -48,6 +50,7 @@ class TweetItem {
           json['created_at'] ?? json['tweet']?['created_at'] ?? 'Unknown',
       mediaUrls: mediaUrls,
       postUrl: (postUrl != null && postUrl.isNotEmpty) ? postUrl : null,
+      username: json['username'] as String?,
     );
   }
 
