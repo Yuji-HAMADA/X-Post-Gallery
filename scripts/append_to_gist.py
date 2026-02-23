@@ -61,6 +61,12 @@ def is_master_gist_format(data):
 def is_multi_user_format(data):
     return isinstance(data, dict) and "users" in data
 
+def get_gist_id_from_entry(entry):
+    """user_gists の値から gist_id を取得（新形式dict・旧形式string 両対応）"""
+    if isinstance(entry, dict):
+        return entry.get("gist_id")
+    return entry  # legacy string format
+
 def get_user_tweets(data, user):
     """データからユーザのツイートを取得"""
     if is_master_gist_format(data):
@@ -122,8 +128,9 @@ def select_promote_gist_from_master(full_data):
         return None
     seen = set()
     unique_gists = []
-    for gist_id in user_gists.values():
-        if gist_id not in seen:
+    for entry in user_gists.values():
+        gist_id = get_gist_id_from_entry(entry)
+        if gist_id and gist_id not in seen:
             unique_gists.append(gist_id)
             seen.add(gist_id)
     return unique_gists[-1] if unique_gists else None
@@ -219,17 +226,20 @@ def append_tweets(existing_tweets, new_tweets):
 def create_gist_for_user(user, tweets):
     """新しいユーザGistを作成 (階層構造: users -> user -> tweets)"""
     data = {"users": {user: {"tweets": tweets}}}
-    fd, tmp_file = tempfile.mkstemp(suffix=".json", prefix=f"new_gist_{user}_")
+    # tempdir 内に data.json という名前で作成（gh gist create はファイル名をそのまま使う）
+    tmp_dir = tempfile.mkdtemp()
+    tmp_file = os.path.join(tmp_dir, "data.json")
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         result = subprocess.run(
-            ["gh", "gist", "create", tmp_file, "-p", "--filename", "data.json", "-d", "Gallery User Data"],
+            ["gh", "gist", "create", tmp_file, "-p", "-d", "Gallery User Data"],
             capture_output=True, text=True,
         )
     finally:
         if os.path.exists(tmp_file):
             os.unlink(tmp_file)
+        os.rmdir(tmp_dir)
     if result.returncode != 0:
         print(f"❌ Failed: {result.stderr}")
         sys.exit(1)
@@ -287,7 +297,7 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
         print(f"--- @{user} ---")
         promote_gist_id = (
             promote_gist_id_override
-            or user_gists_map.get(user)
+            or get_gist_id_from_entry(user_gists_map.get(user))
             or select_promote_gist_from_master(master_data)
         )
         if not promote_gist_id:
@@ -322,7 +332,7 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             gist_cache[final_id]["data"] = updated_data
             gist_cache[final_id]["is_modified"] = True
 
-        user_gists_map[user] = final_id
+        user_gists_map[user] = {"gist_id": final_id, "count": len(merged)}
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         master_tweets.insert(0, dict(merged[0]))
 
@@ -354,7 +364,7 @@ def main():
 
     # skip_ids 作成
     if args.user and not args.foryou:
-        ug_id = full_data.get("user_gists", {}).get(args.user)
+        ug_id = get_gist_id_from_entry(full_data.get("user_gists", {}).get(args.user))
         if ug_id:
             _, p_data = fetch_gist_data(ug_id)
             existing = get_user_tweets(p_data, args.user)

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/tweet_item.dart';
+import '../models/user_gist_entry.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
 
@@ -39,8 +40,8 @@ class GalleryViewModel extends ChangeNotifier {
   String _userName = '';
   String get userName => _userName;
 
-  Map<String, String> _userGists = {};
-  Map<String, String> get userGists => _userGists;
+  Map<String, UserGistEntry> _userGists = {};
+  Map<String, UserGistEntry> get userGists => _userGists;
 
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
@@ -128,7 +129,7 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// ユーザーの全ツイートを取得（Gist分割対応）
   Future<List<TweetItem>> fetchUserItems(String username) async {
-    final gistId = _userGists[username];
+    final gistId = _userGists[username]?.gistId;
     if (gistId != null) {
       return await _repository.fetchUserGist(gistId, username);
     }
@@ -310,51 +311,9 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 選択中のアイテムを削除し、Gist を更新
-  Future<bool> deleteSelected() async {
-    final gistId = await _repository.getSavedGistId();
-    final filename = _repository.lastGistFilename;
-
-    if (gistId == null || gistId.isEmpty || filename == null) {
-      _errorMessage = 'Gist ID またはファイル名が不明です';
-      notifyListeners();
-      return false;
-    }
-
-    // 復元用バックアップ
-    final backup = List<TweetItem>.from(_items);
-
-    // ローカル状態を先に更新
-    _items.removeWhere((item) => _selectedIds.contains(item.id));
-
-    // Gist を更新（user_gists マッピングを保持）
-    final jsonStr = _repository.buildGistJson(
-      _userName,
-      _items,
-      userGists: _userGists,
-    );
-    final success = await _githubService.updateGistFile(
-      gistId: gistId,
-      filename: filename,
-      content: jsonStr,
-    );
-
-    if (success) {
-      await _repository.clearCache(); // Gist更新後はキャッシュ破棄
-      _selectedIds.clear();
-      notifyListeners();
-      return true;
-    } else {
-      // 失敗時は復元
-      _items = backup;
-      _errorMessage = 'Gist の更新に失敗しました';
-      notifyListeners();
-      return false;
-    }
-  }
-
   /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
-  Future<bool> deleteSelectedFromUserGist(
+  /// 成功時は残件数を返す（失敗時は null）
+  Future<int?> deleteSelectedFromUserGist(
     String gistId,
     String username,
     List<TweetItem> currentItems,
@@ -376,17 +335,42 @@ class GalleryViewModel extends ChangeNotifier {
       if (success) {
         _selectedIds.clear();
         notifyListeners();
+        return remainingItems.length;
       } else {
         _errorMessage = 'Gist の更新に失敗しました';
         notifyListeners();
+        return null;
       }
-      return success;
     } catch (e) {
       debugPrint('deleteSelectedFromUserGist error: $e');
       _errorMessage = 'Gist の更新に失敗しました';
       notifyListeners();
-      return false;
+      return null;
     }
+  }
+
+  /// ユーザのポスト数をマスターGistの user_gists に反映する（削除後に呼ぶ）
+  Future<void> updateUserGistCount(String username, int newCount) async {
+    final masterGistId = defaultMasterGistId;
+    final existing = _userGists[username];
+    if (masterGistId.isEmpty || existing == null) return;
+
+    _userGists = Map.from(_userGists)
+      ..[username] = UserGistEntry(gistId: existing.gistId, count: newCount);
+
+    final filename = _repository.lastGistFilename ?? 'data.json';
+    final jsonStr = _repository.buildGistJson(
+      _userName,
+      _items,
+      userGists: _userGists,
+    );
+    await _githubService.updateGistFile(
+      gistId: masterGistId,
+      filename: filename,
+      content: jsonStr,
+    );
+    await _repository.clearCache();
+    notifyListeners();
   }
 
   /// スクロール位置の保存・復元

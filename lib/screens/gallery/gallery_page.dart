@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
+import '../../models/user_gist_entry.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_page.dart';
 import '../stats/stats_page.dart';
@@ -546,34 +547,25 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    final bool success;
     final currentItems = _localItems ?? widget.initialItems ?? [];
     final deletedIds = Set<String>.from(vm.selectedIds); // 削除前にキャプチャ
-    if (widget.userGistId != null && widget.userGistUsername != null) {
-      // ユーザーGistサブギャラリー: バッチGistを直接更新
-      success = await vm.deleteSelectedFromUserGist(
-        widget.userGistId!,
-        widget.userGistUsername!,
-        currentItems,
-      );
-    } else {
-      // マスターGistまたはローカルフィルタサブギャラリー
-      success = await vm.deleteSelected();
-    }
+    final remainingCount = await vm.deleteSelectedFromUserGist(
+      widget.userGistId!,
+      widget.userGistUsername!,
+      currentItems,
+    );
 
     if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
 
-    if (success) {
-      if (widget.userGistId != null) {
-        // ユーザーGistの場合: 削除済みアイテムを _localItems から除外
-        setState(() {
-          _localItems = currentItems
-              .where((item) => !deletedIds.contains(item.id))
-              .toList();
-        });
-      } else {
-        _refilterLocalItems(vm); // マスターフィルタサブギャラリーの更新
-      }
+    if (remainingCount != null) {
+      // 削除済みアイテムを _localItems から除外
+      setState(() {
+        _localItems = currentItems
+            .where((item) => !deletedIds.contains(item.id))
+            .toList();
+      });
+      // マスターGistのカウントを更新
+      await vm.updateUserGistCount(widget.userGistUsername!, remainingCount);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -651,7 +643,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     if (matchedUsername != null) {
-      _openUserGallery(matchedUsername, true);
+      _openUserGallery(matchedUsername);
       return;
     }
 
@@ -669,7 +661,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     if (matchedUsername != null) {
-      _openUserGallery(matchedUsername, false);
+      _openUserGallery(matchedUsername);
     } else {
       _showErrorSnackBar('ユーザー @$userIdInput は見つかりませんでした');
     }
@@ -725,7 +717,7 @@ class _GalleryPageState extends State<GalleryPage> {
     required bool isAuthenticated,
     required bool isSelectionMode,
     required Set<String> selectedIds,
-    Map<String, String> userGists = const {},
+    Map<String, UserGistEntry> userGists = const {},
   }) {
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
@@ -788,7 +780,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     )
                   : Text(displayTitle)),
         actions: [
-          if (isSelectionMode)
+          if (isSelectionMode && widget.userGistId != null)
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
@@ -872,7 +864,7 @@ class _GalleryPageState extends State<GalleryPage> {
   /// ユーザーグループ化したグリッド（ルートギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
-    Map<String, String> userGists,
+    Map<String, UserGistEntry> userGists,
   ) {
     final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
@@ -882,9 +874,13 @@ class _GalleryPageState extends State<GalleryPage> {
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    // 件数降順でソート
+    // user_gists のカウント降順でソート（未取得時はマスター件数で代替）
     final entries = grouped.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+      ..sort((a, b) {
+        final ca = userGists[a.key]?.count ?? a.value.length;
+        final cb = userGists[b.key]?.count ?? b.value.length;
+        return cb.compareTo(ca);
+      });
 
     return GridView.builder(
       controller: _gridController,
@@ -898,25 +894,21 @@ class _GalleryPageState extends State<GalleryPage> {
       itemBuilder: (context, index) {
         final username = entries[index].key;
         final userItems = entries[index].value;
-        final hasOwnGist = userGists.containsKey(username);
+        final entry = userGists[username];
         final thumbItem = userItems.firstWhere(
           (i) => i.thumbnailUrl.isNotEmpty,
           orElse: () => userItems.first,
         );
-        final totalCount = hasOwnGist ? null : userItems.length;
-        return _buildUserCard(username, thumbItem, totalCount, hasOwnGist);
+        // user_gists にカウントがあればそれを、なければマスター件数を表示
+        final displayCount = entry?.count ?? userItems.length;
+        return _buildUserCard(username, thumbItem, displayCount);
       },
     );
   }
 
-  Widget _buildUserCard(
-    String username,
-    TweetItem thumbItem,
-    int? count,
-    bool hasOwnGist,
-  ) {
+  Widget _buildUserCard(String username, TweetItem thumbItem, int count) {
     return GestureDetector(
-      onTap: () => _openUserGallery(username, hasOwnGist),
+      onTap: () => _openUserGallery(username),
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -947,16 +939,10 @@ class _GalleryPageState extends State<GalleryPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (hasOwnGist)
-                    const Icon(Icons.cloud, size: 12, color: Colors.blueAccent)
-                  else if (count != null)
-                    Text(
-                      '$count',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white70,
-                      ),
-                    ),
+                  Text(
+                    '$count',
+                    style: const TextStyle(fontSize: 10, color: Colors.white70),
+                  ),
                 ],
               ),
             ),
@@ -966,68 +952,43 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  Future<void> _openUserGallery(String username, bool hasOwnGist) async {
+  Future<void> _openUserGallery(String username) async {
     final vm = context.read<GalleryViewModel>();
+    final entry = vm.userGists[username];
 
-    if (hasOwnGist) {
-      // ローディングダイアログ表示
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('読み込み中...'),
-            ],
-          ),
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('読み込み中...'),
+          ],
         ),
-      );
-      try {
-        final userItems = await vm.fetchUserItems(username);
-        if (mounted) Navigator.pop(context); // ダイアログ閉じる
-        if (mounted) {
-          final gistId = vm.userGists[username];
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => GalleryPage(
-                initialItems: userItems,
-                title: '@$username',
-                userGistId: gistId,
-                userGistUsername: username,
-              ),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) Navigator.pop(context);
-        _showErrorSnackBar('ユーザーギャラリーの読み込みに失敗しました');
-      }
-    } else {
-      // 小ユーザー: マスターデータからフィルタ
+      ),
+    );
+    try {
       final userItems = await vm.fetchUserItems(username);
-      if (userItems.length == 1) {
-        // 1件のみ → 直接詳細ページへ
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => DetailPage(items: userItems, initialIndex: 0),
-            ),
-          );
-        }
-      } else if (mounted) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                GalleryPage(initialItems: userItems, title: '@$username'),
+            builder: (_) => GalleryPage(
+              initialItems: userItems,
+              title: '@$username',
+              userGistId: entry?.gistId,
+              userGistUsername: username,
+            ),
           ),
         );
       }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      _showErrorSnackBar('ユーザーギャラリーの読み込みに失敗しました');
     }
   }
 
