@@ -24,6 +24,19 @@ class _DetailPageState extends State<DetailPage> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: widget.initialIndex);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _preloadAdjacent(widget.initialIndex);
+    });
+  }
+
+  void _preloadAdjacent(int index) {
+    for (final offset in [-1, 1]) {
+      final i = index + offset;
+      if (i < 0 || i >= widget.items.length) continue;
+      for (final url in widget.items[i].origUrls) {
+        precacheImage(NetworkImage(url), context);
+      }
+    }
   }
 
   @override
@@ -56,9 +69,8 @@ class _DetailPageState extends State<DetailPage> {
             : const BouncingScrollPhysics(),
         itemCount: widget.items.length,
         onPageChanged: (index) {
-          setState(() {
-            _isZoomed = false;
-          });
+          setState(() => _isZoomed = false);
+          _preloadAdjacent(index);
         },
         itemBuilder: (context, index) {
           return DetailImageItem(
