@@ -239,6 +239,19 @@ class GalleryRepository {
     await prefs.setInt(_keyScrollIndex, index);
   }
 
+  /// X上にユーザーが存在するか確認（404なら不存在、それ以外は存在とみなす）
+  Future<bool> checkUserExistsOnX(String username) async {
+    try {
+      final response = await http
+          .get(Uri.parse('https://x.com/$username'))
+          .timeout(const Duration(seconds: 8));
+      return response.statusCode != 404;
+    } catch (e) {
+      debugPrint('X user check error: $e');
+      return true; // 確認失敗時は存在すると仮定して進める
+    }
+  }
+
   Future<Set<String>> loadFavoriteUsers() async {
     final prefs = await SharedPreferences.getInstance();
     return (prefs.getStringList(_keyFavoriteUsers) ?? []).toSet();

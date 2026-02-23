@@ -675,9 +675,62 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (matchedUsername != null) {
       _openUserGallery(matchedUsername);
-    } else {
-      _showErrorSnackBar('ユーザー @$userIdInput は見つかりませんでした');
+      return;
     }
+
+    // 3. マスターGistに存在しない → Xで存在確認してから新規追加へ
+    final username = userIdInput.trim();
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Xで確認中...'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final exists = await vm.checkUserExistsOnX(username);
+    if (mounted) Navigator.pop(context);
+    if (!mounted) return;
+
+    if (!exists) {
+      _showErrorSnackBar('ユーザー @$username は見つかりませんでした');
+      return;
+    }
+
+    await _handleAddNewUser(username);
+  }
+
+  /// マスターGistに存在しない新規ユーザーを追加する
+  Future<void> _handleAddNewUser(String username) async {
+    final config = await _showAppendConfigDialog();
+    if (config == null || !mounted) return;
+
+    final vm = context.read<GalleryViewModel>();
+    if (!await vm.isAdminAuthenticated()) {
+      final result = await _showPasswordInputDialog('認証');
+      if (result == null) return;
+      final success = await vm.authenticateAdmin(password: result);
+      if (!success) {
+        if (mounted) _showErrorSnackBar(vm.errorMessage);
+        return;
+      }
+    }
+
+    await _executeAppendWithDialog(
+      user: username,
+      mode: config['mode'] as String,
+      count: config['count'] as int,
+      stopOnExisting: config['stopOnExisting'] as bool,
+    );
   }
 
   // --- 外部連携 ---

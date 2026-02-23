@@ -316,6 +316,9 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> checkUserExistsOnX(String username) =>
+      _repository.checkUserExistsOnX(username);
+
   Future<void> toggleFavorite(String username) async {
     if (_favoriteUsers.contains(username)) {
       _favoriteUsers = {..._favoriteUsers}..remove(username);
