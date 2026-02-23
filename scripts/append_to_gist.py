@@ -233,7 +233,7 @@ def create_gist_for_user(user, tweets):
         with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         result = subprocess.run(
-            ["gh", "gist", "create", tmp_file, "-p", "-d", "Gallery User Data"],
+            ["gh", "gist", "create", tmp_file, "-d", "Gallery User Data"],
             capture_output=True, text=True,
         )
     finally:
