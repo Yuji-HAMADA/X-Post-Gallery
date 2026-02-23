@@ -203,6 +203,118 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  // --- お気に入り Gist 保存・読込 ---
+
+  Future<void> _saveFavoritesToGist() async {
+    final vm = context.read<GalleryViewModel>();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Gistに保存中...'),
+          ],
+        ),
+      ),
+    );
+
+    final gistId = await vm.saveFavoritesToGist();
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (gistId != null) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('保存完了'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Gist IDをメモしておくと再インストール後に復元できます：'),
+              const SizedBox(height: 8),
+              SelectableText(
+                gistId,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      _showErrorSnackBar('Gistへの保存に失敗しました');
+    }
+  }
+
+  Future<void> _loadFavoritesFromGist() async {
+    final vm = context.read<GalleryViewModel>();
+    final savedId = await vm.loadFavoritesGistId();
+
+    if (!mounted) return;
+    final controller = TextEditingController(text: savedId ?? '');
+    final gistId = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gistから読込'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Gist ID',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => Navigator.pop(context, controller.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('読込'),
+          ),
+        ],
+      ),
+    );
+
+    if (gistId == null || gistId.trim().isEmpty || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('読込中...'),
+          ],
+        ),
+      ),
+    );
+
+    final success = await vm.loadFavoritesFromGist(gistId.trim());
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('お気に入りを読み込みました'), backgroundColor: Colors.green),
+      );
+    } else {
+      _showErrorSnackBar('読込に失敗しました。Gist IDを確認してください');
+    }
+  }
+
   Future<void> _showRefreshAuthDialog() async {
     final vm = context.read<GalleryViewModel>();
 
@@ -811,7 +923,19 @@ class _GalleryPageState extends State<GalleryPage> {
             : Text(isFavPage ? 'お気に入り' : 'PostGallery'),
         actions: [
           if (!vm.isSelectionMode) ...[
-            if (vm.items.isNotEmpty)
+            if (isFavPage) ...[
+              IconButton(
+                icon: const Icon(Icons.cloud_upload),
+                tooltip: 'Gistに保存',
+                onPressed: _saveFavoritesToGist,
+              ),
+              IconButton(
+                icon: const Icon(Icons.cloud_download),
+                tooltip: 'Gistから読込',
+                onPressed: _loadFavoritesFromGist,
+              ),
+            ],
+            if (!isFavPage && vm.items.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.format_list_numbered),
                 onPressed: () => Navigator.push(

@@ -124,6 +124,41 @@ class GitHubService {
     return response.statusCode == 204;
   }
 
+  /// お気に入り用の新規 Gist を作成してIDを返す（secret）
+  Future<String?> createGist({
+    required String filename,
+    required String content,
+    required String description,
+  }) async {
+    final url = Uri.parse('https://api.github.com/gists');
+    final response = await http.post(
+      url,
+      headers: _headers,
+      body: jsonEncode({
+        'description': description,
+        'public': false,
+        'files': {
+          filename: {'content': content},
+        },
+      }),
+    );
+    if (response.statusCode == 201) {
+      return (jsonDecode(response.body) as Map<String, dynamic>)['id']
+          as String?;
+    }
+    return null;
+  }
+
+  /// Gist から指定ファイルのテキスト内容を取得する
+  Future<String?> fetchGistContent(String gistId, String filename) async {
+    final url = Uri.parse('https://api.github.com/gists/$gistId');
+    final response = await http.get(url, headers: _headers);
+    if (response.statusCode != 200) return null;
+    final files = (jsonDecode(response.body) as Map<String, dynamic>)['files']
+        as Map<String, dynamic>?;
+    return files?[filename]?['content'] as String?;
+  }
+
   Future<String> getWorkflowStatus() async {
     final url = Uri.parse(
       'https://api.github.com/repos/$owner/$repo/actions/runs?per_page=1',

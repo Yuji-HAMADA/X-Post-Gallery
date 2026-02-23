@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/tweet_item.dart';
@@ -319,6 +320,59 @@ class GalleryViewModel extends ChangeNotifier {
   Future<bool> checkUserExistsOnX(String username) =>
       _repository.checkUserExistsOnX(username);
 
+  // --- お気に入り Gist 保存・読込 ---
+
+  /// お気に入りを Gist に保存する。保存済みGistがあれば更新、なければ新規作成。
+  /// 成功時は Gist ID を返す。失敗時は null。
+  Future<String?> saveFavoritesToGist() async {
+    final content = jsonEncode({
+      'favorite_users': _favoriteUsers.toList(),
+    });
+    String? gistId = await _repository.loadFavoritesGistId();
+
+    if (gistId != null && gistId.isNotEmpty) {
+      final success = await _githubService.updateGistFile(
+        gistId: gistId,
+        filename: 'favorites.json',
+        content: content,
+      );
+      return success ? gistId : null;
+    } else {
+      gistId = await _githubService.createGist(
+        filename: 'favorites.json',
+        content: content,
+        description: 'PostGallery Favorites',
+      );
+      if (gistId != null) {
+        await _repository.saveFavoritesGistId(gistId);
+        return gistId;
+      }
+      return null;
+    }
+  }
+
+  /// Gist IDを指定してお気に入りを読み込み、ローカルの SharedPreferences に上書きする
+  Future<bool> loadFavoritesFromGist(String gistId) async {
+    try {
+      final content =
+          await _githubService.fetchGistContent(gistId, 'favorites.json');
+      if (content == null) return false;
+      final data = jsonDecode(content) as Map<String, dynamic>;
+      final users =
+          (data['favorite_users'] as List? ?? []).cast<String>().toSet();
+      _favoriteUsers = users;
+      await _repository.saveFavoriteUsers(users);
+      await _repository.saveFavoritesGistId(gistId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('loadFavoritesFromGist error: $e');
+      return false;
+    }
+  }
+
+  Future<String?> loadFavoritesGistId() => _repository.loadFavoritesGistId();
+
   Future<void> toggleFavorite(String username) async {
     if (_favoriteUsers.contains(username)) {
       _favoriteUsers = {..._favoriteUsers}..remove(username);
@@ -374,7 +428,8 @@ class GalleryViewModel extends ChangeNotifier {
 
     _userGists = Map.from(_userGists)..remove(username);
     _items = _items.where((item) {
-      final key = item.username ??
+      final key =
+          item.username ??
           RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
       return key != username;
     }).toList();

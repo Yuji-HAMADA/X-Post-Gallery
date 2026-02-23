@@ -23,6 +23,7 @@ class GalleryRepository {
   static const String _keyCachedData = 'cached_gist_data';
   static const String _keyCachedUpdatedAt = 'cached_updated_at';
   static const String _keyFavoriteUsers = 'favorite_users';
+  static const String _keyFavoritesGistId = 'favorites_gist_id';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
@@ -260,5 +261,15 @@ class GalleryRepository {
   Future<void> saveFavoriteUsers(Set<String> users) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_keyFavoriteUsers, users.toList());
+  }
+
+  Future<String?> loadFavoritesGistId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyFavoritesGistId);
+  }
+
+  Future<void> saveFavoritesGistId(String gistId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFavoritesGistId, gistId);
   }
 }
