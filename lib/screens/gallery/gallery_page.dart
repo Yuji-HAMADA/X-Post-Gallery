@@ -32,6 +32,9 @@ class GalleryPage extends StatefulWidget {
 
 class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
+  final ScrollController _favGridController = ScrollController();
+  final PageController _pageController = PageController();
+  int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
 
   @override
@@ -42,6 +45,13 @@ class _GalleryPageState extends State<GalleryPage> {
     } else {
       _handleInitialLoad();
     }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _favGridController.dispose();
+    super.dispose();
   }
 
   Future<void> _handleInitialLoad() async {
@@ -693,7 +703,6 @@ class _GalleryPageState extends State<GalleryPage> {
     final vm = context.watch<GalleryViewModel>();
 
     // フィルタ済みサブギャラリー：アイテムは静的リスト（Append後は _localItems）
-    // 選択・削除状態は ViewModel を共有する
     if (widget.initialItems != null) {
       return _buildScaffold(
         items: _localItems ?? widget.initialItems!,
@@ -704,13 +713,98 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    return _buildScaffold(
-      items: vm.items,
-      userName: vm.userName,
-      isAuthenticated: vm.status == GalleryStatus.authenticated,
-      isSelectionMode: vm.isSelectionMode,
-      selectedIds: vm.selectedIds,
-      userGists: vm.userGists,
+    // ルートギャラリー：メイン / お気に入り を PageView で切り替え
+    final isAuthenticated = vm.status == GalleryStatus.authenticated;
+    return _buildRootScaffold(vm, isAuthenticated);
+  }
+
+  Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
+    final isFavPage = _currentPage == 1;
+    final favoriteItems = vm.items
+        .where((item) {
+          final key = item.username ??
+              RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
+          return key != null && vm.isFavorite(key);
+        })
+        .toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: vm.isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => context.read<GalleryViewModel>().clearSelection(),
+              )
+            : null,
+        title: vm.isSelectionMode
+            ? Text('${vm.selectedIds.length}件選択中')
+            : Text(isFavPage ? 'お気に入り' : 'PostGallery'),
+        actions: [
+          if (!vm.isSelectionMode) ...[
+            if (vm.items.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.format_list_numbered),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => StatsPage(items: vm.items),
+                  ),
+                ),
+              ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.menu),
+              onSelected: (value) {
+                switch (value) {
+                  case 'key':
+                    _showPasswordDialog(canCancel: true);
+                  case 'refresh':
+                    _handleRefresh();
+                  case 'search_user':
+                    _handleSearchUser();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'search_user',
+                  child: ListTile(
+                    leading: Icon(Icons.person_search),
+                    title: Text('ユーザー検索'),
+                    dense: true,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'key',
+                  child: ListTile(
+                    leading: Icon(Icons.vpn_key_outlined),
+                    title: Text('Gist ID'),
+                    dense: true,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'refresh',
+                  child: ListTile(
+                    leading: Icon(Icons.auto_awesome),
+                    title: Text('ForYou'),
+                    dense: true,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+      body: !isAuthenticated
+          ? const Center(child: Text('Waiting for authentication...'))
+          : vm.items.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : PageView(
+              controller: _pageController,
+              onPageChanged: (page) => setState(() => _currentPage = page),
+              children: [
+                _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
+                _buildFavoritesGrid(favoriteItems, vm.userGists, vm.favoriteUsers),
+              ],
+            ),
     );
   }
 
@@ -720,7 +814,6 @@ class _GalleryPageState extends State<GalleryPage> {
     required bool isAuthenticated,
     required bool isSelectionMode,
     required Set<String> selectedIds,
-    Map<String, String> userGists = const {},
   }) {
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
@@ -789,7 +882,22 @@ class _GalleryPageState extends State<GalleryPage> {
               onPressed: _showDeleteConfirmDialog,
             )
           else if (isUserFilter || isHashtagFilter) ...[
-            // ユーザー／ハッシュタグフィルター画面: 追加ボタンのみ
+            // ユーザー／ハッシュタグフィルター画面: ハート（ユーザーのみ）＋ 追加ボタン
+            if (isUserFilter && widget.userGistUsername != null)
+              Consumer<GalleryViewModel>(
+                builder: (context, vm, _) => IconButton(
+                  icon: Icon(
+                    vm.isFavorite(widget.userGistUsername!)
+                        ? Icons.favorite
+                        : Icons.favorite_border,
+                    color: vm.isFavorite(widget.userGistUsername!)
+                        ? Colors.redAccent
+                        : null,
+                  ),
+                  onPressed: () =>
+                      vm.toggleFavorite(widget.userGistUsername!),
+                ),
+              ),
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: '追加',
@@ -858,16 +966,15 @@ class _GalleryPageState extends State<GalleryPage> {
           ? const Center(child: Text("Waiting for authentication..."))
           : (items.isEmpty
                 ? const Center(child: CircularProgressIndicator())
-                : widget.initialItems != null
-                ? _buildGridView(items, selectedIds)
-                : _buildUserGroupedGrid(items, userGists)),
+                : _buildGridView(items, selectedIds)),
     );
   }
 
-  /// ユーザーグループ化したグリッド（ルートギャラリー用）
+  /// ユーザーグループ化したグリッド（メインギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
     Map<String, String> userGists,
+    Set<String> favoriteUsers,
   ) {
     final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
@@ -897,12 +1004,75 @@ class _GalleryPageState extends State<GalleryPage> {
           (i) => i.thumbnailUrl.isNotEmpty,
           orElse: () => userItems.first,
         );
-        return _buildUserCard(username, thumbItem, userItems.length);
+        return _buildUserCard(
+          username,
+          thumbItem,
+          userItems.length,
+          favoriteUsers.contains(username),
+        );
       },
     );
   }
 
-  Widget _buildUserCard(String username, TweetItem thumbItem, int count) {
+  /// お気に入りギャラリー（favoriteItems は既にフィルタ済み）
+  Widget _buildFavoritesGrid(
+    List<TweetItem> favoriteItems,
+    Map<String, String> userGists,
+    Set<String> favoriteUsers,
+  ) {
+    if (favoriteItems.isEmpty) {
+      return const Center(
+        child: Text(
+          'お気に入りはまだありません\nユーザーカードのハートをタップして追加',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    final userRegExp = RegExp(r'^@([^:]+):');
+    final Map<String, List<TweetItem>> grouped = {};
+    for (final item in favoriteItems) {
+      final key = item.username ??
+          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ?? '_unknown');
+      grouped.putIfAbsent(key, () => []).add(item);
+    }
+
+    final entries = grouped.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+
+    return GridView.builder(
+      controller: _favGridController,
+      padding: const EdgeInsets.all(4),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 4,
+        mainAxisSpacing: 4,
+      ),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final username = entries[index].key;
+        final userItems = entries[index].value;
+        final thumbItem = userItems.firstWhere(
+          (i) => i.thumbnailUrl.isNotEmpty,
+          orElse: () => userItems.first,
+        );
+        return _buildUserCard(
+          username,
+          thumbItem,
+          userItems.length,
+          true, // お気に入りページなので常にtrue
+        );
+      },
+    );
+  }
+
+  Widget _buildUserCard(
+    String username,
+    TweetItem thumbItem,
+    int count,
+    bool isFavorite,
+  ) {
     return GestureDetector(
       onTap: () => _openUserGallery(username),
       child: Stack(
@@ -918,6 +1088,27 @@ class _GalleryPageState extends State<GalleryPage> {
                     errorBuilder: (c, e, s) => _buildErrorWidget(),
                   )
                 : _buildErrorWidget(),
+          ),
+          // ハートボタン（右上）
+          Positioned(
+            top: 2,
+            right: 2,
+            child: GestureDetector(
+              onTap: () =>
+                  context.read<GalleryViewModel>().toggleFavorite(username),
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: const BoxDecoration(
+                  color: Colors.black38,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: isFavorite ? Colors.redAccent : Colors.white70,
+                  size: 16,
+                ),
+              ),
+            ),
           ),
           Positioned(
             bottom: 0,

@@ -22,6 +22,7 @@ class GalleryRepository {
   static const String _keyScrollIndex = 'grid_last_index';
   static const String _keyCachedData = 'cached_gist_data';
   static const String _keyCachedUpdatedAt = 'cached_updated_at';
+  static const String _keyFavoriteUsers = 'favorite_users';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
@@ -236,5 +237,15 @@ class GalleryRepository {
   Future<void> saveScrollIndex(int index) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyScrollIndex, index);
+  }
+
+  Future<Set<String>> loadFavoriteUsers() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_keyFavoriteUsers) ?? []).toSet();
+  }
+
+  Future<void> saveFavoriteUsers(Set<String> users) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_keyFavoriteUsers, users.toList());
   }
 }

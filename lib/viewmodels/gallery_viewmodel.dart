@@ -45,6 +45,11 @@ class GalleryViewModel extends ChangeNotifier {
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
+  // --- お気に入り ---
+  Set<String> _favoriteUsers = {};
+  Set<String> get favoriteUsers => _favoriteUsers;
+  bool isFavorite(String username) => _favoriteUsers.contains(username);
+
   // --- 選択状態 ---
   final Set<String> _selectedIds = {};
   Set<String> get selectedIds => _selectedIds;
@@ -116,6 +121,7 @@ class GalleryViewModel extends ChangeNotifier {
       _items = data.items;
       _userName = data.userName;
       _userGists = data.userGists;
+      _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
     } catch (e) {
@@ -307,6 +313,16 @@ class GalleryViewModel extends ChangeNotifier {
 
   void clearSelection() {
     _selectedIds.clear();
+    notifyListeners();
+  }
+
+  Future<void> toggleFavorite(String username) async {
+    if (_favoriteUsers.contains(username)) {
+      _favoriteUsers = {..._favoriteUsers}..remove(username);
+    } else {
+      _favoriteUsers = {..._favoriteUsers, username};
+    }
+    await _repository.saveFavoriteUsers(_favoriteUsers);
     notifyListeners();
   }
 
