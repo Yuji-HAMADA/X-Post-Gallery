@@ -154,8 +154,9 @@ class GitHubService {
     final url = Uri.parse('https://api.github.com/gists/$gistId');
     final response = await http.get(url, headers: _headers);
     if (response.statusCode != 200) return null;
-    final files = (jsonDecode(response.body) as Map<String, dynamic>)['files']
-        as Map<String, dynamic>?;
+    final files =
+        (jsonDecode(response.body) as Map<String, dynamic>)['files']
+            as Map<String, dynamic>?;
     return files?[filename]?['content'] as String?;
   }
 

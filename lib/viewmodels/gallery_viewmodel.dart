@@ -325,9 +325,7 @@ class GalleryViewModel extends ChangeNotifier {
   /// お気に入りを Gist に保存する。保存済みGistがあれば更新、なければ新規作成。
   /// 成功時は Gist ID を返す。失敗時は null。
   Future<String?> saveFavoritesToGist() async {
-    final content = jsonEncode({
-      'favorite_users': _favoriteUsers.toList(),
-    });
+    final content = jsonEncode({'favorite_users': _favoriteUsers.toList()});
     String? gistId = await _repository.loadFavoritesGistId();
 
     if (gistId != null && gistId.isNotEmpty) {
@@ -354,12 +352,15 @@ class GalleryViewModel extends ChangeNotifier {
   /// Gist IDを指定してお気に入りを読み込み、ローカルの SharedPreferences に上書きする
   Future<bool> loadFavoritesFromGist(String gistId) async {
     try {
-      final content =
-          await _githubService.fetchGistContent(gistId, 'favorites.json');
+      final content = await _githubService.fetchGistContent(
+        gistId,
+        'favorites.json',
+      );
       if (content == null) return false;
       final data = jsonDecode(content) as Map<String, dynamic>;
-      final users =
-          (data['favorite_users'] as List? ?? []).cast<String>().toSet();
+      final users = (data['favorite_users'] as List? ?? [])
+          .cast<String>()
+          .toSet();
       _favoriteUsers = users;
       await _repository.saveFavoriteUsers(users);
       await _repository.saveFavoritesGistId(gistId);

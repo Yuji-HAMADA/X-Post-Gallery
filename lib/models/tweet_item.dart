@@ -65,7 +65,8 @@ class TweetItem {
       _withImageSize(mediaUrls.isNotEmpty ? mediaUrls.first : '', 'small');
 
   /// 詳細表示用URL一覧（高解像度: name=orig）
-  List<String> get origUrls => mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
+  List<String> get origUrls =>
+      mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
 
   Map<String, dynamic> toJson() => {
     'full_text': fullText,

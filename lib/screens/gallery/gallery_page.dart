@@ -7,6 +7,7 @@ import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_page.dart';
 import '../stats/stats_page.dart';
 import 'components/user_id_input_dialog.dart';
+import 'user_gallery_swipe_page.dart';
 
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
@@ -308,7 +309,10 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('お気に入りを読み込みました'), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text('お気に入りを読み込みました'),
+          backgroundColor: Colors.green,
+        ),
       );
     } else {
       _showErrorSnackBar('読込に失敗しました。Gist IDを確認してください');
@@ -1242,6 +1246,9 @@ class _GalleryPageState extends State<GalleryPage> {
     final entries = grouped.entries.toList()
       ..sort((a, b) => b.value.length.compareTo(a.value.length));
 
+    // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
+    final favUsernames = entries.map((e) => e.key).toList();
+
     return GridView.builder(
       controller: _favGridController,
       padding: const EdgeInsets.all(4),
@@ -1263,6 +1270,7 @@ class _GalleryPageState extends State<GalleryPage> {
           thumbItem,
           userItems.length,
           true, // お気に入りページなので常にtrue
+          onTap: () => _openUserGallery(username, scope: favUsernames),
         );
       },
     );
@@ -1272,10 +1280,11 @@ class _GalleryPageState extends State<GalleryPage> {
     String username,
     TweetItem thumbItem,
     int count,
-    bool isFavorite,
-  ) {
+    bool isFavorite, {
+    VoidCallback? onTap,
+  }) {
     return GestureDetector(
-      onTap: () => _openUserGallery(username),
+      onTap: onTap ?? () => _openUserGallery(username),
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -1340,43 +1349,46 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  Future<void> _openUserGallery(String username) async {
+  Future<void> _openUserGallery(String username, {List<String>? scope}) async {
     final vm = context.read<GalleryViewModel>();
-    final gistId = vm.userGists[username];
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('読み込み中...'),
-          ],
-        ),
-      ),
-    );
-    try {
-      final userItems = await vm.fetchUserItems(username);
-      if (mounted) Navigator.pop(context);
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GalleryPage(
-              initialItems: userItems,
-              title: '@$username',
-              userGistId: gistId,
-              userGistUsername: username,
-            ),
-          ),
-        );
+    List<String> sortedUsernames;
+    if (scope != null) {
+      // お気に入りなど呼び出し元が既に順序を決めているケース
+      sortedUsernames = scope;
+    } else {
+      // グリッドと同じ順序（マスター件数降順）でユーザー一覧を構築
+      final userRegExp = RegExp(r'^@([^:]+):');
+      final Map<String, int> countMap = {};
+      for (final item in vm.items) {
+        final key =
+            item.username ??
+            (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
+                '_unknown');
+        countMap[key] = (countMap[key] ?? 0) + 1;
       }
-    } catch (e) {
-      if (mounted) Navigator.pop(context);
-      _showErrorSnackBar('ユーザーギャラリーの読み込みに失敗しました');
+      sortedUsernames = countMap.keys.toList()
+        ..sort((a, b) => countMap[b]!.compareTo(countMap[a]!));
+    }
+
+    final initialIndex = sortedUsernames.indexWhere(
+      (u) => u.toLowerCase() == username.toLowerCase(),
+    );
+    final safeIndex = initialIndex < 0 ? 0 : initialIndex;
+
+    final gistIds = sortedUsernames.map((u) => vm.userGists[u]).toList();
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => UserGallerySwipePage(
+            usernames: sortedUsernames,
+            userGistIds: gistIds,
+            initialIndex: safeIndex,
+          ),
+        ),
+      );
     }
   }
 
