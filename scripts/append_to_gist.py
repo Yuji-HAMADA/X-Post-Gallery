@@ -332,7 +332,7 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             gist_cache[final_id]["data"] = updated_data
             gist_cache[final_id]["is_modified"] = True
 
-        user_gists_map[user] = {"gist_id": final_id, "count": len(merged)}
+        user_gists_map[user] = final_id
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         master_tweets.insert(0, dict(merged[0]))
 

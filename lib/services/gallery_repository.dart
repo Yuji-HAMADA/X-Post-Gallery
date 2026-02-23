@@ -151,12 +151,7 @@ class GalleryRepository {
     return json.encode({
       'user_screen_name': userName,
       if (userGists.isNotEmpty)
-        'user_gists': userGists.map(
-          (k, v) => MapEntry(k, {
-            'gist_id': v.gistId,
-            if (v.count != null) 'count': v.count,
-          }),
-        ),
+        'user_gists': userGists.map((k, v) => MapEntry(k, v.gistId)),
       'tweets': items.map((item) => item.toJson()).toList(),
     });
   }
