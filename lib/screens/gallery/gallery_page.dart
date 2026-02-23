@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
-import '../../models/user_gist_entry.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_page.dart';
 import '../stats/stats_page.dart';
@@ -564,8 +563,6 @@ class _GalleryPageState extends State<GalleryPage> {
             .where((item) => !deletedIds.contains(item.id))
             .toList();
       });
-      // マスターGistのカウントを更新
-      await vm.updateUserGistCount(widget.userGistUsername!, remainingCount);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -717,7 +714,7 @@ class _GalleryPageState extends State<GalleryPage> {
     required bool isAuthenticated,
     required bool isSelectionMode,
     required Set<String> selectedIds,
-    Map<String, UserGistEntry> userGists = const {},
+    Map<String, String> userGists = const {},
   }) {
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
@@ -864,7 +861,7 @@ class _GalleryPageState extends State<GalleryPage> {
   /// ユーザーグループ化したグリッド（ルートギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
-    Map<String, UserGistEntry> userGists,
+    Map<String, String> userGists,
   ) {
     final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
@@ -874,13 +871,9 @@ class _GalleryPageState extends State<GalleryPage> {
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    // user_gists のカウント降順でソート（未取得時はマスター件数で代替）
+    // マスター件数降順でソート
     final entries = grouped.entries.toList()
-      ..sort((a, b) {
-        final ca = userGists[a.key]?.count ?? a.value.length;
-        final cb = userGists[b.key]?.count ?? b.value.length;
-        return cb.compareTo(ca);
-      });
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
 
     return GridView.builder(
       controller: _gridController,
@@ -894,14 +887,11 @@ class _GalleryPageState extends State<GalleryPage> {
       itemBuilder: (context, index) {
         final username = entries[index].key;
         final userItems = entries[index].value;
-        final entry = userGists[username];
         final thumbItem = userItems.firstWhere(
           (i) => i.thumbnailUrl.isNotEmpty,
           orElse: () => userItems.first,
         );
-        // user_gists にカウントがあればそれを、なければマスター件数を表示
-        final displayCount = entry?.count ?? userItems.length;
-        return _buildUserCard(username, thumbItem, displayCount);
+        return _buildUserCard(username, thumbItem, userItems.length);
       },
     );
   }
@@ -954,7 +944,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _openUserGallery(String username) async {
     final vm = context.read<GalleryViewModel>();
-    final entry = vm.userGists[username];
+    final gistId = vm.userGists[username];
 
     showDialog(
       context: context,
@@ -980,7 +970,7 @@ class _GalleryPageState extends State<GalleryPage> {
             builder: (_) => GalleryPage(
               initialItems: userItems,
               title: '@$username',
-              userGistId: entry?.gistId,
+              userGistId: gistId,
               userGistUsername: username,
             ),
           ),

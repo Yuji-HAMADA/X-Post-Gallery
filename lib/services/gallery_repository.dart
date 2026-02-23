@@ -3,12 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tweet_item.dart';
-import '../models/user_gist_entry.dart';
 
 class GalleryData {
   final String userName;
   final List<TweetItem> items;
-  final Map<String, UserGistEntry> userGists; // username -> {gistId, count}
+  final Map<String, String> userGists; // username -> gist_id
 
   const GalleryData({
     required this.userName,
@@ -91,9 +90,7 @@ class GalleryRepository {
         .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
         .toList();
     final userGistsRaw = data['user_gists'] as Map<String, dynamic>? ?? {};
-    final userGists = userGistsRaw.map(
-      (k, v) => MapEntry(k, UserGistEntry.fromJson(v)),
-    );
+    final userGists = userGistsRaw.map((k, v) => MapEntry(k, v as String));
     return GalleryData(
       userName: data['user_screen_name'] ?? '',
       items: tweets,
@@ -146,12 +143,11 @@ class GalleryRepository {
   String buildGistJson(
     String userName,
     List<TweetItem> items, {
-    Map<String, UserGistEntry> userGists = const {},
+    Map<String, String> userGists = const {},
   }) {
     return json.encode({
       'user_screen_name': userName,
-      if (userGists.isNotEmpty)
-        'user_gists': userGists.map((k, v) => MapEntry(k, v.gistId)),
+      if (userGists.isNotEmpty) 'user_gists': userGists,
       'tweets': items.map((item) => item.toJson()).toList(),
     });
   }
