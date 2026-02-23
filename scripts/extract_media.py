@@ -69,7 +69,7 @@ async def extract_tweet_data(article):
         if is_excluded or not src or any(sz in src for sz in ["name=120x120", "name=240x240"]):
             continue
         
-        src = src.split('&name=')[0] + "&name=orig"
+        src = src.split('&name=')[0]
         media_urls.append({
             "media_url_https": src,
             "type": "photo",

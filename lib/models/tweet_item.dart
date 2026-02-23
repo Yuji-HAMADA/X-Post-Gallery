@@ -51,8 +51,18 @@ class TweetItem {
     );
   }
 
-  /// Grid表示用サムネイル（mediaUrlsの先頭）
-  String get thumbnailUrl => mediaUrls.isNotEmpty ? mediaUrls.first : '';
+  /// Twitterメディアに name= パラメータを付与する
+  static String _withImageSize(String url, String size) {
+    if (url.isEmpty) return '';
+    return url.contains('?') ? '$url&name=$size' : '$url?name=$size';
+  }
+
+  /// Grid表示用サムネイル（低解像度: name=small）
+  String get thumbnailUrl =>
+      _withImageSize(mediaUrls.isNotEmpty ? mediaUrls.first : '', 'small');
+
+  /// 詳細表示用URL一覧（高解像度: name=orig）
+  List<String> get origUrls => mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
 
   Map<String, dynamic> toJson() => {
     'full_text': fullText,

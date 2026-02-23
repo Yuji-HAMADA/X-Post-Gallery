@@ -45,7 +45,7 @@ class _DetailImageItemState extends State<DetailImageItem>
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final urls = widget.item.mediaUrls;
+      final urls = widget.item.origUrls;
       for (int i = 0; i < urls.length; i++) {
         _resolveImageSize(i, urls[i]);
       }
@@ -94,7 +94,7 @@ class _DetailImageItemState extends State<DetailImageItem>
 
   @override
   Widget build(BuildContext context) {
-    final List<String> imageUrls = widget.item.mediaUrls;
+    final List<String> imageUrls = widget.item.origUrls;
 
     return SingleChildScrollView(
       physics: _isZoomed
