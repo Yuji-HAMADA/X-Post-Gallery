@@ -148,7 +148,7 @@ class GalleryRepository {
     return json.encode({
       'user_screen_name': userName,
       if (userGists.isNotEmpty) 'user_gists': userGists,
-      'tweets': items.map((item) => item.toJson()).toList(),
+      'tweets': items.map((item) => item.toMasterJson()).toList(),
     });
   }
 
@@ -169,9 +169,13 @@ class GalleryRepository {
     final data =
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final users = (data['users'] as Map<String, dynamic>?) ?? {};
-    users[username] = {
-      'tweets': remainingItems.map((item) => item.toJson()).toList(),
-    };
+    if (remainingItems.isEmpty) {
+      users.remove(username);
+    } else {
+      users[username] = {
+        'tweets': remainingItems.map((item) => item.toJson()).toList(),
+      };
+    }
     data['users'] = users;
     return json.encode(data);
   }

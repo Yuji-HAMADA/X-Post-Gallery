@@ -74,4 +74,11 @@ class TweetItem {
     'id_str': id,
     if (postUrl != null) 'post_url': postUrl,
   };
+
+  /// マスターGist代表ツイート用（スリム形式: username + 先頭1枚のみ）
+  Map<String, dynamic> toMasterJson() => {
+    'id_str': id,
+    if (username != null) 'username': username,
+    'media_urls': mediaUrls.isNotEmpty ? [mediaUrls.first] : [],
+  };
 }

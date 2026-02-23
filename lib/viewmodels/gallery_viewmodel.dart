@@ -348,6 +348,33 @@ class GalleryViewModel extends ChangeNotifier {
     }
   }
 
+  /// 全ポスト削除後にマスターGistからユーザーを除去する
+  Future<void> removeUserFromMaster(String username) async {
+    final masterGistId = defaultMasterGistId;
+    if (masterGistId.isEmpty) return;
+
+    _userGists = Map.from(_userGists)..remove(username);
+    _items = _items.where((item) {
+      final key = item.username ??
+          RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
+      return key != username;
+    }).toList();
+
+    final filename = _repository.lastGistFilename ?? 'data.json';
+    final jsonStr = _repository.buildGistJson(
+      _userName,
+      _items,
+      userGists: _userGists,
+    );
+    await _githubService.updateGistFile(
+      gistId: masterGistId,
+      filename: filename,
+      content: jsonStr,
+    );
+    await _repository.clearCache();
+    notifyListeners();
+  }
+
   /// スクロール位置の保存・復元
   Future<int?> getSavedScrollIndex() => _repository.getSavedScrollIndex();
   Future<void> saveScrollIndex(int index) => _repository.saveScrollIndex(index);

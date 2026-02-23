@@ -557,12 +557,18 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
 
     if (remainingCount != null) {
-      // 削除済みアイテムを _localItems から除外
-      setState(() {
-        _localItems = currentItems
-            .where((item) => !deletedIds.contains(item.id))
-            .toList();
-      });
+      if (remainingCount == 0 && widget.userGistUsername != null) {
+        // ポストがなくなったユーザーをマスターGistから削除して画面を閉じる
+        await vm.removeUserFromMaster(widget.userGistUsername!);
+        if (mounted) Navigator.pop(context);
+      } else {
+        // 削除済みアイテムを _localItems から除外
+        setState(() {
+          _localItems = currentItems
+              .where((item) => !deletedIds.contains(item.id))
+              .toList();
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

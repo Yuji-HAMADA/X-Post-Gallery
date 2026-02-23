@@ -27,12 +27,16 @@ def parse_args():
     parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
     parser.add_argument("--foryou", action="store_true", help="For Youタイムラインから取得")
     parser.add_argument("-m", "--mode", default="post_only", choices=["all", "post_only"])
-    parser.add_argument("-n", "--num", type=int, default=100, help="最大取得件数")
+    parser.add_argument("-n", "--num", type=int, default=100, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止")
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
                         help="移動先Gist IDを手動指定")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.num > GIST_MAX_TWEETS:
+        print(f"⚠️  --num {args.num} exceeds limit. Capping at {GIST_MAX_TWEETS}.")
+        args.num = GIST_MAX_TWEETS
+    return args
 
 def extract_username(tweet):
     if tweet.get("username"):
@@ -264,6 +268,7 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
     )
 
     if current_total + len(merged_tweets) > GIST_MAX_TWEETS:
+        merged_tweets = merged_tweets[:GIST_MAX_TWEETS]
         print(f"⚠️  Limit reached ({GIST_MAX_TWEETS}). Creating new Gist...")
         new_id = create_gist_for_user(user, merged_tweets)
         # 移行元のGistからユーザのデータを削除（メモリ上）
