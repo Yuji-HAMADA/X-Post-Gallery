@@ -160,18 +160,24 @@ class GitHubService {
     return files?[filename]?['content'] as String?;
   }
 
-  Future<String> getWorkflowStatus() async {
+  /// 指定ワークフローの最新ランの status / conclusion / created_at を返す
+  Future<Map<String, String>> getWorkflowRunInfo(String workflowFile) async {
     final url = Uri.parse(
-      'https://api.github.com/repos/$owner/$repo/actions/runs?per_page=1',
+      'https://api.github.com/repos/$owner/$repo/actions/workflows/$workflowFile/runs?per_page=1',
     );
     final response = await http.get(url, headers: _headers);
-
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['workflow_runs'].isNotEmpty) {
-        return data['workflow_runs'][0]['status'];
+      final runs =
+          (jsonDecode(response.body)['workflow_runs'] as List?) ?? [];
+      if (runs.isNotEmpty) {
+        final run = runs[0] as Map<String, dynamic>;
+        return {
+          'status': run['status'] as String? ?? '',
+          'conclusion': run['conclusion'] as String? ?? '',
+          'createdAt': run['created_at'] as String? ?? '',
+        };
       }
     }
-    return 'unknown';
+    return {};
   }
 }

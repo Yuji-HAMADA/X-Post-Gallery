@@ -184,20 +184,45 @@ class GalleryViewModel extends ChangeNotifier {
   }
 
   /// ワークフロー完了をポーリング（10秒間隔、最大120回 = 20分）
-  Future<bool> _pollWorkflowCompletion(String label) async {
-    String pollStatus = '';
+  /// [workflowFile]: 'append_gist.yml' など
+  /// [dispatchedAt]: ディスパッチ直前の時刻。それ以降のランのみを対象にする
+  Future<bool> _pollWorkflowCompletion(
+    String workflowFile,
+    DateTime dispatchedAt,
+  ) async {
+    // ディスパッチ時刻より少し前まで許容（時計ズレ対策: 30秒）
+    final cutoff = dispatchedAt.subtract(const Duration(seconds: 30));
     int retryCount = 0;
-    while (pollStatus != 'completed' && retryCount < 120) {
+
+    while (retryCount < 120) {
+      await Future.delayed(const Duration(seconds: 10));
       try {
-        await Future.delayed(const Duration(seconds: 10));
-        pollStatus = await _githubService.getWorkflowStatus();
-        debugPrint('$label polling... Status: $pollStatus (Try $retryCount)');
+        final info = await _githubService.getWorkflowRunInfo(workflowFile);
+        final status = info['status'] ?? '';
+        final conclusion = info['conclusion'] ?? '';
+        final createdAt = DateTime.tryParse(info['createdAt'] ?? '');
+
+        debugPrint(
+          '$workflowFile polling... status=$status conclusion=$conclusion '
+          'createdAt=$createdAt (Try $retryCount)',
+        );
+
+        // ディスパッチ前の古いランは無視
+        if (createdAt == null || createdAt.isBefore(cutoff)) {
+          debugPrint('  → 古いランを無視、新しいランを待機中');
+          retryCount++;
+          continue;
+        }
+
+        if (status == 'completed') {
+          return conclusion == 'success';
+        }
       } catch (e) {
-        pollStatus = 'error';
+        debugPrint('$workflowFile poll error: $e');
       }
       retryCount++;
     }
-    return pollStatus == 'completed';
+    return false;
   }
 
   /// ワークフローをトリガーしてポーリング
@@ -212,6 +237,7 @@ class GalleryViewModel extends ChangeNotifier {
     _refreshStatus = RefreshStatus.running;
     notifyListeners();
 
+    final dispatchedAt = DateTime.now().toUtc();
     final triggered = await _githubService.triggerUpdateMygistWorkflow(
       gistId: masterGistId,
       count: count,
@@ -224,7 +250,10 @@ class GalleryViewModel extends ChangeNotifier {
       return;
     }
 
-    final completed = await _pollWorkflowCompletion('Refresh');
+    final completed = await _pollWorkflowCompletion(
+      'update_mygist.yml',
+      dispatchedAt,
+    );
     if (completed) {
       final currentGistId = await _repository.getSavedGistId();
       if (currentGistId != null && currentGistId == masterGistId) {
@@ -266,6 +295,7 @@ class GalleryViewModel extends ChangeNotifier {
     _appendStatus = AppendStatus.running;
     notifyListeners();
 
+    final dispatchedAt = DateTime.now().toUtc();
     final triggered = await _githubService.triggerAppendGistWorkflow(
       gistId: targetGistId,
       user: user,
@@ -282,7 +312,10 @@ class GalleryViewModel extends ChangeNotifier {
       return;
     }
 
-    final completed = await _pollWorkflowCompletion('Append');
+    final completed = await _pollWorkflowCompletion(
+      'append_gist.yml',
+      dispatchedAt,
+    );
     if (completed) {
       // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
       // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
