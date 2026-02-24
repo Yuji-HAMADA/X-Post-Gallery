@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
-import '../detail/detail_page.dart';
+import 'components/append_config_dialog.dart';
+import 'components/tweet_grid_view.dart';
 
 /// 複数ユーザーギャラリーを左右スワイプで切り替えるページ
 class UserGallerySwipePage extends StatefulWidget {
@@ -113,106 +113,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     );
   }
 
-  Future<Map<String, dynamic>?> _showAppendConfigDialog() async {
-    final countController = TextEditingController(text: '100');
-    bool stopOnExisting = true;
-    String mode = 'post_only';
-
-    return showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('追加設定'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'モード',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                RadioGroup<String>(
-                  groupValue: mode,
-                  onChanged: (v) => setDialogState(() => mode = v!),
-                  child: Column(
-                    children: [
-                      RadioListTile<String>(
-                        value: 'post_only',
-                        title: const Text('投稿のみ'),
-                        subtitle: const Text('リポストを除外'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      RadioListTile<String>(
-                        value: 'all',
-                        title: const Text('すべて'),
-                        subtitle: const Text('リポストを含む'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '重複ポストの処理',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                RadioGroup<bool>(
-                  groupValue: stopOnExisting,
-                  onChanged: (v) => setDialogState(() => stopOnExisting = v!),
-                  child: Column(
-                    children: [
-                      RadioListTile<bool>(
-                        value: true,
-                        title: const Text('ストップオンモード'),
-                        subtitle: const Text('既存IDに当たったら停止'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      RadioListTile<bool>(
-                        value: false,
-                        title: const Text('スキップモード'),
-                        subtitle: const Text('既存IDをスキップして続行'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: countController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: '取得件数',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('キャンセル'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, {
-                'mode': mode,
-                'count': int.tryParse(countController.text) ?? 100,
-                'stopOnExisting': stopOnExisting,
-              }),
-              child: const Text('実行'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _handleAppend(String username) async {
-    final config = await _showAppendConfigDialog();
+    final config = await AppendConfigDialog.show(context);
     if (config == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
@@ -448,7 +350,11 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
               if (items.isEmpty) {
                 return const Center(child: Text('ポストが見つかりませんでした'));
               }
-              return _buildGridView(uname, items, vm.selectedIds);
+              return TweetGridView(
+                items: items,
+                selectedIds: vm.selectedIds,
+                scrollController: _controllerFor(uname),
+              );
             },
           ),
         );
@@ -456,85 +362,4 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     );
   }
 
-  Widget _buildGridView(
-    String username,
-    List<TweetItem> items,
-    Set<String> selectedIds,
-  ) {
-    return GridView.builder(
-      controller: _controllerFor(username),
-      padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) =>
-          _buildGridItem(items, index, selectedIds),
-    );
-  }
-
-  Widget _buildGridItem(
-    List<TweetItem> items,
-    int index,
-    Set<String> selectedIds,
-  ) {
-    final item = items[index];
-    final imageUrl = item.thumbnailUrl;
-    final isSelected = selectedIds.contains(item.id);
-    final isSelectionMode = selectedIds.isNotEmpty;
-
-    return GestureDetector(
-      onTap: () {
-        if (isSelectionMode) {
-          context.read<GalleryViewModel>().toggleSelection(item.id);
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => DetailPage(items: items, initialIndex: index),
-            ),
-          );
-        }
-      },
-      onLongPress: () =>
-          context.read<GalleryViewModel>().toggleSelection(item.id),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            decoration: BoxDecoration(color: Colors.grey[900]),
-            child: imageUrl.isNotEmpty
-                ? Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                    errorBuilder: (c, e, s) => const Center(
-                      child: Icon(Icons.broken_image, color: Colors.grey),
-                    ),
-                  )
-                : const Center(
-                    child: Icon(Icons.broken_image, color: Colors.grey),
-                  ),
-          ),
-          if (isSelected)
-            Container(
-              color: Colors.blue.withValues(alpha: 0.4),
-              child: const Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.check_circle,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }

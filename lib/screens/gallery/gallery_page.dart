@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
-import '../detail/detail_page.dart';
 import '../stats/stats_page.dart';
+import 'components/append_config_dialog.dart';
+import 'components/tweet_grid_view.dart';
+import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
 import 'user_gallery_swipe_page.dart';
 
@@ -387,7 +389,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _handleAppend({String? user, String? hashtag}) async {
     final vm = context.read<GalleryViewModel>();
-    final config = await _showAppendConfigDialog();
+    final config = await AppendConfigDialog.show(context);
     if (config == null) return;
 
     if (!await vm.isAdminAuthenticated()) {
@@ -406,104 +408,6 @@ class _GalleryPageState extends State<GalleryPage> {
       mode: config['mode'] as String,
       count: config['count'] as int,
       stopOnExisting: config['stopOnExisting'] as bool,
-    );
-  }
-
-  Future<Map<String, dynamic>?> _showAppendConfigDialog() async {
-    final countController = TextEditingController(text: '100');
-    bool stopOnExisting = true;
-    String mode = 'post_only';
-
-    return showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('追加設定'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'モード',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                RadioGroup<String>(
-                  groupValue: mode,
-                  onChanged: (v) => setDialogState(() => mode = v!),
-                  child: Column(
-                    children: [
-                      RadioListTile<String>(
-                        value: 'post_only',
-                        title: const Text('投稿のみ'),
-                        subtitle: const Text('リポストを除外'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      RadioListTile<String>(
-                        value: 'all',
-                        title: const Text('すべて'),
-                        subtitle: const Text('リポストを含む'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '重複ポストの処理',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                RadioGroup<bool>(
-                  groupValue: stopOnExisting,
-                  onChanged: (v) => setDialogState(() => stopOnExisting = v!),
-                  child: Column(
-                    children: [
-                      RadioListTile<bool>(
-                        value: true,
-                        title: const Text('ストップオンモード'),
-                        subtitle: const Text('既存IDに当たったら停止'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      RadioListTile<bool>(
-                        value: false,
-                        title: const Text('スキップモード'),
-                        subtitle: const Text('既存IDをスキップして続行'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: countController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: '取得件数',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('キャンセル'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, {
-                'mode': mode,
-                'count': int.tryParse(countController.text) ?? 100,
-                'stopOnExisting': stopOnExisting,
-              }),
-              child: const Text('実行'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -832,7 +736,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   /// マスターGistに存在しない新規ユーザーを追加する
   Future<void> _handleAddNewUser(String username) async {
-    final config = await _showAppendConfigDialog();
+    final config = await AppendConfigDialog.show(context);
     if (config == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
@@ -1167,7 +1071,11 @@ class _GalleryPageState extends State<GalleryPage> {
           ? const Center(child: Text("Waiting for authentication..."))
           : (items.isEmpty
                 ? const Center(child: CircularProgressIndicator())
-                : _buildGridView(items, selectedIds)),
+                : TweetGridView(
+                    items: items,
+                    selectedIds: selectedIds,
+                    scrollController: _gridController,
+                  )),
     );
   }
 
@@ -1207,11 +1115,14 @@ class _GalleryPageState extends State<GalleryPage> {
           (i) => i.thumbnailUrl.isNotEmpty,
           orElse: () => userItems.first,
         );
-        return _buildUserCard(
-          username,
-          thumbItem,
-          userItems.length,
-          favoriteUsers.contains(username),
+        return UserCard(
+          username: username,
+          thumbItem: thumbItem,
+          count: userItems.length,
+          isFavorite: favoriteUsers.contains(username),
+          onTap: () => _openUserGallery(username),
+          onFavoriteTap: () =>
+              context.read<GalleryViewModel>().toggleFavorite(username),
         );
       },
     );
@@ -1265,87 +1176,16 @@ class _GalleryPageState extends State<GalleryPage> {
           (i) => i.thumbnailUrl.isNotEmpty,
           orElse: () => userItems.first,
         );
-        return _buildUserCard(
-          username,
-          thumbItem,
-          userItems.length,
-          true, // お気に入りページなので常にtrue
+        return UserCard(
+          username: username,
+          thumbItem: thumbItem,
+          count: userItems.length,
+          isFavorite: true,
           onTap: () => _openUserGallery(username, scope: favUsernames),
+          onFavoriteTap: () =>
+              context.read<GalleryViewModel>().toggleFavorite(username),
         );
       },
-    );
-  }
-
-  Widget _buildUserCard(
-    String username,
-    TweetItem thumbItem,
-    int count,
-    bool isFavorite, {
-    VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap ?? () => _openUserGallery(username),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            color: Colors.grey[900],
-            child: thumbItem.thumbnailUrl.isNotEmpty
-                ? Image.network(
-                    thumbItem.thumbnailUrl,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                    errorBuilder: (c, e, s) => _buildErrorWidget(),
-                  )
-                : _buildErrorWidget(),
-          ),
-          // ハートボタン（右上）
-          Positioned(
-            top: 2,
-            right: 2,
-            child: GestureDetector(
-              onTap: () =>
-                  context.read<GalleryViewModel>().toggleFavorite(username),
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: const BoxDecoration(
-                  color: Colors.black38,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  isFavorite ? Icons.favorite : Icons.favorite_border,
-                  color: isFavorite ? Colors.redAccent : Colors.white70,
-                  size: 16,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              color: Colors.black54,
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '@$username',
-                      style: const TextStyle(fontSize: 10, color: Colors.white),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Text(
-                    '$count',
-                    style: const TextStyle(fontSize: 10, color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1392,82 +1232,4 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  Widget _buildGridView(List<TweetItem> items, Set<String> selectedIds) {
-    return GridView.builder(
-      controller: _gridController,
-      padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) =>
-          _buildGridItem(items, index, selectedIds),
-    );
-  }
-
-  Widget _buildGridItem(
-    List<TweetItem> items,
-    int index,
-    Set<String> selectedIds,
-  ) {
-    final item = items[index];
-    final String imageUrl = item.thumbnailUrl;
-    final bool isSelected = selectedIds.contains(item.id);
-    final bool isSelectionMode = selectedIds.isNotEmpty;
-
-    return GestureDetector(
-      onTap: () {
-        if (isSelectionMode) {
-          context.read<GalleryViewModel>().toggleSelection(item.id);
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) =>
-                  DetailPage(items: items, initialIndex: index),
-            ),
-          );
-        }
-      },
-      onLongPress: () {
-        context.read<GalleryViewModel>().toggleSelection(item.id);
-      },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            decoration: BoxDecoration(color: Colors.grey[900]),
-            child: imageUrl.isNotEmpty
-                ? Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                    errorBuilder: (c, e, s) => _buildErrorWidget(),
-                  )
-                : _buildErrorWidget(),
-          ),
-          if (isSelected)
-            Container(
-              color: Colors.blue.withValues(alpha: 0.4),
-              child: const Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.check_circle,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorWidget() =>
-      const Center(child: Icon(Icons.broken_image, color: Colors.grey));
 }

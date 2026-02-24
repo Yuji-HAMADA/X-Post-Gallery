@@ -284,9 +284,9 @@ class GalleryViewModel extends ChangeNotifier {
 
     final completed = await _pollWorkflowCompletion('Append');
     if (completed) {
-      if (!isUserGist) {
-        await loadGallery(targetGistId);
-      }
+      // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
+      // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
+      await loadGallery(targetGistId);
       _appendStatus = AppendStatus.completed;
     } else {
       _errorMessage = '追加がタイムアウトまたは失敗しました';
