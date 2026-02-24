@@ -167,8 +167,7 @@ class GitHubService {
     );
     final response = await http.get(url, headers: _headers);
     if (response.statusCode == 200) {
-      final runs =
-          (jsonDecode(response.body)['workflow_runs'] as List?) ?? [];
+      final runs = (jsonDecode(response.body)['workflow_runs'] as List?) ?? [];
       if (runs.isNotEmpty) {
         final run = runs[0] as Map<String, dynamic>;
         return {

@@ -361,5 +361,4 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
       },
     );
   }
-
 }

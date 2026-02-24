@@ -28,11 +28,8 @@ class TweetGridView extends StatelessWidget {
         mainAxisSpacing: 4,
       ),
       itemCount: items.length,
-      itemBuilder: (context, index) => TweetGridItem(
-        items: items,
-        index: index,
-        selectedIds: selectedIds,
-      ),
+      itemBuilder: (context, index) =>
+          TweetGridItem(items: items, index: index, selectedIds: selectedIds),
     );
   }
 }
@@ -97,7 +94,11 @@ class TweetGridItem extends StatelessWidget {
                 alignment: Alignment.topRight,
                 child: Padding(
                   padding: EdgeInsets.all(4),
-                  child: Icon(Icons.check_circle, color: Colors.white, size: 24),
+                  child: Icon(
+                    Icons.check_circle,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
               ),
             ),
