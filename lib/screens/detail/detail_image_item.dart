@@ -158,8 +158,8 @@ class _DetailImageItemState extends State<DetailImageItem>
       scaleEnabled: _isZoomed,
       panEnabled: _isZoomed,
       alignment: Alignment.topLeft,
-      onInteractionUpdate: (details) {
-        double currentScale = controller.value.getMaxScaleOnAxis();
+      onInteractionEnd: (details) {
+        final currentScale = controller.value.getMaxScaleOnAxis();
         _updateZoomState(currentScale > 1.0);
       },
       child: GestureDetector(
