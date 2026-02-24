@@ -25,7 +25,12 @@ class DetailImageItem extends StatefulWidget {
 }
 
 class _DetailImageItemState extends State<DetailImageItem> {
+  /// シングルタップで true になる（一方向・戻り不可）
+  bool _textHidden = false;
+
+  /// photo_view のズーム状態（PageView スワイプ制御用）
   bool _isZoomed = false;
+
   final Map<int, double> _resolvedRatios = {};
   final List<GestureRecognizer> _urlRecognizers = [];
 
@@ -85,13 +90,7 @@ class _DetailImageItemState extends State<DetailImageItem> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildImageSlider(imageUrls),
-          Visibility(
-            visible: !_isZoomed,
-            maintainSize: true,
-            maintainAnimation: true,
-            maintainState: true,
-            child: _buildTextDetail(),
-          ),
+          if (!_textHidden) _buildTextDetail(),
         ],
       ),
     );
@@ -111,32 +110,47 @@ class _DetailImageItemState extends State<DetailImageItem> {
           child: SizedBox(
             width: screenWidth,
             height: screenWidth / ratio,
-            child: _buildZoomableImage(url),
+            child: _buildImageWidget(url),
           ),
         );
       }).toList(),
     );
   }
 
-  Widget _buildZoomableImage(String url) {
-    return PhotoView(
-      imageProvider: NetworkImage(url),
-      minScale: PhotoViewComputedScale.contained,
-      maxScale: 5.0,
-      initialScale: PhotoViewComputedScale.contained,
-      backgroundDecoration: const BoxDecoration(color: Colors.transparent),
-      scaleStateChangedCallback: (state) {
-        // addPostFrameCallback でフレーム後に setState → ジェスチャー処理中の
-        // 再ビルドによる GestureArena リセットを防ぐ
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _updateZoomState(state != PhotoViewScaleState.initial);
-        });
-      },
-      loadingBuilder: (context, event) => const Center(
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
-      errorBuilder: (context, error, stackTrace) => const Center(
-        child: Icon(Icons.broken_image, color: Colors.grey),
+  Widget _buildImageWidget(String url) {
+    if (_textHidden) {
+      // 画像のみモード: PhotoView でズーム/パン自由
+      return PhotoView(
+        imageProvider: NetworkImage(url),
+        minScale: PhotoViewComputedScale.contained,
+        maxScale: 5.0,
+        initialScale: PhotoViewComputedScale.contained,
+        backgroundDecoration: const BoxDecoration(color: Colors.transparent),
+        scaleStateChangedCallback: (state) {
+          // フレーム後に setState → ジェスチャー処理中の再ビルドを回避
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _updateZoomState(state != PhotoViewScaleState.initial);
+          });
+        },
+        loadingBuilder: (context, event) => const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        errorBuilder: (context, error, stackTrace) => const Center(
+          child: Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      );
+    }
+
+    // デフォルト表示: シングルタップで画像のみモードへ切り替え
+    return GestureDetector(
+      onTap: () => setState(() => _textHidden = true),
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        alignment: Alignment.topLeft,
+        errorBuilder: (c, e, s) => const Center(
+          child: Icon(Icons.broken_image, color: Colors.grey),
+        ),
       ),
     );
   }
