@@ -1,10 +1,9 @@
-import 'dart:math' as math;
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:linkify/linkify.dart' as linkify_pkg;
+import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../gallery/gallery_page.dart';
@@ -25,25 +24,14 @@ class DetailImageItem extends StatefulWidget {
   State<DetailImageItem> createState() => _DetailImageItemState();
 }
 
-class _DetailImageItemState extends State<DetailImageItem>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  Animation<Matrix4>? _animation;
-  VoidCallback? _activeAnimationListener;
-  TapDownDetails? _doubleTapDetails;
+class _DetailImageItemState extends State<DetailImageItem> {
   bool _isZoomed = false;
-
   final Map<int, double> _resolvedRatios = {};
   final List<GestureRecognizer> _urlRecognizers = [];
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final urls = widget.item.origUrls;
       for (int i = 0; i < urls.length; i++) {
@@ -54,18 +42,10 @@ class _DetailImageItemState extends State<DetailImageItem>
 
   @override
   void dispose() {
-    for (var controller in _controllers.values) {
-      controller.dispose();
-    }
-    _controllers.clear();
-
     for (var r in _urlRecognizers) {
       r.dispose();
     }
     _urlRecognizers.clear();
-
-    _animationController.dispose();
-
     super.dispose();
   }
 
@@ -128,104 +108,33 @@ class _DetailImageItemState extends State<DetailImageItem>
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 4.0),
-          child: Container(
+          child: SizedBox(
             width: screenWidth,
-            constraints: BoxConstraints(
-              minHeight: 0,
-              maxHeight: _isZoomed
-                  ? math.max(
-                      MediaQuery.of(context).size.height,
-                      screenWidth / ratio,
-                    )
-                  : screenWidth / ratio,
-            ),
-            child: _buildZoomableImage(url, widget.item.id, i),
+            height: screenWidth / ratio,
+            child: _buildZoomableImage(url),
           ),
         );
       }).toList(),
     );
   }
 
-  Widget _buildZoomableImage(String url, String itemId, int index) {
-    final controller = _getController(index);
-
-    return InteractiveViewer(
-      transformationController: controller,
-      boundaryMargin: EdgeInsets.zero,
-      clipBehavior: Clip.none,
-      minScale: 1.0,
+  Widget _buildZoomableImage(String url) {
+    return PhotoView(
+      imageProvider: NetworkImage(url),
+      minScale: PhotoViewComputedScale.contained,
       maxScale: 5.0,
-      scaleEnabled: _isZoomed,
-      panEnabled: _isZoomed,
-      alignment: Alignment.topLeft,
-      onInteractionEnd: (details) {
-        final currentScale = controller.value.getMaxScaleOnAxis();
-        _updateZoomState(currentScale > 1.0);
+      initialScale: PhotoViewComputedScale.contained,
+      backgroundDecoration: const BoxDecoration(color: Colors.transparent),
+      scaleStateChangedCallback: (state) {
+        _updateZoomState(state != PhotoViewScaleState.initial);
       },
-      child: GestureDetector(
-        onDoubleTapDown: (details) => _doubleTapDetails = details,
-        onDoubleTap: () {
-          if (controller.value.getMaxScaleOnAxis() > 1.0) {
-            _runAnimationForIndex(index, Matrix4.identity());
-            _updateZoomState(false);
-          } else {
-            _resetOtherZooms(index);
-
-            final position = _doubleTapDetails!.localPosition;
-            const double scale = 2.0;
-
-            final Matrix4 result = Matrix4.identity()
-              ..translateByDouble(position.dx, position.dy, 0.0, 1.0)
-              ..scaleByDouble(scale, scale, 1.0, 1.0)
-              ..translateByDouble(-position.dx, -position.dy, 0.0, 1.0);
-            _runAnimationForIndex(index, result);
-            _updateZoomState(true);
-          }
-        },
-        child: Image.network(
-          url,
-          fit: BoxFit.contain,
-          alignment: Alignment.topLeft,
-        ),
+      loadingBuilder: (context, event) => const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+      errorBuilder: (context, error, stackTrace) => const Center(
+        child: Icon(Icons.broken_image, color: Colors.grey),
       ),
     );
-  }
-
-  final Map<int, TransformationController> _controllers = {};
-
-  TransformationController _getController(int index) {
-    return _controllers.putIfAbsent(index, () => TransformationController());
-  }
-
-  void _runAnimationForIndex(int index, Matrix4 targetMatrix) {
-    final controller = _getController(index);
-
-    _animationController.stop();
-    if (_activeAnimationListener != null) {
-      _animationController.removeListener(_activeAnimationListener!);
-    }
-
-    _animation = Matrix4Tween(begin: controller.value, end: targetMatrix)
-        .animate(
-          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-        );
-
-    _activeAnimationListener = () {
-      if (mounted && _animation != null) {
-        controller.value = _animation!.value;
-      }
-    };
-    _animationController.addListener(_activeAnimationListener!);
-
-    _animationController.forward(from: 0);
-  }
-
-  void _resetOtherZooms(int activeIndex) {
-    for (var entry in _controllers.entries) {
-      if (entry.key != activeIndex) {
-        entry.value.value = Matrix4.identity();
-      }
-    }
   }
 
   Widget _buildTextDetail() {
