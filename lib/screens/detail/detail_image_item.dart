@@ -126,7 +126,11 @@ class _DetailImageItemState extends State<DetailImageItem> {
       initialScale: PhotoViewComputedScale.contained,
       backgroundDecoration: const BoxDecoration(color: Colors.transparent),
       scaleStateChangedCallback: (state) {
-        _updateZoomState(state != PhotoViewScaleState.initial);
+        // addPostFrameCallback でフレーム後に setState → ジェスチャー処理中の
+        // 再ビルドによる GestureArena リセットを防ぐ
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _updateZoomState(state != PhotoViewScaleState.initial);
+        });
       },
       loadingBuilder: (context, event) => const Center(
         child: CircularProgressIndicator(strokeWidth: 2),
