@@ -14,14 +14,6 @@ on:
         description: 'ハッシュタグ (#なし、例: aiart)　※ user と排他'
         required: false
         default: ''
-      mode:
-        description: '取得モード'
-        required: true
-        default: 'post_only'
-        type: choice
-        options:
-          - post_only
-          - all
       num_posts:
         description: '最大取得件数'
         required: true
@@ -42,6 +34,10 @@ on:
         options:
           - 'false'
           - 'true'
+
+concurrency:
+  group: gist-writer
+  cancel-in-progress: false
 
 jobs:
   append-gist:
@@ -121,7 +117,6 @@ jobs:
           ./append_gist.sh \
             -g "${{ github.event.inputs.gist_id }}" \
             $TARGET_FLAG \
-            -m "${{ github.event.inputs.mode }}" \
             -n "${{ github.event.inputs.num_posts }}" \
             $STOP_FLAG \
             $FORCE_FLAG

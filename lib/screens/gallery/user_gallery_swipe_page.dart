@@ -114,8 +114,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
   }
 
   Future<void> _handleAppend(String username) async {
-    final config = await AppendConfigDialog.show(context);
-    if (config == null || !mounted) return;
+    final count = await AppendConfigDialog.show(context);
+    if (count == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
@@ -128,55 +128,15 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
       }
     }
 
-    if (!mounted) return;
-    final gistId = widget.userGistIds[_currentIndex];
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            const Text('追加中...', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text(
-              '@$username / ${config['count']} 件',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const Text(
-              '数分かかる場合があります',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
+    final success = await vm.queueUserForFetch(username, count: count);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '取得キューに追加しました' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
-      ),
-    );
-
-    await vm.executeAppend(
-      user: username,
-      mode: config['mode'] as String,
-      count: config['count'] as int,
-      stopOnExisting: config['stopOnExisting'] as bool,
-      isUserGist: gistId != null,
-    );
-
-    if (mounted) Navigator.pop(context);
-
-    if (vm.appendStatus == AppendStatus.completed) {
-      // 追加後に再ロード
-      _loadedItems.remove(username);
-      await _loadPage(_currentIndex);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('追加完了'), backgroundColor: Colors.green),
-        );
-      }
-    } else if (vm.appendStatus == AppendStatus.failed) {
-      _showErrorSnackBar(vm.errorMessage);
+      );
     }
-    vm.clearAppendStatus();
   }
 
   Future<void> _showDeleteConfirmDialog(String username) async {

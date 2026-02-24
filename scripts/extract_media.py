@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument("-n", "--num", type=int, default=100)
     parser.add_argument("-u", "--user", type=str, default=None, help="Target user ID (--user または --hashtag のどちらか必須)")
     parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
-    parser.add_argument("--mode", type=str, default="post_only", choices=["all", "post_only"])
+    parser.add_argument("--mode", type=str, default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
     return parser.parse_args()
@@ -100,9 +100,10 @@ async def run():
         print(f"❌ Error: {AUTH_PATH} not found."); return
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    url = build_search_url(args.user, args.hashtag, args.mode)
+    mode = "post_only"  # 固定
+    url = build_search_url(args.user, args.hashtag, mode)
     target_label = f"#{args.hashtag}" if args.hashtag else f"@{args.user}"
-    print(f"🚀 Mode: {args.mode} | Target: {target_label} | URL: {url}")
+    print(f"🚀 Mode: {mode} | Target: {target_label} | URL: {url}")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)

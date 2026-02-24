@@ -389,8 +389,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _handleAppend({String? user, String? hashtag}) async {
     final vm = context.read<GalleryViewModel>();
-    final config = await AppendConfigDialog.show(context);
-    if (config == null) return;
+    final count = await AppendConfigDialog.show(context);
+    if (count == null) return;
 
     if (!await vm.isAdminAuthenticated()) {
       final result = await _showPasswordInputDialog('認証');
@@ -402,92 +402,16 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    await _executeAppendWithDialog(
-      user: user,
-      hashtag: hashtag,
-      mode: config['mode'] as String,
-      count: config['count'] as int,
-      stopOnExisting: config['stopOnExisting'] as bool,
-    );
-  }
-
-  Future<bool> _executeAppendWithDialog({
-    String? user,
-    String? hashtag,
-    required String mode,
-    required int count,
-    required bool stopOnExisting,
-  }) async {
-    final isUserGist = widget.userGistId != null;
-    final targetLabel = user != null ? '@$user' : '#$hashtag';
+    final targetUser = user ?? hashtag ?? '';
+    final success = await vm.queueUserForFetch(targetUser, count: count);
     if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 20),
-              const Text(
-                '追加中...',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$targetLabel / $count 件',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              Text(
-                stopOnExisting ? 'ストップオンモード' : 'スキップモード',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const Text(
-                '数分かかる場合があります',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '取得キューに追加しました' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
       );
     }
-
-    final vm = context.read<GalleryViewModel>();
-    await vm.executeAppend(
-      user: user,
-      hashtag: hashtag,
-      mode: mode,
-      count: count,
-      stopOnExisting: stopOnExisting,
-      isUserGist: isUserGist,
-    );
-
-    if (mounted) Navigator.pop(context);
-
-    if (vm.appendStatus == AppendStatus.completed) {
-      if (isUserGist && widget.userGistUsername != null) {
-        // ユーザーGist: 追記後のデータを再取得して _localItems を更新
-        try {
-          final newItems = await vm.fetchUserItems(widget.userGistUsername!);
-          if (mounted) setState(() => _localItems = newItems);
-        } catch (_) {
-          // 取得失敗時は現状維持
-        }
-      } else {
-        _refilterLocalItems(vm); // マスターフィルタサブギャラリーの更新
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('追加完了'), backgroundColor: Colors.green),
-        );
-      }
-    } else if (vm.appendStatus == AppendStatus.failed) {
-      _showErrorSnackBar(vm.errorMessage);
-    }
-    final success = vm.appendStatus == AppendStatus.completed;
-    vm.clearAppendStatus();
-    return success;
   }
 
   Future<void> _executeRefreshWithDialog(int count) async {
@@ -617,41 +541,6 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  /// vm.items をタイトルのフィルタ条件で絞り込み _localItems を更新する
-  void _refilterLocalItems(GalleryViewModel vm) {
-    if (widget.initialItems == null) return;
-    final currentTitle = widget.title ?? '';
-    final isUserFilter = currentTitle.contains('@');
-    final isHashtagFilter = currentTitle.startsWith('#');
-
-    List<TweetItem> filtered;
-    if (isUserFilter) {
-      final twitterId = currentTitle.startsWith('@')
-          ? currentTitle.replaceFirst('@', '')
-          : currentTitle
-                .substring(currentTitle.indexOf('@'))
-                .replaceFirst('@', '');
-      final userTag = '@$twitterId';
-      final pattern = RegExp(r'@([a-zA-Z0-9_]+)');
-      filtered = vm.items.where((item) {
-        return pattern
-            .allMatches(item.fullText)
-            .any((m) => m.group(0)!.toLowerCase() == userTag.toLowerCase());
-      }).toList();
-    } else if (isHashtagFilter) {
-      final hashtagKeyword = currentTitle.replaceFirst('#', '');
-      final hashTag = '#$hashtagKeyword';
-      final pattern = RegExp(r'#[^\s#]+');
-      filtered = vm.items.where((item) {
-        return pattern
-            .allMatches(item.fullText)
-            .any((m) => m.group(0)!.toLowerCase() == hashTag.toLowerCase());
-      }).toList();
-    } else {
-      filtered = vm.items;
-    }
-    setState(() => _localItems = filtered);
-  }
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -736,8 +625,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   /// マスターGistに存在しない新規ユーザーを追加する
   Future<void> _handleAddNewUser(String username) async {
-    final config = await AppendConfigDialog.show(context);
-    if (config == null || !mounted) return;
+    final count = await AppendConfigDialog.show(context);
+    if (count == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
@@ -750,23 +639,14 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    final success = await _executeAppendWithDialog(
-      user: username,
-      mode: config['mode'] as String,
-      count: config['count'] as int,
-      stopOnExisting: config['stopOnExisting'] as bool,
-    );
-    if (!success || !mounted) return;
-
-    // 追加成功後にそのユーザーのギャラリーを開く
-    // マスターGistリロード済みなので userGists に登録されているはず
-    final lowerUsername = username.toLowerCase();
-    final matchedKey = vm.userGists.keys.firstWhere(
-      (k) => k.toLowerCase() == lowerUsername,
-      orElse: () => '',
-    );
-    if (matchedKey.isNotEmpty) {
-      _openUserGallery(matchedKey);
+    final success = await vm.queueUserForFetch(username, count: count);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '取得キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
+        ),
+      );
     }
   }
 

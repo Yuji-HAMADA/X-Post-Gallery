@@ -275,12 +275,16 @@ class GalleryViewModel extends ChangeNotifier {
 
   // --- Append アクション ---
 
+  /// キューGistにユーザーを追加する
+  Future<bool> queueUserForFetch(String username, {int? count}) async {
+    return _githubService.addUserToFetchQueue(username, count: count);
+  }
+
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
   /// isUserGist: true の場合はマスターリロードをスキップ（呼び出し側が処理）
   Future<void> executeAppend({
     String? user,
     String? hashtag,
-    required String mode,
     required int count,
     required bool stopOnExisting,
     bool isUserGist = false,
@@ -300,7 +304,6 @@ class GalleryViewModel extends ChangeNotifier {
       gistId: targetGistId,
       user: user,
       hashtag: hashtag,
-      mode: mode,
       count: count,
       stopOnExisting: stopOnExisting,
     );

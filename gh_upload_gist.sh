@@ -5,13 +5,12 @@ NUM=100
 USER="travelbeauty8"
 MODE="post_only"
 
-# --- 引数の解析 (u: ユーザー名, m: モード, n: 件数) ---
-while getopts u:m:n: OPT; do
+# --- 引数の解析 (u: ユーザー名, n: 件数) ---
+while getopts u:n: OPT; do
   case $OPT in
     u) USER=$OPTARG ;;
-    m) MODE=$OPTARG ;;
     n) NUM=$OPTARG ;;
-    *) echo "Usage: $0 [-u user_id] [-m all|post_only] [-n num]"
+    *) echo "Usage: $0 [-u user_id] [-n num]"
        exit 1 ;;
   esac
 done
@@ -22,7 +21,7 @@ mkdir -p assets/data scripts
 # 2. X（Twitter）からの抽出
 echo "Step 2: Extracting $NUM items for @$USER (Mode: $MODE)..."
 # 引数を Python に渡す
-python3 scripts/extract_media.py -u "$USER" --mode "$MODE" -n "$NUM"
+python3 scripts/extract_media.py -u "$USER" -n "$NUM"
 
 # 3. Flutter用データへの変換
 echo "Step 3: Updating data format..."

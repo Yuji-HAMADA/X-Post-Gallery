@@ -1,0 +1,101 @@
+name: Scheduled Fetch (Queue)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: gist-writer
+  cancel-in-progress: false
+
+jobs:
+  fetch-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-append-gist
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
+        run: pip install playwright --quiet
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(pip show playwright | grep Version | cut -d ' ' -f 2)" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      - name: Install Playwright dependencies (Always required)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+
+      - name: Create Auth File
+        env:
+          AUTH_DATA: ${{ secrets.AUTH_JSON }}
+        run: |
+          mkdir -p data
+          printf "%s" "$AUTH_DATA" > data/auth.json
+          if [ ! -s data/auth.json ]; then
+            echo "Error: data/auth.json is empty. Check GitHub Secret: AUTH_JSON"
+            exit 1
+          fi
+          python3 -c "import json; json.load(open('data/auth.json'))" && echo "auth.json is valid JSON" || (echo "Error: auth.json is NOT valid JSON format"; exit 1)
+
+      - name: Fetch Queue and Process Users
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          FETCH_QUEUE_GIST_ID: ${{ secrets.FETCH_QUEUE_GIST_ID }}
+        run: |
+          chmod +x append_gist.sh
+
+          # キューGistからユーザリストを取得
+          QUEUE_JSON=$(gh gist view "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json)
+          echo "Queue JSON loaded."
+
+          DEFAULT_COUNT=$(echo "$QUEUE_JSON" | jq -r '.default_count // 300')
+          MASTER_GIST_ID=$(echo "$QUEUE_JSON" | jq -r '.master_gist_id')
+          USERS_LENGTH=$(echo "$QUEUE_JSON" | jq '.users | length')
+
+          echo "Master Gist: $MASTER_GIST_ID"
+          echo "Default count: $DEFAULT_COUNT"
+          echo "Users: $USERS_LENGTH"
+
+          for i in $(seq 0 $((USERS_LENGTH - 1))); do
+            USER=$(echo "$QUEUE_JSON" | jq -r ".users[$i].user")
+            COUNT=$(echo "$QUEUE_JSON" | jq -r ".users[$i].count // empty")
+            COUNT=${COUNT:-$DEFAULT_COUNT}
+
+            echo "=========================================="
+            echo "Processing [$((i+1))/$USERS_LENGTH]: @$USER (count=$COUNT)"
+            echo "=========================================="
+
+            ./append_gist.sh \
+              -g "$MASTER_GIST_ID" \
+              -u "$USER" \
+              -n "$COUNT" \
+              -s \
+              || true
+          done
+
+          echo "All users processed."

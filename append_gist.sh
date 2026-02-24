@@ -11,17 +11,16 @@ FORCE_EMPTY=""
 PROMOTE_GIST_ID=""
 
 # --- 引数の解析 ---
-while getopts g:u:t:m:n:sfp: OPT; do
+while getopts g:u:t:n:sfp: OPT; do
   case $OPT in
     g) GIST_ID=$OPTARG ;;
     u) USER=$OPTARG ;;
     t) HASHTAG=$OPTARG ;;
-    m) MODE=$OPTARG ;;
     n) NUM=$OPTARG ;;
     s) STOP_ON_EXISTING="-s" ;;
     f) FORCE_EMPTY="--force-empty" ;;
     p) PROMOTE_GIST_ID=$OPTARG ;;
-    *) echo "Usage: $0 -g gist_id [-u user | -t hashtag] [-m all|post_only] [-n num] [-s] [-f] [-p promote_gist_id]"
+    *) echo "Usage: $0 -g gist_id [-u user | -t hashtag] [-n num] [-s] [-f] [-p promote_gist_id]"
        exit 1 ;;
   esac
 done
@@ -48,7 +47,7 @@ echo "=========================================="
 echo "Append to Gist"
 echo "  Gist ID          : $GIST_ID"
 echo "  Target           : $TARGET_LABEL"
-echo "  Mode             : $MODE"
+echo "  Mode             : $MODE (fixed)"
 echo "  Num              : $NUM"
 echo "  Stop on existing : ${STOP_ON_EXISTING:-(skip mode)}"
 echo "  Force empty      : ${FORCE_EMPTY:-(no)}"
@@ -64,7 +63,6 @@ if [ -n "$USER" ]; then
   python3 scripts/append_to_gist.py \
     -g "$GIST_ID" \
     -u "$USER" \
-    -m "$MODE" \
     -n "$NUM" \
     $STOP_ON_EXISTING \
     $FORCE_EMPTY \
@@ -73,7 +71,6 @@ else
   python3 scripts/append_to_gist.py \
     -g "$GIST_ID" \
     --hashtag "$HASHTAG" \
-    -m "$MODE" \
     -n "$NUM" \
     $STOP_ON_EXISTING \
     $FORCE_EMPTY \
