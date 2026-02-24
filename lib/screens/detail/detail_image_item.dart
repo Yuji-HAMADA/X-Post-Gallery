@@ -25,10 +25,10 @@ class DetailImageItem extends StatefulWidget {
 }
 
 class _DetailImageItemState extends State<DetailImageItem> {
-  /// シングルタップで true になる（一方向・戻り不可）
-  bool _textHidden = false;
+  /// false = 初期状態（画像+テキスト）  true = 画像表示状態（PhotoView）
+  bool _imageViewMode = false;
 
-  /// photo_view のズーム状態（PageView スワイプ制御用）
+  /// PhotoView 内でのズーム状態（外側スクロールの制御用）
   bool _isZoomed = false;
 
   final Map<int, double> _resolvedRatios = {};
@@ -70,19 +70,45 @@ class _DetailImageItemState extends State<DetailImageItem> {
         );
   }
 
-  void _updateZoomState(bool zoomed) {
+  /// ダブルタップで初期状態 → 画像表示状態へ
+  void _enterImageViewMode() {
+    setState(() => _imageViewMode = true);
+    widget.onZoomChanged(true); // PageView スワイプ無効化
+  }
+
+  /// ダブルタップで画像表示状態 → 初期状態へ
+  void _exitImageViewMode() {
+    setState(() {
+      _imageViewMode = false;
+      _isZoomed = false;
+    });
+    widget.onZoomChanged(false); // PageView スワイプ有効化
+  }
+
+  /// 画像表示状態内のズーム変化（外側スクロール制御のみ。PageView は変更しない）
+  void _onPhotoViewScaleStateChanged(PhotoViewScaleState state) {
+    if (state == PhotoViewScaleState.covering) {
+      // ダブルタップによる exit シグナル
+      _exitImageViewMode();
+      return;
+    }
+    final zoomed = (state == PhotoViewScaleState.zoomedIn);
     if (_isZoomed != zoomed) {
       setState(() => _isZoomed = zoomed);
-      widget.onZoomChanged(zoomed);
     }
   }
+
+  /// 画像表示状態でのダブルタップサイクル: 常に covering を返して exit をトリガー
+  static PhotoViewScaleState _exitCycle(PhotoViewScaleState _) =>
+      PhotoViewScaleState.covering;
 
   @override
   Widget build(BuildContext context) {
     final List<String> imageUrls = widget.item.origUrls;
 
     return SingleChildScrollView(
-      physics: _isZoomed
+      // 画像表示状態かつズーム中のみスクロール無効（パンとの競合を防ぐ）
+      physics: (_imageViewMode && _isZoomed)
           ? const NeverScrollableScrollPhysics()
           : const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.zero,
@@ -90,7 +116,7 @@ class _DetailImageItemState extends State<DetailImageItem> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildImageSlider(imageUrls),
-          if (!_textHidden) _buildTextDetail(),
+          if (!_imageViewMode) _buildTextDetail(),
         ],
       ),
     );
@@ -118,18 +144,21 @@ class _DetailImageItemState extends State<DetailImageItem> {
   }
 
   Widget _buildImageWidget(String url) {
-    if (_textHidden) {
-      // 画像のみモード: PhotoView でズーム/パン自由
+    if (_imageViewMode) {
+      // 画像表示状態: PhotoView でズーム/パン自由
       return PhotoView(
         imageProvider: NetworkImage(url),
         minScale: PhotoViewComputedScale.contained,
         maxScale: 5.0,
-        initialScale: PhotoViewComputedScale.contained,
+        // ダブルタップで 2x ズームから開始
+        initialScale: PhotoViewComputedScale.contained * 2.0,
+        // ダブルタップサイクル: 常に covering → exit をトリガー
+        scaleStateCycle: _exitCycle,
         backgroundDecoration: const BoxDecoration(color: Colors.transparent),
         scaleStateChangedCallback: (state) {
-          // フレーム後に setState → ジェスチャー処理中の再ビルドを回避
+          // フレーム後に処理してジェスチャー処理中の setState を回避
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _updateZoomState(state != PhotoViewScaleState.initial);
+            if (mounted) _onPhotoViewScaleStateChanged(state);
           });
         },
         loadingBuilder: (context, event) => const Center(
@@ -141,9 +170,9 @@ class _DetailImageItemState extends State<DetailImageItem> {
       );
     }
 
-    // デフォルト表示: シングルタップで画像のみモードへ切り替え
+    // 初期状態: ダブルタップで画像表示状態へ、ピンチ不可
     return GestureDetector(
-      onTap: () => setState(() => _textHidden = true),
+      onDoubleTap: _enterImageViewMode,
       child: Image.network(
         url,
         fit: BoxFit.contain,
