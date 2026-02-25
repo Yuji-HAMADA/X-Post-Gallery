@@ -5,7 +5,6 @@ import '../../../models/tweet_item.dart';
 class UserCard extends StatelessWidget {
   final String username;
   final TweetItem thumbItem;
-  final int count;
   final bool isFavorite;
   final VoidCallback onTap;
   final VoidCallback onFavoriteTap;
@@ -14,7 +13,6 @@ class UserCard extends StatelessWidget {
     super.key,
     required this.username,
     required this.thumbItem,
-    required this.count,
     required this.isFavorite,
     required this.onTap,
     required this.onFavoriteTap,
@@ -76,10 +74,6 @@ class UserCard extends StatelessWidget {
                       style: const TextStyle(fontSize: 10, color: Colors.white),
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  Text(
-                    '$count',
-                    style: const TextStyle(fontSize: 10, color: Colors.white70),
                   ),
                 ],
               ),

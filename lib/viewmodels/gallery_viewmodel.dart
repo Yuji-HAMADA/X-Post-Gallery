@@ -11,7 +11,6 @@ enum RefreshStatus { idle, running, completed, failed }
 
 enum AppendStatus { idle, running, completed, failed }
 
-const String _externalPwAdmin = String.fromEnvironment('PW_ADMIN');
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
@@ -60,13 +59,6 @@ class GalleryViewModel extends ChangeNotifier {
   static const int defaultRefreshCount = 18;
 
   // --- Helper ---
-  bool checkAdminPassword(String password) {
-    final correctPw = _externalPwAdmin.isNotEmpty
-        ? _externalPwAdmin
-        : (dotenv.env['PW_ADMIN'] ?? '');
-    return password.isNotEmpty && password == correctPw;
-  }
-
   String get defaultMasterGistId {
     return _externalMasterGistId.isNotEmpty
         ? _externalMasterGistId
@@ -126,6 +118,11 @@ class GalleryViewModel extends ChangeNotifier {
       );
       await _repository.saveGistId(gistId);
 
+      // MASTER_GIST_ID でロードした場合は管理者として自動認証
+      if (gistId == defaultMasterGistId && defaultMasterGistId.isNotEmpty) {
+        await _repository.setAdminAuthenticated(true);
+      }
+
       _items = data.items;
       _userName = data.userName;
       _userGists = data.userGists;
@@ -155,23 +152,14 @@ class GalleryViewModel extends ChangeNotifier {
     }).toList();
   }
 
-  /// 管理者パスワードを検証し、認証済み状態を保存（Refresh / Append 共通）
-  Future<bool> authenticateAdmin({required String password}) async {
-    if (!checkAdminPassword(password)) {
-      _errorMessage = 'パスワードが正しくありません';
+  /// マスターギャラリーをリフレッシュ（認証済み前提）
+  Future<bool> refreshMasterGallery() async {
+    final gistId = defaultMasterGistId;
+    if (gistId.isEmpty) {
+      _errorMessage = 'マスターGist IDが設定されていません';
       notifyListeners();
       return false;
     }
-    await _repository.setAdminAuthenticated(true);
-    return true;
-  }
-
-  /// リフレッシュ認証を検証し、成功時にギャラリーもロードする
-  Future<bool> authenticateRefresh({
-    required String password,
-    required String gistId,
-  }) async {
-    if (!await authenticateAdmin(password: password)) return false;
 
     final gistExists = await _githubService.validateGistExists(gistId);
     if (!gistExists) {
@@ -292,6 +280,15 @@ class GalleryViewModel extends ChangeNotifier {
     if (content == null) return null;
     final data = jsonDecode(content) as Map<String, dynamic>;
     return (data['users'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// 指定ユーザーがキューに存在するか確認する
+  Future<bool> isUserInFetchQueue(String username) async {
+    final queue = await fetchFetchQueue();
+    if (queue == null) return false;
+    return queue.any(
+      (u) => (u['user'] as String).toLowerCase() == username.toLowerCase(),
+    );
   }
 
   /// キューGistにユーザーを追加する

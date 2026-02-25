@@ -86,26 +86,13 @@ class _GalleryPageState extends State<GalleryPage> {
 
   void _showPasswordDialog({bool canCancel = false}) {
     String gistIdInput = "";
-    String passwordInput = "";
 
     void handleUnlock() {
       Navigator.pop(context);
-      final vm = context.read<GalleryViewModel>();
-
-      if (passwordInput.isNotEmpty && vm.checkAdminPassword(passwordInput)) {
-        final defaultId = vm.defaultMasterGistId;
-        if (defaultId.isNotEmpty) {
-          _loadAndRestore(defaultId);
-          return;
-        } else {
-          _showErrorSnackBar('デフォルトのマスターGistIDが設定されていません');
-        }
-      }
-
       if (gistIdInput.isNotEmpty) {
         _loadAndRestore(gistIdInput);
       } else {
-        _showErrorSnackBar('Gist IDまたは正しいパスワードを入力してください');
+        _showErrorSnackBar('Gist IDを入力してください');
         if (mounted) _showPasswordDialog(canCancel: canCancel);
       }
     }
@@ -118,7 +105,7 @@ class _GalleryPageState extends State<GalleryPage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Gist IDを入力するか、パスワードを入力してください:"),
+            const Text("Gist IDを入力してください:"),
             const SizedBox(height: 10),
             TextField(
               decoration: const InputDecoration(
@@ -126,15 +113,6 @@ class _GalleryPageState extends State<GalleryPage> {
                 labelText: "Gist ID",
               ),
               onChanged: (value) => gistIdInput = value,
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              obscureText: true,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: "Password",
-              ),
-              onChanged: (value) => passwordInput = value,
               onSubmitted: (_) => handleUnlock(),
             ),
           ],
@@ -162,35 +140,30 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  /// パスワード入力ダイアログ（Refresh / Append 共通）
-  Future<String?> _showPasswordInputDialog(String title) async {
-    final controller = TextEditingController();
-    return showDialog<String>(
+  /// ユーザーがキュー済みなら確認ダイアログを出し、キャンセルされたら false を返す
+  Future<bool> _confirmIfAlreadyQueued(String username) async {
+    final vm = context.read<GalleryViewModel>();
+    final inQueue = await vm.isUserInFetchQueue(username);
+    if (!inQueue || !mounted) return true;
+
+    final confirmed = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'パスワード',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => Navigator.pop(context, controller.text),
-        ),
+        title: const Text('確認'),
+        content: Text('@$username はすでにキューに追加されています。\n続行しますか？'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('キャンセル'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('OK'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('続行'),
           ),
         ],
       ),
     );
+    return confirmed ?? false;
   }
 
   Future<void> _showFetchQueueSheet() async {
@@ -260,10 +233,7 @@ class _GalleryPageState extends State<GalleryPage> {
                       title: Text('@$username'),
                       subtitle: count != null ? Text('$count 件') : null,
                       trailing: isFetched
-                          ? const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                            )
+                          ? const Icon(Icons.check_circle, color: Colors.green)
                           : null,
                     );
                   },
@@ -406,20 +376,12 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> _showRefreshAuthDialog() async {
     final vm = context.read<GalleryViewModel>();
 
-    final result = await _showPasswordInputDialog('認証');
-    if (result == null || result.isEmpty) return;
-
-    final masterId = vm.defaultMasterGistId;
-    if (masterId.isEmpty) {
-      _showErrorSnackBar('マスターGist IDが設定されていません');
+    if (!await vm.isAdminAuthenticated()) {
+      _showErrorSnackBar('マスターGist IDでログインしてください');
       return;
     }
 
-    final success = await vm.authenticateRefresh(
-      password: result,
-      gistId: masterId,
-    );
-
+    final success = await vm.refreshMasterGallery();
     if (!success) {
       _showErrorSnackBar(vm.errorMessage);
       return;
@@ -475,16 +437,12 @@ class _GalleryPageState extends State<GalleryPage> {
     if (count == null) return;
 
     if (!await vm.isAdminAuthenticated()) {
-      final result = await _showPasswordInputDialog('認証');
-      if (result == null) return;
-      final success = await vm.authenticateAdmin(password: result);
-      if (!success) {
-        if (mounted) _showErrorSnackBar(vm.errorMessage);
-        return;
-      }
+      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      return;
     }
 
     final targetUser = user ?? hashtag ?? '';
+    if (!await _confirmIfAlreadyQueued(targetUser)) return;
     final success = await vm.queueUserForFetch(targetUser, count: count);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -623,7 +581,6 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
@@ -712,20 +669,18 @@ class _GalleryPageState extends State<GalleryPage> {
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
-      final result = await _showPasswordInputDialog('認証');
-      if (result == null) return;
-      final success = await vm.authenticateAdmin(password: result);
-      if (!success) {
-        if (mounted) _showErrorSnackBar(vm.errorMessage);
-        return;
-      }
+      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      return;
     }
 
+    if (!await _confirmIfAlreadyQueued(username)) return;
     final success = await vm.queueUserForFetch(username, count: count);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? '取得キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          content: Text(
+            success ? '取得キューに追加しました: @$username' : 'キューへの追加に失敗しました',
+          ),
           backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
       );
@@ -986,8 +941,7 @@ class _GalleryPageState extends State<GalleryPage> {
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: '再読み込み',
-              onPressed: () =>
-                  context.read<GalleryViewModel>().reloadGallery(),
+              onPressed: () => context.read<GalleryViewModel>().reloadGallery(),
             ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
@@ -1092,7 +1046,6 @@ class _GalleryPageState extends State<GalleryPage> {
         return UserCard(
           username: username,
           thumbItem: thumbItem,
-          count: userItems.length,
           isFavorite: favoriteUsers.contains(username),
           onTap: () => _openUserGallery(username),
           onFavoriteTap: () =>
@@ -1153,7 +1106,6 @@ class _GalleryPageState extends State<GalleryPage> {
         return UserCard(
           username: username,
           thumbItem: thumbItem,
-          count: userItems.length,
           isFavorite: true,
           onTap: () => _openUserGallery(username, scope: favUsernames),
           onFavoriteTap: () =>

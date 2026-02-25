@@ -2,22 +2,18 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:linkify/linkify.dart' as linkify_pkg;
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
-import '../gallery/gallery_page.dart';
 
 class DetailImageItem extends StatefulWidget {
   final TweetItem item;
-  final List<TweetItem> allItems;
   final Function(bool) onZoomChanged;
 
   const DetailImageItem({
     super.key,
     required this.item,
-    required this.allItems,
     required this.onZoomChanged,
   });
 
@@ -269,7 +265,6 @@ class _DetailImageItemState extends State<DetailImageItem>
               baseline: TextBaseline.alphabetic,
               child: GestureDetector(
                 onTap: () => _onTagTap(element.url),
-                onLongPress: () => _onTagLongPress(element.url),
                 child: Text(element.text, style: linkStyle),
               ),
             ),
@@ -325,27 +320,8 @@ class _DetailImageItemState extends State<DetailImageItem>
     );
   }
 
-  /// ハッシュタグ・ユーザー名タップ → アプリ内検索
+  /// ハッシュタグ・ユーザー名タップ → Xのページを外部ブラウザで開く
   void _onTagTap(String tag) async {
-    debugPrint("Tag tapped: $tag");
-
-    final filtered = widget.allItems.where((i) {
-      return i.fullText.toLowerCase().contains(tag.toLowerCase());
-    }).toList();
-
-    if (filtered.isNotEmpty) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => GalleryPage(initialItems: filtered, title: tag),
-        ),
-      );
-    }
-  }
-
-  /// ハッシュタグ・ユーザー名長押し → Xのページを外部ブラウザで開く
-  void _onTagLongPress(String tag) async {
-    HapticFeedback.mediumImpact();
     final String url;
     if (tag.startsWith('#')) {
       url =
@@ -355,7 +331,7 @@ class _DetailImageItemState extends State<DetailImageItem>
     } else {
       return;
     }
-    debugPrint("Tag long-pressed: $tag → $url");
+    debugPrint("Tag tapped: $tag → $url");
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

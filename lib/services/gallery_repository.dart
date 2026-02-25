@@ -90,6 +90,7 @@ class GalleryRepository {
     final data = json.decode(jsonStr);
     final tweets = (data['tweets'] as List? ?? [])
         .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+        .where((item) => item.mediaUrls.isNotEmpty)
         .toList();
     final userGistsRaw = data['user_gists'] as Map<String, dynamic>? ?? {};
     final userGists = userGistsRaw.map((k, v) => MapEntry(k, v as String));
@@ -124,6 +125,7 @@ class GalleryRepository {
         final userData = users[username] as Map<String, dynamic>;
         return (userData['tweets'] as List? ?? [])
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+            .where((item) => item.mediaUrls.isNotEmpty)
             .toList();
       }
 
@@ -131,6 +133,7 @@ class GalleryRepository {
       if (data is Map<String, dynamic> && data.containsKey('tweets')) {
         return (data['tweets'] as List? ?? [])
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+            .where((item) => item.mediaUrls.isNotEmpty)
             .toList();
       }
 

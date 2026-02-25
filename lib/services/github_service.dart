@@ -193,7 +193,10 @@ class GitHubService {
       return false;
     }
 
-    final content = await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
+    final content = await fetchGistContent(
+      fetchQueueGistId,
+      'fetch_queue.json',
+    );
     if (content == null) return false;
 
     final data = jsonDecode(content) as Map<String, dynamic>;

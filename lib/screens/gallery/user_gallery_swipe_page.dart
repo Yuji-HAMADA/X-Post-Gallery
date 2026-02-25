@@ -83,49 +83,35 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
 
   // --- ダイアログ系 ---
 
-  Future<String?> _showPasswordInputDialog(String title) async {
-    final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'パスワード',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => Navigator.pop(context, controller.text),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _handleAppend(String username) async {
     final count = await AppendConfigDialog.show(context);
     if (count == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
-      final result = await _showPasswordInputDialog('認証');
-      if (result == null || !mounted) return;
-      final success = await vm.authenticateAdmin(password: result);
-      if (!success) {
-        if (mounted) _showErrorSnackBar(vm.errorMessage);
-        return;
-      }
+      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      return;
+    }
+
+    if (await vm.isUserInFetchQueue(username) && mounted) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('確認'),
+          content: Text('@$username はすでにキューに追加されています。\n続行しますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('続行'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
     }
 
     final success = await vm.queueUserForFetch(username, count: count);

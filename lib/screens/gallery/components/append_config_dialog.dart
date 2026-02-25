@@ -7,11 +7,10 @@ class AppendConfigDialog extends StatefulWidget {
   const AppendConfigDialog({super.key});
 
   /// 件数を返す（キャンセル時はnull）
-  static Future<int?> show(BuildContext context) =>
-      showDialog<int>(
-        context: context,
-        builder: (_) => const AppendConfigDialog(),
-      );
+  static Future<int?> show(BuildContext context) => showDialog<int>(
+    context: context,
+    builder: (_) => const AppendConfigDialog(),
+  );
 
   @override
   State<AppendConfigDialog> createState() => _AppendConfigDialogState();

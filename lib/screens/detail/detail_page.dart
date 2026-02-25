@@ -75,7 +75,6 @@ class _DetailPageState extends State<DetailPage> {
         itemBuilder: (context, index) {
           return DetailImageItem(
             item: widget.items[index],
-            allItems: widget.items,
             onZoomChanged: _handleZoomChanged,
           );
         },
