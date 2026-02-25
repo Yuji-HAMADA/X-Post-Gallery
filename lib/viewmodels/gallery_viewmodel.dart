@@ -97,6 +97,13 @@ class GalleryViewModel extends ChangeNotifier {
     return false;
   }
 
+  /// 保存済み Gist ID でマスターギャラリーを再読み込み
+  Future<void> reloadGallery() async {
+    final savedId = await _repository.getSavedGistId();
+    if (savedId == null || savedId.isEmpty) return;
+    await loadGallery(savedId);
+  }
+
   /// Gist IDでギャラリーデータをロード
   Future<void> loadGallery(String gistId) async {
     _status = GalleryStatus.loading;

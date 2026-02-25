@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
-import '../stats/stats_page.dart';
 import 'components/append_config_dialog.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
@@ -723,15 +722,13 @@ class _GalleryPageState extends State<GalleryPage> {
                 onPressed: _loadFavoritesFromGist,
               ),
             ],
-            if (!isFavPage && vm.items.isNotEmpty)
+            if (!isFavPage)
               IconButton(
-                icon: const Icon(Icons.format_list_numbered),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => StatsPage(items: vm.items),
-                  ),
-                ),
+                icon: const Icon(Icons.refresh),
+                tooltip: '再読み込み',
+                onPressed: vm.status == GalleryStatus.loading
+                    ? null
+                    : () => context.read<GalleryViewModel>().reloadGallery(),
               ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
@@ -892,19 +889,13 @@ class _GalleryPageState extends State<GalleryPage> {
               ),
             ),
           ] else ...[
-            // 通常画面: リスト統計 + ハンバーガーメニュー
-            if (items.isNotEmpty)
-              IconButton(
-                icon: const Icon(Icons.format_list_numbered),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => StatsPage(items: items),
-                    ),
-                  );
-                },
-              ),
+            // 通常画面: 再読み込み + ハンバーガーメニュー
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: '再読み込み',
+              onPressed: () =>
+                  context.read<GalleryViewModel>().reloadGallery(),
+            ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
               onSelected: (value) {
