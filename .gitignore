@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/release
 
 venv/
+.venv/
 data/auth.json
 data/debug_screen.png
 data/known_ids.txt

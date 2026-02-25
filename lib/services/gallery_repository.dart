@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/character_group.dart';
 import '../models/tweet_item.dart';
 
 class GalleryData {
@@ -253,6 +254,28 @@ class GalleryRepository {
     } catch (e) {
       debugPrint('X user check error: $e');
       return true; // 確認失敗時は存在すると仮定して進める
+    }
+  }
+
+  /// Secret Gist から character_groups.json を取得・パース
+  Future<List<CharacterGroup>> fetchCharacterGroups(String gistId) async {
+    final baseUrl = _gistRawBaseUrl(gistId);
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+
+    debugPrint("Fetching character groups from: ${baseUrl}character_groups.json?t=$cacheBuster");
+
+    final response = await http.get(
+      Uri.parse('${baseUrl}character_groups.json?t=$cacheBuster'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(utf8.decode(response.bodyBytes));
+      final characters = (data['characters'] as List? ?? [])
+          .map((e) => CharacterGroup.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return characters;
+    } else {
+      throw Exception('Failed to load character groups ($gistId)');
     }
   }
 

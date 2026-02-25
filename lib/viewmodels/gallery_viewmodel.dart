@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../models/character_group.dart';
 import '../models/tweet_item.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
@@ -12,6 +13,8 @@ enum RefreshStatus { idle, running, completed, failed }
 enum AppendStatus { idle, running, completed, failed }
 
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
+const String _externalCharacterGistId =
+    String.fromEnvironment('CHARACTER_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -45,6 +48,12 @@ class GalleryViewModel extends ChangeNotifier {
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
+  // --- キャラクター ---
+  List<CharacterGroup> _characters = [];
+  List<CharacterGroup> get characters => _characters;
+  bool _charactersLoading = false;
+  bool get charactersLoading => _charactersLoading;
+
   // --- お気に入り ---
   Set<String> _favoriteUsers = {};
   Set<String> get favoriteUsers => _favoriteUsers;
@@ -63,6 +72,12 @@ class GalleryViewModel extends ChangeNotifier {
     return _externalMasterGistId.isNotEmpty
         ? _externalMasterGistId
         : (dotenv.env['MASTER_GIST_ID'] ?? '');
+  }
+
+  String get characterGistId {
+    return _externalCharacterGistId.isNotEmpty
+        ? _externalCharacterGistId
+        : (dotenv.env['CHARACTER_GIST_ID'] ?? '');
   }
 
   // --- アクション ---
@@ -150,6 +165,31 @@ class GalleryViewModel extends ChangeNotifier {
       return m != null &&
           m.group(1)?.trim().toLowerCase() == username.toLowerCase();
     }).toList();
+  }
+
+  /// キャラクターグループをロード
+  Future<void> loadCharacterGroups() async {
+    final gistId = characterGistId;
+    if (gistId.isEmpty) {
+      debugPrint('CHARACTER_GIST_ID is not set');
+      return;
+    }
+    if (_charactersLoading) return;
+
+    _charactersLoading = true;
+    notifyListeners();
+
+    try {
+      _characters = await _repository.fetchCharacterGroups(gistId);
+      // face_count 降順でソート
+      _characters.sort((a, b) => b.faceCount.compareTo(a.faceCount));
+    } catch (e) {
+      debugPrint('loadCharacterGroups error: $e');
+      _characters = [];
+    } finally {
+      _charactersLoading = false;
+      notifyListeners();
+    }
   }
 
   /// マスターギャラリーをリフレッシュ（認証済み前提）

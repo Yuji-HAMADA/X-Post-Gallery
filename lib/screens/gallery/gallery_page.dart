@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../models/character_group.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
+import 'components/character_card.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
@@ -35,6 +37,7 @@ class GalleryPage extends StatefulWidget {
 class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
   final ScrollController _favGridController = ScrollController();
+  final ScrollController _charGridController = ScrollController();
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
@@ -53,6 +56,7 @@ class _GalleryPageState extends State<GalleryPage> {
   void dispose() {
     _pageController.dispose();
     _favGridController.dispose();
+    _charGridController.dispose();
     super.dispose();
   }
 
@@ -727,12 +731,18 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
     final isFavPage = _currentPage == 1;
+    final isCharPage = _currentPage == 2;
     final favoriteItems = vm.items.where((item) {
       final key =
           item.username ??
           RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
       return key != null && vm.isFavorite(key);
     }).toList();
+
+    final pageTitles = ['PostGallery', 'お気に入り', 'Characters'];
+    final currentTitle = vm.isSelectionMode
+        ? '${vm.selectedIds.length}件選択中'
+        : pageTitles[_currentPage];
 
     return Scaffold(
       appBar: AppBar(
@@ -743,9 +753,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     context.read<GalleryViewModel>().clearSelection(),
               )
             : null,
-        title: vm.isSelectionMode
-            ? Text('${vm.selectedIds.length}件選択中')
-            : Text(isFavPage ? 'お気に入り' : 'PostGallery'),
+        title: Text(currentTitle),
         actions: [
           if (!vm.isSelectionMode) ...[
             if (isFavPage) ...[
@@ -760,13 +768,21 @@ class _GalleryPageState extends State<GalleryPage> {
                 onPressed: _loadFavoritesFromGist,
               ),
             ],
-            if (!isFavPage)
+            if (!isFavPage && !isCharPage)
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '再読み込み',
                 onPressed: vm.status == GalleryStatus.loading
                     ? null
                     : () => context.read<GalleryViewModel>().reloadGallery(),
+              ),
+            if (isCharPage)
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: '再読み込み',
+                onPressed: vm.charactersLoading
+                    ? null
+                    : () => context.read<GalleryViewModel>().loadCharacterGroups(),
               ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
@@ -826,7 +842,13 @@ class _GalleryPageState extends State<GalleryPage> {
           ? const Center(child: CircularProgressIndicator())
           : PageView(
               controller: _pageController,
-              onPageChanged: (page) => setState(() => _currentPage = page),
+              onPageChanged: (page) {
+                setState(() => _currentPage = page);
+                // Characters タブに初めて遷移した際にロード
+                if (page == 2 && vm.characters.isEmpty && !vm.charactersLoading) {
+                  vm.loadCharacterGroups();
+                }
+              },
               children: [
                 _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
                 _buildFavoritesGrid(
@@ -834,6 +856,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   vm.userGists,
                   vm.favoriteUsers,
                 ),
+                _buildCharacterGrid(vm),
               ],
             ),
     );
@@ -1112,6 +1135,71 @@ class _GalleryPageState extends State<GalleryPage> {
               context.read<GalleryViewModel>().toggleFavorite(username),
         );
       },
+    );
+  }
+
+  /// キャラクターグリッド（Characters タブ）
+  Widget _buildCharacterGrid(GalleryViewModel vm) {
+    if (vm.charactersLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (vm.characters.isEmpty) {
+      if (vm.characterGistId.isEmpty) {
+        return const Center(
+          child: Text(
+            'CHARACTER_GIST_ID が設定されていません',
+            style: TextStyle(color: Colors.grey),
+          ),
+        );
+      }
+      return const Center(
+        child: Text(
+          'キャラクターデータがありません',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      controller: _charGridController,
+      padding: const EdgeInsets.all(4),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 4,
+        mainAxisSpacing: 4,
+      ),
+      itemCount: vm.characters.length,
+      itemBuilder: (context, index) {
+        final character = vm.characters[index];
+        return CharacterCard(
+          character: character,
+          onTap: () => _openCharacterDetail(character),
+        );
+      },
+    );
+  }
+
+  /// キャラクターカードタップ → 画像一覧を GalleryPage で表示
+  void _openCharacterDetail(CharacterGroup character) {
+    // image_urls から TweetItem リストを構築
+    final items = character.imageUrls.asMap().entries.map((entry) {
+      final url = entry.value;
+      return TweetItem(
+        id: '${character.clusterId}_${entry.key}',
+        fullText: character.label,
+        createdAt: '',
+        mediaUrls: [url],
+      );
+    }).toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GalleryPage(
+          initialItems: items,
+          title: character.label,
+        ),
+      ),
     );
   }
 
