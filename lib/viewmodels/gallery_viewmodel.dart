@@ -282,6 +282,18 @@ class GalleryViewModel extends ChangeNotifier {
 
   // --- Append アクション ---
 
+  /// キューGistのユーザーリストを取得する
+  Future<List<Map<String, dynamic>>?> fetchFetchQueue() async {
+    if (_githubService.fetchQueueGistId.isEmpty) return null;
+    final content = await _githubService.fetchGistContent(
+      _githubService.fetchQueueGistId,
+      'fetch_queue.json',
+    );
+    if (content == null) return null;
+    final data = jsonDecode(content) as Map<String, dynamic>;
+    return (data['users'] as List).cast<Map<String, dynamic>>();
+  }
+
   /// キューGistにユーザーを追加する
   Future<bool> queueUserForFetch(String username, {int? count}) async {
     return _githubService.addUserToFetchQueue(username, count: count);

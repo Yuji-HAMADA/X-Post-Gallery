@@ -193,6 +193,89 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
+  Future<void> _showFetchQueueSheet() async {
+    final vm = context.read<GalleryViewModel>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('読込中...'),
+          ],
+        ),
+      ),
+    );
+
+    final users = await vm.fetchFetchQueue();
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (users == null) {
+      _showErrorSnackBar('キューの取得に失敗しました');
+      return;
+    }
+
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  '取得キュー (${users.length}件)',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index];
+                    final username = user['user'] as String;
+                    final count = user['count'] as int?;
+                    final isFetched = vm.userGists.containsKey(username);
+                    return ListTile(
+                      title: Text('@$username'),
+                      subtitle: count != null ? Text('$count 件') : null,
+                      trailing: isFetched
+                          ? const Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                            )
+                          : null,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _handleRefresh() async {
     final vm = context.read<GalleryViewModel>();
     if (await vm.isAdminAuthenticated()) {
@@ -740,6 +823,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     _handleRefresh();
                   case 'search_user':
                     _handleSearchUser();
+                  case 'fetch_queue':
+                    _showFetchQueueSheet();
                 }
               },
               itemBuilder: (context) => [
@@ -748,6 +833,14 @@ class _GalleryPageState extends State<GalleryPage> {
                   child: ListTile(
                     leading: Icon(Icons.person_search),
                     title: Text('ユーザー検索'),
+                    dense: true,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'fetch_queue',
+                  child: ListTile(
+                    leading: Icon(Icons.format_list_bulleted),
+                    title: Text('取得キュー'),
                     dense: true,
                   ),
                 ),
@@ -906,6 +999,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     _handleRefresh();
                   case 'search_user':
                     _handleSearchUser();
+                  case 'fetch_queue':
+                    _showFetchQueueSheet();
                 }
               },
               itemBuilder: (context) => [
@@ -914,6 +1009,14 @@ class _GalleryPageState extends State<GalleryPage> {
                   child: ListTile(
                     leading: Icon(Icons.person_search),
                     title: Text('ユーザー検索'),
+                    dense: true,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'fetch_queue',
+                  child: ListTile(
+                    leading: Icon(Icons.format_list_bulleted),
+                    title: Text('取得キュー'),
                     dense: true,
                   ),
                 ),
