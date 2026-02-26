@@ -2,18 +2,19 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/character_group.dart';
 import '../models/tweet_item.dart';
 
 class GalleryData {
   final String userName;
   final List<TweetItem> items;
   final Map<String, String> userGists; // username -> gist_id
+  final Map<String, String> characterGists; // character_name -> gist_id
 
   const GalleryData({
     required this.userName,
     required this.items,
     this.userGists = const {},
+    this.characterGists = const {},
   });
 }
 
@@ -95,10 +96,15 @@ class GalleryRepository {
         .toList();
     final userGistsRaw = data['user_gists'] as Map<String, dynamic>? ?? {};
     final userGists = userGistsRaw.map((k, v) => MapEntry(k, v as String));
+    final characterGistsRaw =
+        data['character_gists'] as Map<String, dynamic>? ?? {};
+    final characterGists =
+        characterGistsRaw.map((k, v) => MapEntry(k, v as String));
     return GalleryData(
       userName: data['user_screen_name'] ?? '',
       items: tweets,
       userGists: userGists,
+      characterGists: characterGists,
     );
   }
 
@@ -150,10 +156,12 @@ class GalleryRepository {
     String userName,
     List<TweetItem> items, {
     Map<String, String> userGists = const {},
+    Map<String, String> characterGists = const {},
   }) {
     return json.encode({
       'user_screen_name': userName,
       if (userGists.isNotEmpty) 'user_gists': userGists,
+      if (characterGists.isNotEmpty) 'character_gists': characterGists,
       'tweets': items.map((item) => item.toMasterJson()).toList(),
     });
   }
@@ -254,28 +262,6 @@ class GalleryRepository {
     } catch (e) {
       debugPrint('X user check error: $e');
       return true; // 確認失敗時は存在すると仮定して進める
-    }
-  }
-
-  /// Secret Gist から character_groups.json を取得・パース
-  Future<List<CharacterGroup>> fetchCharacterGroups(String gistId) async {
-    final baseUrl = _gistRawBaseUrl(gistId);
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-
-    debugPrint("Fetching character groups from: ${baseUrl}character_groups.json?t=$cacheBuster");
-
-    final response = await http.get(
-      Uri.parse('${baseUrl}character_groups.json?t=$cacheBuster'),
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(utf8.decode(response.bodyBytes));
-      final characters = (data['characters'] as List? ?? [])
-          .map((e) => CharacterGroup.fromJson(e as Map<String, dynamic>))
-          .toList();
-      return characters;
-    } else {
-      throw Exception('Failed to load character groups ($gistId)');
     }
   }
 

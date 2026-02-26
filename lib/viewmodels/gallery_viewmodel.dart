@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import '../models/character_group.dart';
 import '../models/tweet_item.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
@@ -13,8 +12,6 @@ enum RefreshStatus { idle, running, completed, failed }
 enum AppendStatus { idle, running, completed, failed }
 
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
-const String _externalCharacterGistId =
-    String.fromEnvironment('CHARACTER_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -45,14 +42,11 @@ class GalleryViewModel extends ChangeNotifier {
   Map<String, String> _userGists = {};
   Map<String, String> get userGists => _userGists;
 
+  Map<String, String> _characterGists = {};
+  Map<String, String> get characterGists => _characterGists;
+
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
-
-  // --- キャラクター ---
-  List<CharacterGroup> _characters = [];
-  List<CharacterGroup> get characters => _characters;
-  bool _charactersLoading = false;
-  bool get charactersLoading => _charactersLoading;
 
   // --- お気に入り ---
   Set<String> _favoriteUsers = {};
@@ -72,12 +66,6 @@ class GalleryViewModel extends ChangeNotifier {
     return _externalMasterGistId.isNotEmpty
         ? _externalMasterGistId
         : (dotenv.env['MASTER_GIST_ID'] ?? '');
-  }
-
-  String get characterGistId {
-    return _externalCharacterGistId.isNotEmpty
-        ? _externalCharacterGistId
-        : (dotenv.env['CHARACTER_GIST_ID'] ?? '');
   }
 
   // --- アクション ---
@@ -141,6 +129,7 @@ class GalleryViewModel extends ChangeNotifier {
       _items = data.items;
       _userName = data.userName;
       _userGists = data.userGists;
+      _characterGists = data.characterGists;
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
@@ -167,29 +156,11 @@ class GalleryViewModel extends ChangeNotifier {
     }).toList();
   }
 
-  /// キャラクターグループをロード
-  Future<void> loadCharacterGroups() async {
-    final gistId = characterGistId;
-    if (gistId.isEmpty) {
-      debugPrint('CHARACTER_GIST_ID is not set');
-      return;
-    }
-    if (_charactersLoading) return;
-
-    _charactersLoading = true;
-    notifyListeners();
-
-    try {
-      _characters = await _repository.fetchCharacterGroups(gistId);
-      // face_count 降順でソート
-      _characters.sort((a, b) => b.faceCount.compareTo(a.faceCount));
-    } catch (e) {
-      debugPrint('loadCharacterGroups error: $e');
-      _characters = [];
-    } finally {
-      _charactersLoading = false;
-      notifyListeners();
-    }
+  /// キャラクターGistからポストを取得
+  Future<List<TweetItem>> fetchCharacterItems(String charName) async {
+    final gistId = _characterGists[charName];
+    if (gistId == null) return [];
+    return await _repository.fetchUserGist(gistId, charName);
   }
 
   /// マスターギャラリーをリフレッシュ（認証済み前提）
@@ -532,6 +503,7 @@ class GalleryViewModel extends ChangeNotifier {
       _userName,
       _items,
       userGists: _userGists,
+      characterGists: _characterGists,
     );
     await _githubService.updateGistFile(
       gistId: masterGistId,

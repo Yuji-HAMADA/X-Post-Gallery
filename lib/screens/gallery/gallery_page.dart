@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../models/character_group.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
-import 'components/character_card.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
@@ -780,9 +778,9 @@ class _GalleryPageState extends State<GalleryPage> {
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '再読み込み',
-                onPressed: vm.charactersLoading
+                onPressed: vm.status == GalleryStatus.loading
                     ? null
-                    : () => context.read<GalleryViewModel>().loadCharacterGroups(),
+                    : () => context.read<GalleryViewModel>().reloadGallery(),
               ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
@@ -844,10 +842,6 @@ class _GalleryPageState extends State<GalleryPage> {
               controller: _pageController,
               onPageChanged: (page) {
                 setState(() => _currentPage = page);
-                // Characters タブに初めて遷移した際にロード
-                if (page == 2 && vm.characters.isEmpty && !vm.charactersLoading) {
-                  vm.loadCharacterGroups();
-                }
               },
               children: [
                 _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
@@ -1138,69 +1132,71 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// キャラクターグリッド（Characters タブ）
+  /// キャラクターリスト（Characters タブ）
   Widget _buildCharacterGrid(GalleryViewModel vm) {
-    if (vm.charactersLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (vm.characters.isEmpty) {
-      if (vm.characterGistId.isEmpty) {
-        return const Center(
-          child: Text(
-            'CHARACTER_GIST_ID が設定されていません',
-            style: TextStyle(color: Colors.grey),
-          ),
-        );
-      }
+    final entries = vm.characterGists.entries.toList();
+    if (entries.isEmpty) {
       return const Center(
         child: Text(
-          'キャラクターデータがありません',
+          'キャラクターデータがありません\nretrieve_character.py を実行してください',
+          textAlign: TextAlign.center,
           style: TextStyle(color: Colors.grey),
         ),
       );
     }
 
-    return GridView.builder(
+    return ListView.builder(
       controller: _charGridController,
-      padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: vm.characters.length,
+      itemCount: entries.length,
       itemBuilder: (context, index) {
-        final character = vm.characters[index];
-        return CharacterCard(
-          character: character,
-          onTap: () => _openCharacterDetail(character),
+        final charName = entries[index].key;
+        return ListTile(
+          title: Text(charName),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openCharacterGallery(charName),
         );
       },
     );
   }
 
-  /// キャラクターカードタップ → 画像一覧を GalleryPage で表示
-  void _openCharacterDetail(CharacterGroup character) {
-    // image_urls から TweetItem リストを構築
-    final items = character.imageUrls.asMap().entries.map((entry) {
-      final url = entry.value;
-      return TweetItem(
-        id: '${character.clusterId}_${entry.key}',
-        fullText: character.label,
-        createdAt: '',
-        mediaUrls: [url],
-      );
-    }).toList();
+  /// キャラクター名タップ → Gistからポストを取得して表示
+  Future<void> _openCharacterGallery(String charName) async {
+    if (!mounted) return;
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => GalleryPage(
-          initialItems: items,
-          title: character.label,
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('読み込み中...'),
+          ],
         ),
       ),
     );
+
+    try {
+      final vm = context.read<GalleryViewModel>();
+      final items = await vm.fetchCharacterItems(charName);
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GalleryPage(
+              initialItems: items,
+              title: charName,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) _showErrorSnackBar('読み込みに失敗しました');
+    }
   }
 
   Future<void> _openUserGallery(String username, {List<String>? scope}) async {
