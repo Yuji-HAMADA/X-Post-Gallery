@@ -302,6 +302,16 @@ def process_character(
             tweets = get_tweets(gd, username)
             processed_images = 0
 
+            # 最初の1枚に顔が検出されなければアニメ/風景とみなしてスキップ
+            first_url = next(
+                (url for t in tweets for url in t.get('media_urls', [])),
+                None,
+            )
+            if first_url is None:
+                continue
+            if not extract_face_embeddings(download_image(first_url)):
+                continue
+
             for tweet in tweets:
                 tid = tweet.get('id_str')
                 if not tid or tid in excluded_ids:
