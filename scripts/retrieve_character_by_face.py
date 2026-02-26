@@ -300,7 +300,6 @@ def process_character(
         gist_found = 0
         for username in usernames_in_gist:
             tweets = get_tweets(gd, username)
-            processed_images = 0
 
             # 最初の1枚に顔が検出されなければアニメ/風景とみなしてスキップ
             first_url = next(
@@ -312,18 +311,26 @@ def process_character(
             if not extract_face_embeddings(download_image(first_url)):
                 continue
 
+            # images_since_match: 直近マッチ（またはスキャン開始）からの画像数
+            # マッチするたびに 0 にリセット → ウィンドウが延長される
+            images_since_match = 0
+
             for tweet in tweets:
                 tid = tweet.get('id_str')
                 if not tid or tid in excluded_ids:
                     continue
 
+                # ウィンドウ内に1枚もマッチなければ打ち切り
+                if max_images_per_user > 0 and images_since_match >= max_images_per_user:
+                    break
+
                 # 画像ごとに顔マッチング
                 tweet_matched = False
                 for url in tweet.get('media_urls', []):
-                    if max_images_per_user > 0 and processed_images >= max_images_per_user:
+                    if max_images_per_user > 0 and images_since_match >= max_images_per_user:
                         break
                     img = download_image(url)
-                    processed_images += 1
+                    images_since_match += 1
 
                     for emb in extract_face_embeddings(img):
                         sim = max_cosine_similarity(emb, ref_embeddings)
@@ -336,10 +343,11 @@ def process_character(
                             excluded_ids.add(tid)  # 同一ポストの重複防止
                             gist_found += 1
                             tweet_matched = True
-                            break  # このツイートは確定、次のツイートへ
+                            images_since_match = 0  # ウィンドウをリセット
+                            break  # このツイートは確定
 
                     if tweet_matched:
-                        break  # 次の画像を見る必要なし
+                        break  # 次の画像は不要
 
         print(f'+{gist_found}')
 
