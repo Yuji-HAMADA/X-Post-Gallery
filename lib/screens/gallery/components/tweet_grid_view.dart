@@ -87,6 +87,27 @@ class TweetGridItem extends StatelessWidget {
                     child: Icon(Icons.broken_image, color: Colors.grey),
                   ),
           ),
+          if (item.matchSource == 'face')
+            Positioned(
+              top: 4,
+              left: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'AI',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
           if (isSelected)
             Container(
               color: Colors.blue.withValues(alpha: 0.4),
