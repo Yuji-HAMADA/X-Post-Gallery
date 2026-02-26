@@ -17,7 +17,7 @@ import tempfile
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
-GIST_MAX_TWEETS = 1000  # 移動先Gistの上限
+GIST_MAX_TWEETS = 2000  # 移動先Gistの上限
 USER_PATTERN = re.compile(r"^@([^:]+):")
 
 def parse_args():
