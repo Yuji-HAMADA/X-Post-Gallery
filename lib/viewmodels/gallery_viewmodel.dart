@@ -281,6 +281,21 @@ class GalleryViewModel extends ChangeNotifier {
 
   // --- Append アクション ---
 
+  /// ユーザーをキューに追加して scheduled_fetch.yml をトリガーする
+  Future<bool> queueUserForFetch(
+    String username, {
+    required int count,
+    required bool stopOnExisting,
+  }) async {
+    final added = await _githubService.addUserToFetchQueue(
+      username,
+      count: count,
+      stopOnExisting: stopOnExisting,
+    );
+    if (!added) return false;
+    return _githubService.triggerScheduledFetchWorkflow();
+  }
+
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
   /// isUserGist: true の場合はマスターリロードをスキップ（呼び出し側が処理）
   Future<void> executeAppend({

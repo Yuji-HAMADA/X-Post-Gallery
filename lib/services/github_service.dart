@@ -8,6 +8,9 @@ const String _externalToken = String.fromEnvironment('GITHUB_TOKEN');
 const String _externalGithubUsername = String.fromEnvironment(
   'GITHUB_USERNAME',
 );
+const String _externalFetchQueueGistId = String.fromEnvironment(
+  'FETCH_QUEUE_GIST_ID',
+);
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
   final String token = _externalToken.isNotEmpty
@@ -19,6 +22,11 @@ class GitHubService {
       : (dotenv.env['GITHUB_USERNAME'] ?? 'Yuji-HAMADA');
   final String repo = 'x-post-gallery';
   final String workflowId = 'run.yml';
+
+  /// キューGist ID
+  final String fetchQueueGistId = _externalFetchQueueGistId.isNotEmpty
+      ? _externalFetchQueueGistId
+      : (dotenv.env['FETCH_QUEUE_GIST_ID'] ?? '');
 
   // ヘッダーをゲッターで定義して、毎回新しいマップを返すようにする
   Map<String, String> get _headers => {
@@ -155,6 +163,59 @@ class GitHubService {
         (jsonDecode(response.body) as Map<String, dynamic>)['files']
             as Map<String, dynamic>?;
     return files?[filename]?['content'] as String?;
+  }
+
+  /// fetch_queue.json にユーザーを追加する（done でないエントリの重複はスキップ）
+  Future<bool> addUserToFetchQueue(
+    String username, {
+    int? count,
+    bool stopOnExisting = true,
+  }) async {
+    if (fetchQueueGistId.isEmpty) {
+      debugPrint('FETCH_QUEUE_GIST_ID is not set');
+      return false;
+    }
+
+    final content = await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
+    if (content == null) return false;
+
+    final data = jsonDecode(content) as Map<String, dynamic>;
+    final users = (data['users'] as List).cast<Map<String, dynamic>>();
+
+    // 未処理の重複チェック
+    final alreadyQueued = users.any(
+      (u) =>
+          (u['user'] as String).toLowerCase() == username.toLowerCase() &&
+          u['done'] != true,
+    );
+    if (alreadyQueued) return true;
+
+    final newEntry = <String, dynamic>{
+      'user': username,
+      'stop_on_existing': stopOnExisting,
+    };
+    if (count != null) newEntry['count'] = count;
+    users.add(newEntry);
+    data['users'] = users;
+
+    return updateGistFile(
+      gistId: fetchQueueGistId,
+      filename: 'fetch_queue.json',
+      content: jsonEncode(data),
+    );
+  }
+
+  /// scheduled_fetch.yml をトリガーする
+  Future<bool> triggerScheduledFetchWorkflow() async {
+    final url = Uri.parse(
+      'https://api.github.com/repos/$owner/$repo/actions/workflows/scheduled_fetch.yml/dispatches',
+    );
+    final response = await http.post(
+      url,
+      headers: _headers,
+      body: jsonEncode({'ref': 'main'}),
+    );
+    return response.statusCode == 204;
   }
 
   /// 指定ワークフローの最新ランの status / conclusion / created_at を返す

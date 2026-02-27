@@ -329,6 +329,9 @@ class _GalleryPageState extends State<GalleryPage> {
   // --- Append 関連 ---
 
   Future<void> _handleAppend({String? user, String? hashtag}) async {
+    final username = user ?? '';
+    if (username.isEmpty) return;
+
     final vm = context.read<GalleryViewModel>();
     final result = await AppendConfigDialog.show(context);
     if (result == null) return;
@@ -338,11 +341,19 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    await vm.executeAppend(
-      user: user,
+    final success = await vm.queueUserForFetch(
+      username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
+        ),
+      );
+    }
   }
 
   Future<void> _executeRefreshWithDialog(int count) async {
@@ -564,11 +575,19 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    await vm.executeAppend(
-      user: username,
+    final success = await vm.queueUserForFetch(
+      username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
+        ),
+      );
+    }
   }
 
   // --- 外部連携 ---

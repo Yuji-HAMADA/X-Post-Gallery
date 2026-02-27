@@ -79,29 +79,31 @@ jobs:
           echo "Master Gist: $MASTER_GIST_ID"
           echo "Default count: $DEFAULT_COUNT"
 
-          # ユーザーリストをループ前に bash 配列へ展開（削除でインデックスがずれるのを防ぐ）
-          mapfile -t USERS_LIST < <(echo "$QUEUE_JSON" | jq -r '.users[].user')
-          mapfile -t COUNTS_LIST < <(echo "$QUEUE_JSON" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | (.count // $def | tostring)')
+          # 未処理ユーザー（done != true）のみをループ前に bash 配列へ展開
+          mapfile -t USERS_LIST < <(echo "$QUEUE_JSON" | jq -r '.users[] | select(.done != true) | .user')
+          mapfile -t COUNTS_LIST < <(echo "$QUEUE_JSON" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | select(.done != true) | (.count // $def | tostring)')
+          mapfile -t STOP_FLAGS < <(echo "$QUEUE_JSON" | jq -r '.users[] | select(.done != true) | (.stop_on_existing // true | tostring)')
 
-          echo "Users: ${#USERS_LIST[@]}"
+          echo "Unprocessed users: ${#USERS_LIST[@]}"
 
           for i in "${!USERS_LIST[@]}"; do
             USER="${USERS_LIST[$i]}"
             COUNT="${COUNTS_LIST[$i]}"
+            STOP="${STOP_FLAGS[$i]}"
 
             echo "=========================================="
-            echo "Processing [$((i+1))/${#USERS_LIST[@]}]: @$USER (count=$COUNT)"
+            echo "Processing [$((i+1))/${#USERS_LIST[@]}]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
             echo "=========================================="
 
-            ./append_gist.sh \
-              -g "$MASTER_GIST_ID" \
-              -u "$USER" \
-              -n "$COUNT" \
-              -s \
-              || true
+            if [ "$STOP" = "true" ]; then
+              ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+            else
+              ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+            fi
 
-            # 処理済みユーザーをキューから削除
-            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg user "$USER" '.users = [.users[] | select(.user != $user)]')
+            # 処理済みとして done: true をマーク（削除しない）
+            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg user "$USER" \
+              '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
             printf '%s' "$QUEUE_JSON" > /tmp/fetch_queue_updated.json
             gh gist edit "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json /tmp/fetch_queue_updated.json
           done

@@ -93,11 +93,19 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
       return;
     }
 
-    await vm.executeAppend(
-      user: username,
+    final success = await vm.queueUserForFetch(
+      username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
+        ),
+      );
+    }
   }
 
   Future<void> _showDeleteConfirmDialog(String username) async {
