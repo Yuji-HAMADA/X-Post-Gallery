@@ -93,36 +93,11 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
       return;
     }
 
-    if (await vm.isUserInFetchQueue(username) && mounted) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('確認'),
-          content: Text('@$username はすでにキューに追加されています。\n続行しますか？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('キャンセル'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('続行'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true) return;
-    }
-
-    final success = await vm.queueUserForFetch(username, count: count);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? '取得キューに追加しました' : 'キューへの追加に失敗しました'),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
+    await vm.executeAppend(
+      user: username,
+      count: count,
+      stopOnExisting: true,
+    );
   }
 
   Future<void> _showDeleteConfirmDialog(String username) async {

@@ -39,6 +39,7 @@ class _GalleryPageState extends State<GalleryPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
+  bool _aiFilterEnabled = false; // AI（顔認識）で抽出した画像のみ表示するフィルター
 
   @override
   void initState() {
@@ -140,112 +141,6 @@ class _GalleryPageState extends State<GalleryPage> {
     } else {
       _restoreScrollPosition();
     }
-  }
-
-  /// ユーザーがキュー済みなら確認ダイアログを出し、キャンセルされたら false を返す
-  Future<bool> _confirmIfAlreadyQueued(String username) async {
-    final vm = context.read<GalleryViewModel>();
-    final inQueue = await vm.isUserInFetchQueue(username);
-    if (!inQueue || !mounted) return true;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('確認'),
-        content: Text('@$username はすでにキューに追加されています。\n続行しますか？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('続行'),
-          ),
-        ],
-      ),
-    );
-    return confirmed ?? false;
-  }
-
-  Future<void> _showFetchQueueSheet() async {
-    final vm = context.read<GalleryViewModel>();
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('読込中...'),
-          ],
-        ),
-      ),
-    );
-
-    final users = await vm.fetchFetchQueue();
-    if (!mounted) return;
-    Navigator.pop(context);
-
-    if (users == null) {
-      _showErrorSnackBar('キューの取得に失敗しました');
-      return;
-    }
-
-    if (!mounted) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return SizedBox(
-          height: MediaQuery.of(context).size.height * 0.7,
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  '取得キュー (${users.length}件)',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: users.length,
-                  itemBuilder: (context, index) {
-                    final user = users[index];
-                    final username = user['user'] as String;
-                    final count = user['count'] as int?;
-                    final isFetched = vm.userGists.containsKey(username);
-                    return ListTile(
-                      title: Text('@$username'),
-                      subtitle: count != null ? Text('$count 件') : null,
-                      trailing: isFetched
-                          ? const Icon(Icons.check_circle, color: Colors.green)
-                          : null,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   Future<void> _handleRefresh() async {
@@ -443,17 +338,11 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    final targetUser = user ?? hashtag ?? '';
-    if (!await _confirmIfAlreadyQueued(targetUser)) return;
-    final success = await vm.queueUserForFetch(targetUser, count: count);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? '取得キューに追加しました' : 'キューへの追加に失敗しました'),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
+    await vm.executeAppend(
+      user: user,
+      count: count,
+      stopOnExisting: true,
+    );
   }
 
   Future<void> _executeRefreshWithDialog(int count) async {
@@ -675,18 +564,11 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    if (!await _confirmIfAlreadyQueued(username)) return;
-    final success = await vm.queueUserForFetch(username, count: count);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? '取得キューに追加しました: @$username' : 'キューへの追加に失敗しました',
-          ),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
+    await vm.executeAppend(
+      user: username,
+      count: count,
+      stopOnExisting: true,
+    );
   }
 
   // --- 外部連携 ---
@@ -713,8 +595,12 @@ class _GalleryPageState extends State<GalleryPage> {
 
     // フィルタ済みサブギャラリー：アイテムは静的リスト（Append後は _localItems）
     if (widget.initialItems != null) {
+      final baseItems = _localItems ?? widget.initialItems!;
+      final displayItems = _aiFilterEnabled
+          ? baseItems.where((item) => item.matchSource == 'face').toList()
+          : baseItems;
       return _buildScaffold(
-        items: _localItems ?? widget.initialItems!,
+        items: displayItems,
         userName: '',
         isAuthenticated: true,
         isSelectionMode: vm.isSelectionMode,
@@ -792,8 +678,6 @@ class _GalleryPageState extends State<GalleryPage> {
                     _handleRefresh();
                   case 'search_user':
                     _handleSearchUser();
-                  case 'fetch_queue':
-                    _showFetchQueueSheet();
                 }
               },
               itemBuilder: (context) => [
@@ -802,14 +686,6 @@ class _GalleryPageState extends State<GalleryPage> {
                   child: ListTile(
                     leading: Icon(Icons.person_search),
                     title: Text('ユーザー検索'),
-                    dense: true,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'fetch_queue',
-                  child: ListTile(
-                    leading: Icon(Icons.format_list_bulleted),
-                    title: Text('取得キュー'),
                     dense: true,
                   ),
                 ),
@@ -954,11 +830,15 @@ class _GalleryPageState extends State<GalleryPage> {
               ),
             ),
           ] else ...[
-            // 通常画面: 再読み込み + ハンバーガーメニュー
+            // キャラクターギャラリー: AIフィルター切り替え + ハンバーガーメニュー
             IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: '再読み込み',
-              onPressed: () => context.read<GalleryViewModel>().reloadGallery(),
+              icon: Icon(
+                Icons.face_retouching_natural,
+                color: _aiFilterEnabled ? Colors.orange : Colors.grey,
+              ),
+              tooltip: _aiFilterEnabled ? 'AIのみ表示中（タップで解除）' : 'AIで抽出した画像のみ表示',
+              onPressed: () =>
+                  setState(() => _aiFilterEnabled = !_aiFilterEnabled),
             ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.menu),
@@ -970,8 +850,6 @@ class _GalleryPageState extends State<GalleryPage> {
                     _handleRefresh();
                   case 'search_user':
                     _handleSearchUser();
-                  case 'fetch_queue':
-                    _showFetchQueueSheet();
                 }
               },
               itemBuilder: (context) => [
@@ -980,14 +858,6 @@ class _GalleryPageState extends State<GalleryPage> {
                   child: ListTile(
                     leading: Icon(Icons.person_search),
                     title: Text('ユーザー検索'),
-                    dense: true,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'fetch_queue',
-                  child: ListTile(
-                    leading: Icon(Icons.format_list_bulleted),
-                    title: Text('取得キュー'),
                     dense: true,
                   ),
                 ),

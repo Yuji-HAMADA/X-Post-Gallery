@@ -8,10 +8,6 @@ const String _externalToken = String.fromEnvironment('GITHUB_TOKEN');
 const String _externalGithubUsername = String.fromEnvironment(
   'GITHUB_USERNAME',
 );
-const String _externalFetchQueueGistId = String.fromEnvironment(
-  'FETCH_QUEUE_GIST_ID',
-);
-
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
   final String token = _externalToken.isNotEmpty
@@ -23,11 +19,6 @@ class GitHubService {
       : (dotenv.env['GITHUB_USERNAME'] ?? 'Yuji-HAMADA');
   final String repo = 'x-post-gallery';
   final String workflowId = 'run.yml';
-
-  /// キューGist ID
-  final String fetchQueueGistId = _externalFetchQueueGistId.isNotEmpty
-      ? _externalFetchQueueGistId
-      : (dotenv.env['FETCH_QUEUE_GIST_ID'] ?? '');
 
   // ヘッダーをゲッターで定義して、毎回新しいマップを返すようにする
   Map<String, String> get _headers => {
@@ -186,38 +177,4 @@ class GitHubService {
     return {};
   }
 
-  /// キューGistにユーザーを追加する
-  Future<bool> addUserToFetchQueue(String username, {int? count}) async {
-    if (fetchQueueGistId.isEmpty) {
-      debugPrint('FETCH_QUEUE_GIST_ID is not set');
-      return false;
-    }
-
-    final content = await fetchGistContent(
-      fetchQueueGistId,
-      'fetch_queue.json',
-    );
-    if (content == null) return false;
-
-    final data = jsonDecode(content) as Map<String, dynamic>;
-    final users = (data['users'] as List).cast<Map<String, dynamic>>();
-
-    // 重複チェック
-    final alreadyExists = users.any(
-      (u) => (u['user'] as String).toLowerCase() == username.toLowerCase(),
-    );
-    if (alreadyExists) return true; // 既に存在
-
-    // 末尾に追加
-    final newEntry = <String, dynamic>{'user': username};
-    if (count != null) newEntry['count'] = count;
-    users.add(newEntry);
-    data['users'] = users;
-
-    return updateGistFile(
-      gistId: fetchQueueGistId,
-      filename: 'fetch_queue.json',
-      content: jsonEncode(data),
-    );
-  }
 }

@@ -281,32 +281,6 @@ class GalleryViewModel extends ChangeNotifier {
 
   // --- Append アクション ---
 
-  /// キューGistのユーザーリストを取得する
-  Future<List<Map<String, dynamic>>?> fetchFetchQueue() async {
-    if (_githubService.fetchQueueGistId.isEmpty) return null;
-    final content = await _githubService.fetchGistContent(
-      _githubService.fetchQueueGistId,
-      'fetch_queue.json',
-    );
-    if (content == null) return null;
-    final data = jsonDecode(content) as Map<String, dynamic>;
-    return (data['users'] as List).cast<Map<String, dynamic>>();
-  }
-
-  /// 指定ユーザーがキューに存在するか確認する
-  Future<bool> isUserInFetchQueue(String username) async {
-    final queue = await fetchFetchQueue();
-    if (queue == null) return false;
-    return queue.any(
-      (u) => (u['user'] as String).toLowerCase() == username.toLowerCase(),
-    );
-  }
-
-  /// キューGistにユーザーを追加する
-  Future<bool> queueUserForFetch(String username, {int? count}) async {
-    return _githubService.addUserToFetchQueue(username, count: count);
-  }
-
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
   /// isUserGist: true の場合はマスターリロードをスキップ（呼び出し側が処理）
   Future<void> executeAppend({

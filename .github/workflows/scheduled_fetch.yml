@@ -96,6 +96,11 @@ jobs:
               -n "$COUNT" \
               -s \
               || true
+
+            # 処理済みユーザーをキューから削除
+            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg user "$USER" '.users = [.users[] | select(.user != $user)]')
+            printf '%s' "$QUEUE_JSON" > /tmp/fetch_queue_updated.json
+            gh gist edit "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json /tmp/fetch_queue_updated.json
           done
 
           echo "All users processed."

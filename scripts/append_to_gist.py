@@ -1,5 +1,5 @@
 """
-指定ユーザ(またはハッシュタグ)のポストを取得し、既存Gistにアペンドする。
+指定ユーザのポストを取得し、既存Gistにアペンドする。
   - 既存IDが見つかったら取得を停止（--stop-on-existing）
   - マスターGistは master 形式:
       {user_screen_name, user_gists:{user:gist_id}, tweets:[代表1件ずつ]}
@@ -24,7 +24,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-g", "--gist-id", required=True, help="Append対象のGist ID")
     parser.add_argument("-u", "--user", default=None, help="Target user ID")
-    parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
     parser.add_argument("--foryou", action="store_true", help="For Youタイムラインから取得")
     parser.add_argument("-m", "--mode", default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("-n", "--num", type=int, default=100, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
@@ -176,8 +175,6 @@ def run_extraction(args, skip_ids_file):
         ]
         if args.user:
             cmd.extend(["-u", args.user])
-        elif args.hashtag:
-            cmd.extend(["--hashtag", args.hashtag])
         if args.stop_on_existing:
             cmd.append("--stop-on-existing")
     print(f"🚀 Running Extraction: {' '.join(cmd)}")
