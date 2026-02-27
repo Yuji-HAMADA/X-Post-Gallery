@@ -101,11 +101,15 @@ jobs:
               ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
             fi
 
-            # 処理済みとして done: true をマーク（削除しない）
-            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg user "$USER" \
+            # 処理済みとして done: true をマーク
+            # Gist を再取得してから書き戻す（Flutter の並行追加を保持するため）
+            LATEST_JSON=$(gh gist view "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json)
+            LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
               '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
-            printf '%s' "$QUEUE_JSON" > /tmp/fetch_queue_updated.json
+            printf '%s' "$LATEST_JSON" > /tmp/fetch_queue_updated.json
             gh gist edit "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json /tmp/fetch_queue_updated.json
+            # ローカルコピーも同期
+            QUEUE_JSON="$LATEST_JSON"
           done
 
           echo "All users processed."
