@@ -29,6 +29,12 @@
 
   <title>PostViewer</title>
   <link rel="manifest" href="manifest.json">
+  <script>
+    // Chromeモバイルのスワイプbackがアプリ外に出るのを防ぐバックストップエントリを追加。
+    // Flutter の pushState より先に実行することで、ユーザギャラリーから
+    // メインギャラリーへのジェスチャーbackがアプリ内で処理されるようにする。
+    history.pushState({type: 'flutter_backstop'}, '', location.href);
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

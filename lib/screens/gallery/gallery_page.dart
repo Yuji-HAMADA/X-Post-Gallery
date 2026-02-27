@@ -647,107 +647,112 @@ class _GalleryPageState extends State<GalleryPage> {
         ? '${vm.selectedIds.length}件選択中'
         : pageTitles[_currentPage];
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: vm.isSelectionMode
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () =>
-                    context.read<GalleryViewModel>().clearSelection(),
-              )
-            : null,
-        title: Text(currentTitle),
-        actions: [
-          if (!vm.isSelectionMode) ...[
-            if (isFavPage) ...[
-              IconButton(
-                icon: const Icon(Icons.cloud_upload),
-                tooltip: 'Gistに保存',
-                onPressed: _saveFavoritesToGist,
-              ),
-              IconButton(
-                icon: const Icon(Icons.cloud_download),
-                tooltip: 'Gistから読込',
-                onPressed: _loadFavoritesFromGist,
+    // モバイルブラウザのスワイプbackでアプリが終了しないよう、
+    // ルートページでは pop を無効化する。
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: vm.isSelectionMode
+              ? IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () =>
+                      context.read<GalleryViewModel>().clearSelection(),
+                )
+              : null,
+          title: Text(currentTitle),
+          actions: [
+            if (!vm.isSelectionMode) ...[
+              if (isFavPage) ...[
+                IconButton(
+                  icon: const Icon(Icons.cloud_upload),
+                  tooltip: 'Gistに保存',
+                  onPressed: _saveFavoritesToGist,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.cloud_download),
+                  tooltip: 'Gistから読込',
+                  onPressed: _loadFavoritesFromGist,
+                ),
+              ],
+              if (!isFavPage && !isCharPage)
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: '再読み込み',
+                  onPressed: vm.status == GalleryStatus.loading
+                      ? null
+                      : () => context.read<GalleryViewModel>().reloadGallery(),
+                ),
+              if (isCharPage)
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: '再読み込み',
+                  onPressed: vm.status == GalleryStatus.loading
+                      ? null
+                      : () => context.read<GalleryViewModel>().reloadGallery(),
+                ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.menu),
+                onSelected: (value) {
+                  switch (value) {
+                    case 'key':
+                      _showPasswordDialog(canCancel: true);
+                    case 'refresh':
+                      _handleRefresh();
+                    case 'search_user':
+                      _handleSearchUser();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'search_user',
+                    child: ListTile(
+                      leading: Icon(Icons.person_search),
+                      title: Text('ユーザー検索'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'key',
+                    child: ListTile(
+                      leading: Icon(Icons.vpn_key_outlined),
+                      title: Text('Gist ID'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'refresh',
+                    child: ListTile(
+                      leading: Icon(Icons.auto_awesome),
+                      title: Text('ForYou'),
+                      dense: true,
+                    ),
+                  ),
+                ],
               ),
             ],
-            if (!isFavPage && !isCharPage)
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: '再読み込み',
-                onPressed: vm.status == GalleryStatus.loading
-                    ? null
-                    : () => context.read<GalleryViewModel>().reloadGallery(),
-              ),
-            if (isCharPage)
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: '再読み込み',
-                onPressed: vm.status == GalleryStatus.loading
-                    ? null
-                    : () => context.read<GalleryViewModel>().reloadGallery(),
-              ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.menu),
-              onSelected: (value) {
-                switch (value) {
-                  case 'key':
-                    _showPasswordDialog(canCancel: true);
-                  case 'refresh':
-                    _handleRefresh();
-                  case 'search_user':
-                    _handleSearchUser();
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'search_user',
-                  child: ListTile(
-                    leading: Icon(Icons.person_search),
-                    title: Text('ユーザー検索'),
-                    dense: true,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'key',
-                  child: ListTile(
-                    leading: Icon(Icons.vpn_key_outlined),
-                    title: Text('Gist ID'),
-                    dense: true,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'refresh',
-                  child: ListTile(
-                    leading: Icon(Icons.auto_awesome),
-                    title: Text('ForYou'),
-                    dense: true,
-                  ),
-                ),
-              ],
-            ),
           ],
-        ],
+        ),
+        body: !isAuthenticated
+            ? const Center(child: Text('Waiting for authentication...'))
+            : vm.items.isEmpty
+            ? const Center(child: CircularProgressIndicator())
+            : PageView(
+                controller: _pageController,
+                onPageChanged: (page) {
+                  setState(() => _currentPage = page);
+                },
+                children: [
+                  _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
+                  _buildFavoritesGrid(
+                    favoriteItems,
+                    vm.userGists,
+                    vm.favoriteUsers,
+                  ),
+                  _buildCharacterGrid(vm),
+                ],
+              ),
       ),
-      body: !isAuthenticated
-          ? const Center(child: Text('Waiting for authentication...'))
-          : vm.items.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : PageView(
-              controller: _pageController,
-              onPageChanged: (page) {
-                setState(() => _currentPage = page);
-              },
-              children: [
-                _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
-                _buildFavoritesGrid(
-                  favoriteItems,
-                  vm.userGists,
-                  vm.favoriteUsers,
-                ),
-                _buildCharacterGrid(vm),
-              ],
-            ),
     );
   }
 
