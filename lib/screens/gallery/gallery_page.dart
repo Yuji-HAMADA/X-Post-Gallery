@@ -330,8 +330,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _handleAppend({String? user, String? hashtag}) async {
     final vm = context.read<GalleryViewModel>();
-    final count = await AppendConfigDialog.show(context);
-    if (count == null) return;
+    final result = await AppendConfigDialog.show(context);
+    if (result == null) return;
 
     if (!await vm.isAdminAuthenticated()) {
       if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
@@ -340,8 +340,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
     await vm.executeAppend(
       user: user,
-      count: count,
-      stopOnExisting: true,
+      count: result.count,
+      stopOnExisting: result.stopOnExisting,
     );
   }
 
@@ -555,8 +555,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
   /// マスターGistに存在しない新規ユーザーを追加する
   Future<void> _handleAddNewUser(String username) async {
-    final count = await AppendConfigDialog.show(context);
-    if (count == null || !mounted) return;
+    final result = await AppendConfigDialog.show(context);
+    if (result == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
@@ -566,8 +566,8 @@ class _GalleryPageState extends State<GalleryPage> {
 
     await vm.executeAppend(
       user: username,
-      count: count,
-      stopOnExisting: true,
+      count: result.count,
+      stopOnExisting: result.stopOnExisting,
     );
   }
 

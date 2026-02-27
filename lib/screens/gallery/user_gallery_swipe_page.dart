@@ -84,8 +84,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
   // --- ダイアログ系 ---
 
   Future<void> _handleAppend(String username) async {
-    final count = await AppendConfigDialog.show(context);
-    if (count == null || !mounted) return;
+    final result = await AppendConfigDialog.show(context);
+    if (result == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
@@ -95,8 +95,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
 
     await vm.executeAppend(
       user: username,
-      count: count,
-      stopOnExisting: true,
+      count: result.count,
+      stopOnExisting: result.stopOnExisting,
     );
   }
 
