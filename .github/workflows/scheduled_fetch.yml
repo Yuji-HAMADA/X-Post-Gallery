@@ -75,19 +75,22 @@ jobs:
 
           DEFAULT_COUNT=$(echo "$QUEUE_JSON" | jq -r '.default_count // 300')
           MASTER_GIST_ID=$(echo "$QUEUE_JSON" | jq -r '.master_gist_id')
-          USERS_LENGTH=$(echo "$QUEUE_JSON" | jq '.users | length')
 
           echo "Master Gist: $MASTER_GIST_ID"
           echo "Default count: $DEFAULT_COUNT"
-          echo "Users: $USERS_LENGTH"
 
-          for i in $(seq 0 $((USERS_LENGTH - 1))); do
-            USER=$(echo "$QUEUE_JSON" | jq -r ".users[$i].user")
-            COUNT=$(echo "$QUEUE_JSON" | jq -r ".users[$i].count // empty")
-            COUNT=${COUNT:-$DEFAULT_COUNT}
+          # ユーザーリストをループ前に bash 配列へ展開（削除でインデックスがずれるのを防ぐ）
+          mapfile -t USERS_LIST < <(echo "$QUEUE_JSON" | jq -r '.users[].user')
+          mapfile -t COUNTS_LIST < <(echo "$QUEUE_JSON" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | (.count // $def | tostring)')
+
+          echo "Users: ${#USERS_LIST[@]}"
+
+          for i in "${!USERS_LIST[@]}"; do
+            USER="${USERS_LIST[$i]}"
+            COUNT="${COUNTS_LIST[$i]}"
 
             echo "=========================================="
-            echo "Processing [$((i+1))/$USERS_LENGTH]: @$USER (count=$COUNT)"
+            echo "Processing [$((i+1))/${#USERS_LIST[@]}]: @$USER (count=$COUNT)"
             echo "=========================================="
 
             ./append_gist.sh \
