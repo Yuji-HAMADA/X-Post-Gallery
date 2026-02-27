@@ -2,7 +2,7 @@ name: Scheduled Fetch (Queue)
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -62,54 +62,135 @@ jobs:
           fi
           python3 -c "import json; json.load(open('data/auth.json'))" && echo "auth.json is valid JSON" || (echo "Error: auth.json is NOT valid JSON format"; exit 1)
 
-      - name: Fetch Queue and Process Users
+      - name: Fetch Queue and Process Users (Ring Buffer)
         env:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
           FETCH_QUEUE_GIST_ID: ${{ secrets.FETCH_QUEUE_GIST_ID }}
         run: |
           chmod +x append_gist.sh
 
-          # キューGistからユーザリストを取得
-          QUEUE_JSON=$(gh gist view "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json)
-          echo "Queue JSON loaded."
+          # --- スロット0を読み込み、sibling_gist_id でスロット1のIDを取得 ---
+          SLOT0_ID="$FETCH_QUEUE_GIST_ID"
+          SLOT0_JSON=$(gh gist view "$SLOT0_ID" -f fetch_queue.json)
+          SLOT1_ID=$(echo "$SLOT0_JSON" | jq -r '.sibling_gist_id // empty')
 
-          DEFAULT_COUNT=$(echo "$QUEUE_JSON" | jq -r '.default_count // 300')
-          MASTER_GIST_ID=$(echo "$QUEUE_JSON" | jq -r '.master_gist_id')
+          if [ -z "$SLOT1_ID" ]; then
+            echo "Warning: sibling_gist_id not found in slot 0. Running in single-slot mode."
+          fi
 
+          MASTER_GIST_ID=$(echo "$SLOT0_JSON" | jq -r '.master_gist_id')
+          DEFAULT_COUNT=$(echo "$SLOT0_JSON" | jq -r '.default_count // 300')
           echo "Master Gist: $MASTER_GIST_ID"
           echo "Default count: $DEFAULT_COUNT"
 
-          # 未処理ユーザー（done != true）のみをループ前に bash 配列へ展開
-          mapfile -t USERS_LIST < <(echo "$QUEUE_JSON" | jq -r '.users[] | select(.done != true) | .user')
-          mapfile -t COUNTS_LIST < <(echo "$QUEUE_JSON" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | select(.done != true) | (.count // $def | tostring)')
-          mapfile -t STOP_FLAGS < <(echo "$QUEUE_JSON" | jq -r '.users[] | select(.done != true) | (.stop_on_existing // true | tostring)')
+          # --- 両スロットの status を "idle" にリセット（前回クラッシュ対策） ---
+          reset_status() {
+            local gist_id="$1"
+            local json
+            json=$(gh gist view "$gist_id" -f fetch_queue.json)
+            local current_status
+            current_status=$(echo "$json" | jq -r '.status // "idle"')
+            if [ "$current_status" != "idle" ]; then
+              echo "Resetting slot status to idle: $gist_id"
+              json=$(echo "$json" | jq '.status = "idle"')
+              printf '%s' "$json" > /tmp/fq_reset.json
+              gh gist edit "$gist_id" -f fetch_queue.json /tmp/fq_reset.json
+            fi
+          }
 
-          echo "Unprocessed users: ${#USERS_LIST[@]}"
+          reset_status "$SLOT0_ID"
+          if [ -n "$SLOT1_ID" ]; then
+            reset_status "$SLOT1_ID"
+          fi
 
-          for i in "${!USERS_LIST[@]}"; do
-            USER="${USERS_LIST[$i]}"
-            COUNT="${COUNTS_LIST[$i]}"
-            STOP="${STOP_FLAGS[$i]}"
+          # --- 1スロットを処理する関数 ---
+          process_slot() {
+            local slot_id="$1"
+            local slot_num="$2"
 
-            echo "=========================================="
-            echo "Processing [$((i+1))/${#USERS_LIST[@]}]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
-            echo "=========================================="
+            echo ""
+            echo "========== Checking slot $slot_num ($slot_id) =========="
 
-            if [ "$STOP" = "true" ]; then
-              ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
-            else
-              ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+            local slot_json
+            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json)
+
+            # 未処理ユーザーを取得
+            mapfile -t USERS_LIST < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | .user')
+            mapfile -t COUNTS_LIST < <(echo "$slot_json" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | select(.done != true) | (.count // ($def | tonumber) | tostring)')
+            mapfile -t STOP_FLAGS < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | (.stop_on_existing // true | tostring)')
+
+            local user_count=${#USERS_LIST[@]}
+            echo "Unprocessed users in slot $slot_num: $user_count"
+
+            if [ "$user_count" -eq 0 ]; then
+              return 1  # 未処理なし
             fi
 
-            # 処理済みとして done: true をマーク
-            # Gist を再取得してから書き戻す（Flutter の並行追加を保持するため）
-            LATEST_JSON=$(gh gist view "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json)
-            LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
-              '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
-            printf '%s' "$LATEST_JSON" > /tmp/fetch_queue_updated.json
-            gh gist edit "$FETCH_QUEUE_GIST_ID" -f fetch_queue.json /tmp/fetch_queue_updated.json
-            # ローカルコピーも同期
-            QUEUE_JSON="$LATEST_JSON"
+            # status を "processing" に設定
+            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json)
+            slot_json=$(echo "$slot_json" | jq '.status = "processing"')
+            printf '%s' "$slot_json" > /tmp/fq_status.json
+            gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_status.json
+
+            for i in "${!USERS_LIST[@]}"; do
+              USER="${USERS_LIST[$i]}"
+              COUNT="${COUNTS_LIST[$i]}"
+              STOP="${STOP_FLAGS[$i]}"
+
+              echo "=========================================="
+              echo "Slot $slot_num [$((i+1))/$user_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
+              echo "=========================================="
+
+              if [ "$STOP" = "true" ]; then
+                ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+              else
+                ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+              fi
+
+              # 処理済みとして done: true をマーク
+              # Gist を再取得してから書き戻す（Flutter の並行追加を保持するため）
+              LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json)
+              LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
+                '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+              printf '%s' "$LATEST_JSON" > /tmp/fq_done.json
+              gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_done.json
+            done
+
+            # status を "idle" に戻す
+            LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json)
+            LATEST_JSON=$(echo "$LATEST_JSON" | jq '.status = "idle"')
+            printf '%s' "$LATEST_JSON" > /tmp/fq_idle.json
+            gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_idle.json
+
+            return 0  # 処理あり
+          }
+
+          # --- メインループ: 両スロットに未処理がなくなるまで繰り返す ---
+          LOOP_COUNT=0
+          MAX_LOOPS=10  # 安全弁
+
+          while [ $LOOP_COUNT -lt $MAX_LOOPS ]; do
+            LOOP_COUNT=$((LOOP_COUNT + 1))
+            echo ""
+            echo "=== Loop iteration $LOOP_COUNT ==="
+            PROCESSED=false
+
+            process_slot "$SLOT0_ID" 0 && PROCESSED=true
+
+            if [ -n "$SLOT1_ID" ]; then
+              process_slot "$SLOT1_ID" 1 && PROCESSED=true
+            fi
+
+            if [ "$PROCESSED" = false ]; then
+              echo "No unprocessed entries in any slot. Done."
+              break
+            fi
+
+            echo "Processed entries found. Rechecking both slots..."
           done
 
-          echo "All users processed."
+          if [ $LOOP_COUNT -ge $MAX_LOOPS ]; then
+            echo "Warning: Reached max loop count ($MAX_LOOPS). Exiting."
+          fi
+
+          echo "All slots processed."

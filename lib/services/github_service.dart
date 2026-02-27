@@ -165,7 +165,9 @@ class GitHubService {
     return files?[filename]?['content'] as String?;
   }
 
-  /// fetch_queue.json にユーザーを追加する（done でないエントリの重複はスキップ）
+  /// fetch_queue.json にユーザーを追加する（2スロットリングバッファ対応）
+  /// スロット0が processing ならスロット1に、それ以外はスロット0に書き込む。
+  /// 重複チェックは両スロットの未処理エントリに対して行う。
   Future<bool> addUserToFetchQueue(
     String username, {
     int? count,
@@ -176,32 +178,65 @@ class GitHubService {
       return false;
     }
 
-    final content = await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
-    if (content == null) return false;
+    // スロット0を読み込み
+    final slot0Content =
+        await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
+    if (slot0Content == null) return false;
+    final slot0Data = jsonDecode(slot0Content) as Map<String, dynamic>;
+    final slot0Users =
+        (slot0Data['users'] as List).cast<Map<String, dynamic>>();
 
-    final data = jsonDecode(content) as Map<String, dynamic>;
-    final users = (data['users'] as List).cast<Map<String, dynamic>>();
+    // スロット1を読み込み（sibling_gist_id がある場合）
+    final siblingGistId = slot0Data['sibling_gist_id'] as String?;
+    Map<String, dynamic>? slot1Data;
+    List<Map<String, dynamic>>? slot1Users;
+    if (siblingGistId != null && siblingGistId.isNotEmpty) {
+      final slot1Content =
+          await fetchGistContent(siblingGistId, 'fetch_queue.json');
+      if (slot1Content != null) {
+        slot1Data = jsonDecode(slot1Content) as Map<String, dynamic>;
+        slot1Users =
+            (slot1Data['users'] as List).cast<Map<String, dynamic>>();
+      }
+    }
 
-    // 未処理の重複チェック
-    final alreadyQueued = users.any(
-      (u) =>
-          (u['user'] as String).toLowerCase() == username.toLowerCase() &&
-          u['done'] != true,
-    );
-    if (alreadyQueued) return true;
+    // 両スロットの未処理エントリで重複チェック
+    bool isDuplicate(List<Map<String, dynamic>> users) {
+      return users.any(
+        (u) =>
+            (u['user'] as String).toLowerCase() == username.toLowerCase() &&
+            u['done'] != true,
+      );
+    }
+    if (isDuplicate(slot0Users) ||
+        (slot1Users != null && isDuplicate(slot1Users))) {
+      return true; // 既にキューに存在
+    }
 
+    // 書き込み先の決定: スロット0が processing ならスロット1に書き込み
+    final slot0Status = slot0Data['status'] as String? ?? 'idle';
+    final bool writeToSlot1 =
+        slot0Status == 'processing' &&
+        siblingGistId != null &&
+        siblingGistId.isNotEmpty;
+
+    final targetGistId = writeToSlot1 ? siblingGistId : fetchQueueGistId;
+    final targetData = writeToSlot1 ? (slot1Data ?? slot0Data) : slot0Data;
+    final targetUsers = writeToSlot1 ? (slot1Users ?? slot0Users) : slot0Users;
+
+    // 新しいエントリを追加
     final newEntry = <String, dynamic>{
       'user': username,
       'stop_on_existing': stopOnExisting,
     };
     if (count != null) newEntry['count'] = count;
-    users.add(newEntry);
-    data['users'] = users;
+    targetUsers.add(newEntry);
+    targetData['users'] = targetUsers;
 
     return updateGistFile(
-      gistId: fetchQueueGistId,
+      gistId: targetGistId,
       filename: 'fetch_queue.json',
-      content: jsonEncode(data),
+      content: jsonEncode(targetData),
     );
   }
 
