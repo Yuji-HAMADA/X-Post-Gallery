@@ -113,6 +113,13 @@ async def run():
         await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(10000)
 
+        # デバッグ: ページ状態を確認
+        current_url = page.url
+        title = await page.title()
+        print(f"🔍 Debug: URL={current_url}, Title={title}")
+        articles_debug = await page.query_selector_all('article')
+        print(f"🔍 Debug: articles on page = {len(articles_debug)}")
+
         # 既知IDの読み込み（スキップ対象）
         skip_ids = set()
         # 順序付きID→インデックスマップ（連続一致判定用）
