@@ -119,6 +119,9 @@ async def run():
         print(f"🔍 Debug: URL={current_url}, Title={title}")
         articles_debug = await page.query_selector_all('article')
         print(f"🔍 Debug: articles on page = {len(articles_debug)}")
+        if len(articles_debug) == 0:
+            await page.screenshot(path="debug_screenshot.png", full_page=False)
+            print("🔍 Debug: screenshot saved to debug_screenshot.png")
 
         # 既知IDの読み込み（スキップ対象）
         skip_ids = set()
