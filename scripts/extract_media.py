@@ -27,8 +27,8 @@ def build_url(user, hashtag, mode):
         query = f"#{hashtag} filter:images"
         return f"https://x.com/search?q={quote(query)}&f=live"
     else:
-        # ユーザーはMediaタブを使用（検索より安定）
-        return f"https://x.com/{user}/media"
+        # ユーザーはPostsタブを使用（article要素あり、画像なし・リポストはコード側でフィルター）
+        return f"https://x.com/{user}"
 
 async def extract_tweet_data(article):
     """1つのarticle要素からツイート情報を抽出するロジック"""
