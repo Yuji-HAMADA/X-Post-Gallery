@@ -21,18 +21,14 @@ def parse_args():
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
     return parser.parse_args()
 
-def build_search_url(user, hashtag, mode):
-    # どちらのモードでも画像付き(filter:images)を必須にする
+def build_url(user, hashtag, mode):
     if hashtag:
+        # ハッシュタグは検索を使用
         query = f"#{hashtag} filter:images"
-    elif mode == "post_only":
-        # 本人の投稿かつ画像付き、リポストは除外
-        query = f"from:{user} filter:images -filter:reposts"
+        return f"https://x.com/search?q={quote(query)}&f=live"
     else:
-        # 本人のリポストや返信も含めるが、画像付きに限定
-        query = f"from:{user} filter:images"
-
-    return f"https://x.com/search?q={quote(query)}&f=live"
+        # ユーザーはMediaタブを使用（検索より安定）
+        return f"https://x.com/{user}/media"
 
 async def extract_tweet_data(article):
     """1つのarticle要素からツイート情報を抽出するロジック"""
@@ -48,13 +44,14 @@ async def extract_tweet_data(article):
     
     if not origin_status_id: return None
 
-    # テキストとリポスト判定
+    # テキストとリポスト判定（リポストは除外）
     inner_text = await article.inner_text()
     is_repost = any(w in inner_text for w in ["リポスト", "Reposted", "reposted"])
-    
+    if is_repost: return None
+
     tweet_text_el = await article.query_selector('[data-testid="tweetText"]')
     raw_text = await tweet_text_el.inner_text() if tweet_text_el else ""
-    full_text = f"{'RT ' if is_repost else ''}@{origin_user}: {raw_text}"
+    full_text = f"@{origin_user}: {raw_text}"
 
     # メディア抽出
     images = await article.query_selector_all('[data-testid="tweetPhoto"] img')
@@ -101,7 +98,7 @@ async def run():
 
     os.makedirs(DATA_DIR, exist_ok=True)
     mode = "post_only"  # 固定
-    url = build_search_url(args.user, args.hashtag, mode)
+    url = build_url(args.user, args.hashtag, mode)
     target_label = f"#{args.hashtag}" if args.hashtag else f"@{args.user}"
     print(f"🚀 Mode: {mode} | Target: {target_label} | URL: {url}")
 
