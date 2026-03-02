@@ -12,6 +12,7 @@ enum RefreshStatus { idle, running, completed, failed }
 enum AppendStatus { idle, running, completed, failed }
 
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
+const String _externalFavoriteGistId = String.fromEnvironment('FAVORITE_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -66,6 +67,12 @@ class GalleryViewModel extends ChangeNotifier {
     return _externalMasterGistId.isNotEmpty
         ? _externalMasterGistId
         : (dotenv.env['MASTER_GIST_ID'] ?? '');
+  }
+
+  String get favoriteGistId {
+    return _externalFavoriteGistId.isNotEmpty
+        ? _externalFavoriteGistId
+        : (dotenv.env['FAVORITE_GIST_ID'] ?? '');
   }
 
   // --- アクション ---
@@ -501,6 +508,33 @@ class GalleryViewModel extends ChangeNotifier {
     );
     await _repository.clearCache();
     notifyListeners();
+  }
+
+  // --- お気に入り一括取得 ---
+
+  /// お気に入りユーザー全員をキューに追加し、ワークフローをトリガーする
+  /// 追加した件数を返す（失敗時は -1）
+  Future<int> queueAllFavorites() async {
+    final favGistId = favoriteGistId;
+    if (favGistId.isEmpty) return -1;
+    final loaded = await loadFavoritesFromGist(favGistId);
+    if (!loaded || _favoriteUsers.isEmpty) return -1;
+
+    int addedCount = 0;
+    for (final username in _favoriteUsers) {
+      final added = await _githubService.addUserToFetchQueue(
+        username,
+        count: 100,
+        stopOnExisting: true,
+      );
+      if (added) addedCount++;
+    }
+
+    if (addedCount > 0) {
+      await _githubService.triggerScheduledFetchWorkflow();
+    }
+
+    return addedCount;
   }
 
   /// スクロール位置の保存・復元

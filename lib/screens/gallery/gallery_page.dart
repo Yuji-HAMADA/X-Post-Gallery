@@ -590,6 +590,60 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  // --- お気に入り一括取得 ---
+
+  Future<void> _handleFetchAllFavorites() async {
+    final vm = context.read<GalleryViewModel>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('お気に入り一括取得'),
+        content: const Text('お気に入りユーザー全員のポストをキューに追加しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('実行'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('お気に入りをキューに追加中...'),
+          ],
+        ),
+      ),
+    );
+
+    final count = await vm.queueAllFavorites();
+    if (mounted) Navigator.pop(context);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            count >= 0 ? '$count 件のユーザーをキューに追加しました' : 'お気に入りの読み込みに失敗しました',
+          ),
+          backgroundColor: count >= 0 ? Colors.green : Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   // --- 外部連携 ---
   Future<void> _launchXHashtag(String keyword) async => _openUrl(
     Uri.parse(
@@ -701,6 +755,8 @@ class _GalleryPageState extends State<GalleryPage> {
                       _handleRefresh();
                     case 'search_user':
                       _handleSearchUser();
+                    case 'fetch_favorites':
+                      _handleFetchAllFavorites();
                   }
                 },
                 itemBuilder: (context) => [
@@ -709,6 +765,14 @@ class _GalleryPageState extends State<GalleryPage> {
                     child: ListTile(
                       leading: Icon(Icons.person_search),
                       title: Text('ユーザー検索'),
+                      dense: true,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'fetch_favorites',
+                    child: ListTile(
+                      leading: Icon(Icons.favorite),
+                      title: Text('お気に入り一括取得'),
                       dense: true,
                     ),
                   ),
@@ -874,6 +938,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     _handleRefresh();
                   case 'search_user':
                     _handleSearchUser();
+                  case 'fetch_favorites':
+                    _handleFetchAllFavorites();
                 }
               },
               itemBuilder: (context) => [
@@ -882,6 +948,14 @@ class _GalleryPageState extends State<GalleryPage> {
                   child: ListTile(
                     leading: Icon(Icons.person_search),
                     title: Text('ユーザー検索'),
+                    dense: true,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'fetch_favorites',
+                  child: ListTile(
+                    leading: Icon(Icons.favorite),
+                    title: Text('お気に入り一括取得'),
                     dense: true,
                   ),
                 ),

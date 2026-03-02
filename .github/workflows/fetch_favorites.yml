@@ -1,0 +1,234 @@
+name: Fetch Favorites
+
+on:
+  schedule:
+    - cron: '0 17 * * *'  # UTC 17:00 = JST 2:00
+  workflow_dispatch:
+
+concurrency:
+  group: gist-writer
+  cancel-in-progress: false
+
+jobs:
+  fetch-favorites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-append-gist
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
+        run: pip install playwright --quiet
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(pip show playwright | grep Version | cut -d ' ' -f 2)" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      - name: Install Playwright dependencies (Always required)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+
+      - name: Create Auth File
+        env:
+          AUTH_DATA: ${{ secrets.AUTH_JSON }}
+        run: |
+          mkdir -p data
+          printf "%s" "$AUTH_DATA" > data/auth.json
+          if [ ! -s data/auth.json ]; then
+            echo "Error: data/auth.json is empty. Check GitHub Secret: AUTH_JSON"
+            exit 1
+          fi
+          python3 -c "import json; json.load(open('data/auth.json'))" && echo "auth.json is valid JSON" || (echo "Error: auth.json is NOT valid JSON format"; exit 1)
+
+      - name: Load Favorites and Add to Queue
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          FAVORITE_GIST_ID: ${{ secrets.FAVORITE_GIST_ID }}
+          FETCH_QUEUE_GIST_ID: ${{ secrets.FETCH_QUEUE_GIST_ID }}
+        run: |
+          # お気に入りユーザー一覧を取得
+          FAV_JSON=$(gh gist view "$FAVORITE_GIST_ID" -f favorites.json)
+          mapfile -t FAV_USERS < <(echo "$FAV_JSON" | jq -r '.favorite_users[]')
+          echo "Favorite users: ${#FAV_USERS[@]}"
+
+          if [ ${#FAV_USERS[@]} -eq 0 ]; then
+            echo "No favorite users found. Exiting."
+            exit 0
+          fi
+
+          # fetch_queue に各ユーザーを追加（重複チェック付き）
+          SLOT0_ID="$FETCH_QUEUE_GIST_ID"
+          QUEUE_JSON=$(gh gist view "$SLOT0_ID" -f fetch_queue.json)
+
+          for USER in "${FAV_USERS[@]}"; do
+            # 未処理エントリに既に存在するかチェック
+            EXISTS=$(echo "$QUEUE_JSON" | jq -r --arg u "$USER" \
+              '[.users[] | select(.done != true and (.user | ascii_downcase) == ($u | ascii_downcase))] | length')
+            if [ "$EXISTS" -gt 0 ]; then
+              echo "Skip (already queued): @$USER"
+              continue
+            fi
+            # 追加
+            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg u "$USER" \
+              '.users += [{"user": $u, "count": 100, "stop_on_existing": true}]')
+            echo "Added: @$USER"
+          done
+
+          # Gist に書き戻し
+          printf '%s' "$QUEUE_JSON" > /tmp/fq_favs.json
+          gh gist edit "$SLOT0_ID" -f fetch_queue.json /tmp/fq_favs.json
+          echo "Queue updated."
+
+      - name: Process Queue
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          FETCH_QUEUE_GIST_ID: ${{ secrets.FETCH_QUEUE_GIST_ID }}
+        run: |
+          chmod +x append_gist.sh
+
+          # --- スロット0を読み込み、sibling_gist_id でスロット1のIDを取得 ---
+          SLOT0_ID="$FETCH_QUEUE_GIST_ID"
+          SLOT0_JSON=$(gh gist view "$SLOT0_ID" -f fetch_queue.json)
+          SLOT1_ID=$(echo "$SLOT0_JSON" | jq -r '.sibling_gist_id // empty')
+
+          if [ -z "$SLOT1_ID" ]; then
+            echo "Warning: sibling_gist_id not found in slot 0. Running in single-slot mode."
+          fi
+
+          MASTER_GIST_ID=$(echo "$SLOT0_JSON" | jq -r '.master_gist_id')
+          DEFAULT_COUNT=$(echo "$SLOT0_JSON" | jq -r '.default_count // 300')
+          echo "Master Gist: $MASTER_GIST_ID"
+          echo "Default count: $DEFAULT_COUNT"
+
+          # --- 両スロットの status を "idle" にリセット（前回クラッシュ対策） ---
+          reset_status() {
+            local gist_id="$1"
+            local json
+            json=$(gh gist view "$gist_id" -f fetch_queue.json)
+            local current_status
+            current_status=$(echo "$json" | jq -r '.status // "idle"')
+            if [ "$current_status" != "idle" ]; then
+              echo "Resetting slot status to idle: $gist_id"
+              json=$(echo "$json" | jq '.status = "idle"')
+              printf '%s' "$json" > /tmp/fq_reset.json
+              gh gist edit "$gist_id" -f fetch_queue.json /tmp/fq_reset.json
+            fi
+          }
+
+          reset_status "$SLOT0_ID"
+          if [ -n "$SLOT1_ID" ]; then
+            reset_status "$SLOT1_ID"
+          fi
+
+          # --- 1スロットを処理する関数 ---
+          process_slot() {
+            local slot_id="$1"
+            local slot_num="$2"
+
+            echo ""
+            echo "========== Checking slot $slot_num ($slot_id) =========="
+
+            local slot_json
+            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json)
+
+            # 未処理ユーザーを取得
+            mapfile -t USERS_LIST < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | .user')
+            mapfile -t COUNTS_LIST < <(echo "$slot_json" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | select(.done != true) | (.count // ($def | tonumber) | tostring)')
+            mapfile -t STOP_FLAGS < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | (.stop_on_existing // true | tostring)')
+
+            local user_count=${#USERS_LIST[@]}
+            echo "Unprocessed users in slot $slot_num: $user_count"
+
+            if [ "$user_count" -eq 0 ]; then
+              return 1  # 未処理なし
+            fi
+
+            # status を "processing" に設定
+            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json)
+            slot_json=$(echo "$slot_json" | jq '.status = "processing"')
+            printf '%s' "$slot_json" > /tmp/fq_status.json
+            gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_status.json
+
+            for i in "${!USERS_LIST[@]}"; do
+              USER="${USERS_LIST[$i]}"
+              COUNT="${COUNTS_LIST[$i]}"
+              STOP="${STOP_FLAGS[$i]}"
+
+              echo "=========================================="
+              echo "Slot $slot_num [$((i+1))/$user_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
+              echo "=========================================="
+
+              if [ "$STOP" = "true" ]; then
+                ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+              else
+                ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+              fi
+
+              # 処理済みとして done: true をマーク
+              LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json)
+              LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
+                '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+              printf '%s' "$LATEST_JSON" > /tmp/fq_done.json
+              gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_done.json
+            done
+
+            # status を "idle" に戻す
+            LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json)
+            LATEST_JSON=$(echo "$LATEST_JSON" | jq '.status = "idle"')
+            printf '%s' "$LATEST_JSON" > /tmp/fq_idle.json
+            gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_idle.json
+
+            return 0  # 処理あり
+          }
+
+          # --- メインループ: 両スロットに未処理がなくなるまで繰り返す ---
+          LOOP_COUNT=0
+          MAX_LOOPS=10  # 安全弁
+
+          while [ $LOOP_COUNT -lt $MAX_LOOPS ]; do
+            LOOP_COUNT=$((LOOP_COUNT + 1))
+            echo ""
+            echo "=== Loop iteration $LOOP_COUNT ==="
+            PROCESSED=false
+
+            process_slot "$SLOT0_ID" 0 && PROCESSED=true
+
+            if [ -n "$SLOT1_ID" ]; then
+              process_slot "$SLOT1_ID" 1 && PROCESSED=true
+            fi
+
+            if [ "$PROCESSED" = false ]; then
+              echo "No unprocessed entries in any slot. Done."
+              break
+            fi
+
+            echo "Processed entries found. Rechecking both slots..."
+          done
+
+          if [ $LOOP_COUNT -ge $MAX_LOOPS ]; then
+            echo "Warning: Reached max loop count ($MAX_LOOPS). Exiting."
+          fi
+
+          echo "All slots processed."
