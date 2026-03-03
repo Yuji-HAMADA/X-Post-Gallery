@@ -772,8 +772,8 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
-    final isKeywordPage = _currentPage == 1;
-    final isFavPage = _currentPage == 2;
+    final isFavPage = _currentPage == 0;
+    final isUserPage = _currentPage == 1;
     final isCharPage = _currentPage == 3;
     final favoriteItems = vm.items.where((item) {
       final key =
@@ -782,7 +782,7 @@ class _GalleryPageState extends State<GalleryPage> {
       return key != null && vm.isFavorite(key);
     }).toList();
 
-    final pageTitles = ['PostGallery', 'キーワード', 'お気に入り', 'Characters'];
+    final pageTitles = ['Favorite', 'User', 'Keyword', 'Character'];
     final currentTitle = vm.isSelectionMode
         ? '${vm.selectedIds.length}件選択中'
         : pageTitles[_currentPage];
@@ -815,15 +815,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: _loadFavoritesFromGist,
                 ),
               ],
-              if (!isFavPage && !isCharPage && !isKeywordPage)
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: '再読み込み',
-                  onPressed: vm.status == GalleryStatus.loading
-                      ? null
-                      : () => context.read<GalleryViewModel>().reloadGallery(),
-                ),
-              if (isCharPage)
+              if (isUserPage || isCharPage)
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: '再読み込み',
@@ -893,13 +885,13 @@ class _GalleryPageState extends State<GalleryPage> {
                   setState(() => _currentPage = page);
                 },
                 children: [
-                  _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
-                  _buildKeywordGrid(vm),
                   _buildFavoritesGrid(
                     favoriteItems,
                     vm.userGists,
                     vm.favoriteUsers,
                   ),
+                  _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
+                  _buildKeywordGrid(vm),
                   _buildCharacterGrid(vm),
                 ],
               ),

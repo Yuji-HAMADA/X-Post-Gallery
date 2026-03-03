@@ -567,6 +567,10 @@ def main():
         help='マスターGist ID（省略時は MASTER_GIST_ID 環境変数）',
     )
     parser.add_argument(
+        '--character-gist-id', default=None,
+        help='キャラクターGist ID（省略時は CHARACTER_GIST_ID 環境変数）',
+    )
+    parser.add_argument(
         '--threshold', type=float, default=0.5,
         help='顔マッチングの cosine similarity 閾値（デフォルト: 0.5）',
     )
@@ -589,6 +593,11 @@ def main():
         print('❌ マスターGist IDが指定されていません。-g または MASTER_GIST_ID を設定してください。')
         sys.exit(1)
 
+    char_meta_gist_id = args.character_gist_id or os.environ.get('CHARACTER_GIST_ID', '')
+    if not char_meta_gist_id:
+        print('❌ キャラクターGist IDが指定されていません。--character-gist-id または CHARACTER_GIST_ID を設定してください。')
+        sys.exit(1)
+
     print(f'🔍 マスターGist ({master_gist_id}) を取得中...')
     try:
         master_filename, master_data = fetch_gist_raw(master_gist_id)
@@ -596,9 +605,19 @@ def main():
         print(f'❌ {e}')
         sys.exit(1)
 
+    print(f'🔍 キャラクターGist ({char_meta_gist_id}) を取得中...')
+    try:
+        char_meta_filename, char_meta_data = fetch_gist_raw(char_meta_gist_id)
+    except RuntimeError as e:
+        print(f'❌ {e}')
+        sys.exit(1)
+
     print(f'  ユーザーGist数: {len(master_data.get("user_gists", {}))} 人')
-    print(f'  キャラクターGist数: {len(master_data.get("character_gists", {}))} キャラ')
+    print(f'  キャラクターGist数: {len(char_meta_data.get("character_gists", {}))} キャラ')
     print(f'  対象キャラクター: {", ".join(args.chars)}')
+
+    # character_gists を master_data にマージ（phase1/phase2 が参照するため）
+    master_data['character_gists'] = char_meta_data.get('character_gists', {})
 
     state = load_state(args.state_file)
     print(f'  状態ファイル: {args.state_file}')
@@ -630,11 +649,12 @@ def main():
             max_images_per_user=args.max_images,
         )
 
-    # マスターGist を更新（character_gists に新規Gistが追加された可能性があるため）
-    print(f'\n📝 マスターGist ({master_filename}) を更新中...')
+    # キャラクターGist を更新（character_gists に新規Gistが追加された可能性があるため）
+    char_meta_data['character_gists'] = master_data.get('character_gists', {})
+    print(f'\n📝 キャラクターGist ({char_meta_filename}) を更新中...')
     try:
-        update_gist(master_gist_id, master_filename, master_data)
-        print(f'✅ マスターGist 更新完了')
+        update_gist(char_meta_gist_id, char_meta_filename, char_meta_data)
+        print(f'✅ キャラクターGist 更新完了')
     except RuntimeError as e:
         print(f'❌ {e}')
         sys.exit(1)

@@ -36,6 +36,11 @@ def parse_args():
         default=None,
         help='マスターGist ID（省略時は MASTER_GIST_ID 環境変数を使用）',
     )
+    parser.add_argument(
+        '--character-gist-id',
+        default=None,
+        help='キャラクターGist ID（省略時は CHARACTER_GIST_ID 環境変数を使用）',
+    )
     return parser.parse_args()
 
 
@@ -134,6 +139,11 @@ def main():
         print('❌ マスターGist IDが指定されていません。-g オプションまたは MASTER_GIST_ID 環境変数を設定してください。')
         sys.exit(1)
 
+    char_meta_gist_id = args.character_gist_id or os.environ.get('CHARACTER_GIST_ID', '')
+    if not char_meta_gist_id:
+        print('❌ キャラクターGist IDが指定されていません。--character-gist-id または CHARACTER_GIST_ID 環境変数を設定してください。')
+        sys.exit(1)
+
     print(f'🔍 マスターGist ({master_gist_id}) を取得中...')
     try:
         master_filename, master_data = fetch_gist_data(master_gist_id)
@@ -141,8 +151,15 @@ def main():
         print(f'❌ {e}')
         sys.exit(1)
 
+    print(f'🔍 キャラクターGist ({char_meta_gist_id}) を取得中...')
+    try:
+        char_meta_filename, char_meta_data = fetch_gist_data(char_meta_gist_id)
+    except RuntimeError as e:
+        print(f'❌ {e}')
+        sys.exit(1)
+
     user_gists_map = master_data.get('user_gists', {})
-    character_gists_map = master_data.get('character_gists', {})
+    character_gists_map = char_meta_data.get('character_gists', {})
 
     if not user_gists_map:
         print('❌ マスターGistに user_gists フィールドがありません。')
@@ -234,12 +251,12 @@ def main():
             except RuntimeError as e:
                 print(f'   ❌ {e}')
 
-    # マスターGistの character_gists を更新
-    print(f'\n📝 マスターGist ({master_filename}) を更新中...')
-    master_data['character_gists'] = character_gists_map
+    # キャラクターGistの character_gists を更新
+    print(f'\n📝 キャラクターGist ({char_meta_filename}) を更新中...')
+    char_meta_data['character_gists'] = character_gists_map
     try:
-        update_gist(master_gist_id, master_filename, master_data)
-        print(f'✅ マスターGist 更新完了')
+        update_gist(char_meta_gist_id, char_meta_filename, char_meta_data)
+        print(f'✅ キャラクターGist 更新完了')
     except RuntimeError as e:
         print(f'❌ {e}')
         sys.exit(1)

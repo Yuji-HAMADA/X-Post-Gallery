@@ -14,6 +14,7 @@ enum AppendStatus { idle, running, completed, failed }
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 const String _externalFavoriteGistId = String.fromEnvironment('FAVORITE_GIST_ID');
 const String _externalKeywordGistId = String.fromEnvironment('KEYWORD_GIST_ID');
+const String _externalCharacterGistId = String.fromEnvironment('CHARACTER_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -88,6 +89,12 @@ class GalleryViewModel extends ChangeNotifier {
         : (dotenv.env['KEYWORD_GIST_ID'] ?? '');
   }
 
+  String get characterGistId {
+    return _externalCharacterGistId.isNotEmpty
+        ? _externalCharacterGistId
+        : (dotenv.env['CHARACTER_GIST_ID'] ?? '');
+  }
+
   // --- アクション ---
 
   /// 初期ロード：URLパラメータ → SharedPreferences → null（ダイアログ必要）
@@ -149,13 +156,13 @@ class GalleryViewModel extends ChangeNotifier {
       _items = data.items;
       _userName = data.userName;
       _userGists = data.userGists;
-      _characterGists = data.characterGists;
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
 
-      // キーワードギャラリーの読み込み（KEYWORD_GIST_IDから独立して取得）
+      // キーワード・キャラクターギャラリーの読み込み（それぞれ独立Gistから取得）
       await _loadKeywordGallery();
+      await _loadCharacterGallery();
     } catch (e) {
       debugPrint("Load error: $e");
       _errorMessage = 'Network error or invalid ID';
@@ -197,6 +204,19 @@ class GalleryViewModel extends ChangeNotifier {
       _keywordItems = data.items;
     } catch (e) {
       debugPrint('loadKeywordGallery error: $e');
+    }
+  }
+
+  /// キャラクターギャラリーのロード（CHARACTER_GIST_IDから独立して取得）
+  Future<void> _loadCharacterGallery() async {
+    final charGistId = characterGistId;
+    if (charGistId.isEmpty) return;
+
+    try {
+      final data = await _repository.fetchGalleryData(charGistId);
+      _characterGists = data.characterGists;
+    } catch (e) {
+      debugPrint('loadCharacterGallery error: $e');
     }
   }
 
@@ -582,7 +602,6 @@ class GalleryViewModel extends ChangeNotifier {
       _userName,
       _items,
       userGists: _userGists,
-      characterGists: _characterGists,
     );
     await _githubService.updateGistFile(
       gistId: masterGistId,

@@ -209,12 +209,10 @@ class GalleryRepository {
     String userName,
     List<TweetItem> items, {
     Map<String, String> userGists = const {},
-    Map<String, String> characterGists = const {},
   }) {
     return json.encode({
       'user_screen_name': userName,
       if (userGists.isNotEmpty) 'user_gists': userGists,
-      if (characterGists.isNotEmpty) 'character_gists': characterGists,
       'tweets': items.map((item) => item.toMasterJson()).toList(),
     });
   }
