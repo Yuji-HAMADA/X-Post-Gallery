@@ -240,6 +240,85 @@ class GitHubService {
     );
   }
 
+  /// fetch_queue.json に複数ユーザーを一括追加する（API呼び出し最小化）
+  /// 未処理キューに既に存在するユーザーはスキップ。追加した件数を返す（失敗時は -1）。
+  Future<int> addUsersToFetchQueue(
+    Set<String> usernames, {
+    int? count,
+    bool stopOnExisting = true,
+  }) async {
+    if (fetchQueueGistId.isEmpty) {
+      debugPrint('FETCH_QUEUE_GIST_ID is not set');
+      return -1;
+    }
+
+    // スロット0を読み込み
+    final slot0Content =
+        await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
+    if (slot0Content == null) return -1;
+    final slot0Data = jsonDecode(slot0Content) as Map<String, dynamic>;
+    final slot0Users =
+        (slot0Data['users'] as List).cast<Map<String, dynamic>>();
+
+    // スロット1を読み込み（sibling_gist_id がある場合）
+    final siblingGistId = slot0Data['sibling_gist_id'] as String?;
+    Map<String, dynamic>? slot1Data;
+    List<Map<String, dynamic>>? slot1Users;
+    if (siblingGistId != null && siblingGistId.isNotEmpty) {
+      final slot1Content =
+          await fetchGistContent(siblingGistId, 'fetch_queue.json');
+      if (slot1Content != null) {
+        slot1Data = jsonDecode(slot1Content) as Map<String, dynamic>;
+        slot1Users =
+            (slot1Data['users'] as List).cast<Map<String, dynamic>>();
+      }
+    }
+
+    // 両スロットの未処理ユーザー名を集める
+    Set<String> existingUsers = {};
+    for (final u in slot0Users) {
+      if (u['done'] != true) existingUsers.add((u['user'] as String).toLowerCase());
+    }
+    if (slot1Users != null) {
+      for (final u in slot1Users) {
+        if (u['done'] != true) existingUsers.add((u['user'] as String).toLowerCase());
+      }
+    }
+
+    // 書き込み先の決定
+    final slot0Status = slot0Data['status'] as String? ?? 'idle';
+    final bool writeToSlot1 =
+        slot0Status == 'processing' &&
+        siblingGistId != null &&
+        siblingGistId.isNotEmpty;
+    final targetGistId = writeToSlot1 ? siblingGistId : fetchQueueGistId;
+    final targetData = writeToSlot1 ? (slot1Data ?? slot0Data) : slot0Data;
+    final targetUsers = writeToSlot1 ? (slot1Users ?? slot0Users) : slot0Users;
+
+    // 重複を除外して追加
+    int addedCount = 0;
+    for (final username in usernames) {
+      if (existingUsers.contains(username.toLowerCase())) continue;
+      final newEntry = <String, dynamic>{
+        'user': username,
+        'stop_on_existing': stopOnExisting,
+      };
+      if (count != null) newEntry['count'] = count;
+      targetUsers.add(newEntry);
+      addedCount++;
+    }
+
+    if (addedCount == 0) return 0;
+
+    targetData['users'] = targetUsers;
+    final success = await updateGistFile(
+      gistId: targetGistId,
+      filename: 'fetch_queue.json',
+      content: jsonEncode(targetData),
+    );
+    return success ? addedCount : -1;
+  }
+
   /// scheduled_fetch.yml をトリガーする
   Future<bool> triggerScheduledFetchWorkflow() async {
     final url = Uri.parse(

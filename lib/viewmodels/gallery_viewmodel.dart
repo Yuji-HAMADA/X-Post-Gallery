@@ -521,19 +521,11 @@ class GalleryViewModel extends ChangeNotifier {
       final loaded = await loadFavoritesFromGist(favGistId);
       if (!loaded || _favoriteUsers.isEmpty) return -1;
 
-      int addedCount = 0;
-      for (final username in _favoriteUsers) {
-        try {
-          final added = await _githubService.addUserToFetchQueue(
-            username,
-            count: 100,
-            stopOnExisting: true,
-          );
-          if (added) addedCount++;
-        } catch (e) {
-          debugPrint('queueAllFavorites: failed to add $username: $e');
-        }
-      }
+      final addedCount = await _githubService.addUsersToFetchQueue(
+        _favoriteUsers,
+        count: 100,
+        stopOnExisting: true,
+      );
 
       if (addedCount > 0) {
         await _githubService.triggerScheduledFetchWorkflow();
