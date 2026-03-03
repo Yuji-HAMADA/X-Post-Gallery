@@ -24,7 +24,7 @@ def parse_args():
 def build_url(user, hashtag, mode):
     if hashtag:
         # キーワード検索: Latestタブ使用（メディアはコード側でフィルタ）
-        return f"https://x.com/search?q={quote(hashtag)}&f=live"
+        return f'https://x.com/search?q={quote(f\'"{hashtag}"\')}&f=live'
     else:
         # ユーザーはPostsタブを使用（article要素あり、画像なし・リポストはコード側でフィルター）
         return f"https://x.com/{user}"
