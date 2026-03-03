@@ -629,7 +629,12 @@ class _GalleryPageState extends State<GalleryPage> {
       ),
     );
 
-    final count = await vm.queueAllFavorites();
+    int count;
+    try {
+      count = await vm.queueAllFavorites();
+    } catch (e) {
+      count = -1;
+    }
     if (mounted) Navigator.pop(context);
 
     if (mounted) {

@@ -515,26 +515,35 @@ class GalleryViewModel extends ChangeNotifier {
   /// お気に入りユーザー全員をキューに追加し、ワークフローをトリガーする
   /// 追加した件数を返す（失敗時は -1）
   Future<int> queueAllFavorites() async {
-    final favGistId = favoriteGistId;
-    if (favGistId.isEmpty) return -1;
-    final loaded = await loadFavoritesFromGist(favGistId);
-    if (!loaded || _favoriteUsers.isEmpty) return -1;
+    try {
+      final favGistId = favoriteGistId;
+      if (favGistId.isEmpty) return -1;
+      final loaded = await loadFavoritesFromGist(favGistId);
+      if (!loaded || _favoriteUsers.isEmpty) return -1;
 
-    int addedCount = 0;
-    for (final username in _favoriteUsers) {
-      final added = await _githubService.addUserToFetchQueue(
-        username,
-        count: 100,
-        stopOnExisting: true,
-      );
-      if (added) addedCount++;
+      int addedCount = 0;
+      for (final username in _favoriteUsers) {
+        try {
+          final added = await _githubService.addUserToFetchQueue(
+            username,
+            count: 100,
+            stopOnExisting: true,
+          );
+          if (added) addedCount++;
+        } catch (e) {
+          debugPrint('queueAllFavorites: failed to add $username: $e');
+        }
+      }
+
+      if (addedCount > 0) {
+        await _githubService.triggerScheduledFetchWorkflow();
+      }
+
+      return addedCount;
+    } catch (e) {
+      debugPrint('queueAllFavorites error: $e');
+      return -1;
     }
-
-    if (addedCount > 0) {
-      await _githubService.triggerScheduledFetchWorkflow();
-    }
-
-    return addedCount;
   }
 
   /// スクロール位置の保存・復元
