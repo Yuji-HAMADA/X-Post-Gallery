@@ -8,6 +8,7 @@ import 'components/append_config_dialog.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
+import 'keyword_gallery_swipe_page.dart';
 import 'user_gallery_swipe_page.dart';
 
 class GalleryPage extends StatefulWidget {
@@ -20,12 +21,16 @@ class GalleryPage extends StatefulWidget {
   /// ユーザーGistから開いた場合のユーザー名（Append/Delete時に使用）
   final String? userGistUsername;
 
+  /// キーワード子Gistから開いた場合のGist ID（削除時に使用）
+  final String? keywordChildGistId;
+
   const GalleryPage({
     super.key,
     this.initialItems,
     this.title,
     this.userGistId,
     this.userGistUsername,
+    this.keywordChildGistId,
   });
 
   @override
@@ -34,6 +39,7 @@ class GalleryPage extends StatefulWidget {
 
 class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
+  final ScrollController _keywordGridController = ScrollController();
   final ScrollController _favGridController = ScrollController();
   final ScrollController _charGridController = ScrollController();
   final PageController _pageController = PageController();
@@ -54,6 +60,7 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   void dispose() {
     _pageController.dispose();
+    _keywordGridController.dispose();
     _favGridController.dispose();
     _charGridController.dispose();
     super.dispose();
@@ -449,16 +456,27 @@ class _GalleryPageState extends State<GalleryPage> {
 
     final currentItems = _localItems ?? widget.initialItems ?? [];
     final deletedIds = Set<String>.from(vm.selectedIds); // 削除前にキャプチャ
-    final remainingCount = await vm.deleteSelectedFromUserGist(
-      widget.userGistId!,
-      widget.userGistUsername!,
-      currentItems,
-    );
+
+    int? remainingCount;
+    if (widget.keywordChildGistId != null) {
+      // キーワードGist削除（deleted_idsに追加）
+      remainingCount = await vm.deleteSelectedFromKeywordGist(
+        widget.keywordChildGistId!,
+        currentItems,
+      );
+    } else {
+      // ユーザーGist削除
+      remainingCount = await vm.deleteSelectedFromUserGist(
+        widget.userGistId!,
+        widget.userGistUsername!,
+        currentItems,
+      );
+    }
 
     if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
 
     if (remainingCount != null) {
-      if (remainingCount == 0 && widget.userGistUsername != null) {
+      if (remainingCount == 0 && widget.userGistUsername != null && widget.keywordChildGistId == null) {
         // ポストがなくなったユーザーをマスターGistから削除して画面を閉じる
         await vm.removeUserFromMaster(widget.userGistUsername!);
         if (mounted) Navigator.pop(context);
@@ -692,8 +710,9 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
-    final isFavPage = _currentPage == 1;
-    final isCharPage = _currentPage == 2;
+    final isKeywordPage = _currentPage == 1;
+    final isFavPage = _currentPage == 2;
+    final isCharPage = _currentPage == 3;
     final favoriteItems = vm.items.where((item) {
       final key =
           item.username ??
@@ -701,7 +720,7 @@ class _GalleryPageState extends State<GalleryPage> {
       return key != null && vm.isFavorite(key);
     }).toList();
 
-    final pageTitles = ['PostGallery', 'お気に入り', 'Characters'];
+    final pageTitles = ['PostGallery', 'キーワード', 'お気に入り', 'Characters'];
     final currentTitle = vm.isSelectionMode
         ? '${vm.selectedIds.length}件選択中'
         : pageTitles[_currentPage];
@@ -734,7 +753,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: _loadFavoritesFromGist,
                 ),
               ],
-              if (!isFavPage && !isCharPage)
+              if (!isFavPage && !isCharPage && !isKeywordPage)
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: '再読み込み',
@@ -769,7 +788,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     value: 'search_user',
                     child: ListTile(
                       leading: Icon(Icons.person_search),
-                      title: Text('ユーザー検索'),
+                      title: Text('キーワード検索'),
                       dense: true,
                     ),
                   ),
@@ -813,6 +832,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 },
                 children: [
                   _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
+                  _buildKeywordGrid(vm),
                   _buildFavoritesGrid(
                     favoriteItems,
                     vm.userGists,
@@ -893,7 +913,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     )
                   : Text(displayTitle)),
         actions: [
-          if (isSelectionMode && widget.userGistId != null)
+          if (isSelectionMode && (widget.userGistId != null || widget.keywordChildGistId != null))
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
@@ -952,7 +972,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   value: 'search_user',
                   child: ListTile(
                     leading: Icon(Icons.person_search),
-                    title: Text('ユーザー検索'),
+                    title: Text('キーワード検索'),
                     dense: true,
                   ),
                 ),
@@ -1105,7 +1125,69 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// キャラクターリスト（Characters タブ）
+  /// キーワードギャラリー（キーワード タブ）— グリッド表示
+  Widget _buildKeywordGrid(GalleryViewModel vm) {
+    final keywordEntries = vm.keywordGists.entries.toList();
+
+    if (keywordEntries.isEmpty) {
+      return const Center(
+        child: Text(
+          'キーワードデータがありません',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    // 代表ツイートからサムネイルをキーワード名でマッチ
+    final Map<String, TweetItem> thumbMap = {};
+    for (final item in vm.keywordItems) {
+      if (item.keyword != null && item.mediaUrls.isNotEmpty) {
+        thumbMap.putIfAbsent(item.keyword!, () => item);
+      }
+    }
+
+    return GridView.builder(
+      controller: _keywordGridController,
+      padding: const EdgeInsets.all(4),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 4,
+        mainAxisSpacing: 4,
+      ),
+      itemCount: keywordEntries.length,
+      itemBuilder: (context, index) {
+        final keyword = keywordEntries[index].key;
+        final thumbItem = thumbMap[keyword];
+        return _buildLabeledCard(
+          label: keyword,
+          thumbItem: thumbItem,
+          onTap: () => _openKeywordGallery(keyword),
+        );
+      },
+    );
+  }
+
+  /// キーワードタップ → スワイプ対応ギャラリーを表示
+  void _openKeywordGallery(String keyword) {
+    final vm = context.read<GalleryViewModel>();
+    final keywords = vm.keywordGists.keys.toList();
+    final gistIds = keywords.map((k) => vm.keywordGists[k]!).toList();
+    final initialIndex = keywords.indexOf(keyword);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => KeywordGallerySwipePage(
+          keywords: keywords,
+          childGistIds: gistIds,
+          initialIndex: initialIndex < 0 ? 0 : initialIndex,
+        ),
+      ),
+    );
+  }
+
+  /// キャラクターリスト（Characters タブ）— グリッド表示
   Widget _buildCharacterGrid(GalleryViewModel vm) {
     final entries = vm.characterGists.entries.toList();
     if (entries.isEmpty) {
@@ -1118,14 +1200,20 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    return ListView.builder(
+    return GridView.builder(
       controller: _charGridController,
+      padding: const EdgeInsets.all(4),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 4,
+        mainAxisSpacing: 4,
+      ),
       itemCount: entries.length,
       itemBuilder: (context, index) {
         final charName = entries[index].key;
-        return ListTile(
-          title: Text(charName),
-          trailing: const Icon(Icons.chevron_right),
+        return _buildLabeledCard(
+          label: charName,
+          thumbItem: null,
           onTap: () => _openCharacterGallery(charName),
         );
       },
@@ -1170,6 +1258,52 @@ class _GalleryPageState extends State<GalleryPage> {
       if (mounted) Navigator.pop(context);
       if (mounted) _showErrorSnackBar('読み込みに失敗しました');
     }
+  }
+
+  /// ラベル付きサムネイルカード（キーワード・キャラクター共通）
+  Widget _buildLabeledCard({
+    required String label,
+    required TweetItem? thumbItem,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            color: Colors.grey[900],
+            child: thumbItem != null && thumbItem.thumbnailUrl.isNotEmpty
+                ? Image.network(
+                    thumbItem.thumbnailUrl,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
+                    errorBuilder: (c, e, s) => const Center(
+                      child: Icon(Icons.broken_image, color: Colors.grey),
+                    ),
+                  )
+                : const Center(
+                    child: Icon(Icons.search, color: Colors.grey, size: 40),
+                  ),
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              color: Colors.black54,
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 10, color: Colors.white),
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openUserGallery(String username, {List<String>? scope}) async {

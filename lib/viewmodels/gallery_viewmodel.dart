@@ -13,6 +13,7 @@ enum AppendStatus { idle, running, completed, failed }
 
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 const String _externalFavoriteGistId = String.fromEnvironment('FAVORITE_GIST_ID');
+const String _externalKeywordGistId = String.fromEnvironment('KEYWORD_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -46,6 +47,12 @@ class GalleryViewModel extends ChangeNotifier {
   Map<String, String> _characterGists = {};
   Map<String, String> get characterGists => _characterGists;
 
+  Map<String, String> _keywordGists = {};
+  Map<String, String> get keywordGists => _keywordGists;
+
+  List<TweetItem> _keywordItems = [];
+  List<TweetItem> get keywordItems => _keywordItems;
+
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
@@ -73,6 +80,12 @@ class GalleryViewModel extends ChangeNotifier {
     return _externalFavoriteGistId.isNotEmpty
         ? _externalFavoriteGistId
         : (dotenv.env['FAVORITE_GIST_ID'] ?? '');
+  }
+
+  String get keywordGistId {
+    return _externalKeywordGistId.isNotEmpty
+        ? _externalKeywordGistId
+        : (dotenv.env['KEYWORD_GIST_ID'] ?? '');
   }
 
   // --- アクション ---
@@ -140,6 +153,9 @@ class GalleryViewModel extends ChangeNotifier {
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
+
+      // キーワードギャラリーの読み込み（KEYWORD_GIST_IDから独立して取得）
+      await _loadKeywordGallery();
     } catch (e) {
       debugPrint("Load error: $e");
       _errorMessage = 'Network error or invalid ID';
@@ -168,6 +184,27 @@ class GalleryViewModel extends ChangeNotifier {
     final gistId = _characterGists[charName];
     if (gistId == null) return [];
     return await _repository.fetchUserGist(gistId, charName);
+  }
+
+  /// キーワードギャラリーのロード（KEYWORD_GIST_IDから独立して取得）
+  Future<void> _loadKeywordGallery() async {
+    final kwGistId = keywordGistId;
+    if (kwGistId.isEmpty) return;
+
+    try {
+      final data = await _repository.fetchGalleryData(kwGistId);
+      _keywordGists = data.keywordGists;
+      _keywordItems = data.items;
+    } catch (e) {
+      debugPrint('loadKeywordGallery error: $e');
+    }
+  }
+
+  /// キーワードのGistからアイテムを取得（Gist内の全ツイートを返す）
+  Future<List<TweetItem>> fetchKeywordItems(String keyword) async {
+    final gistId = _keywordGists[keyword];
+    if (gistId == null) return [];
+    return await _repository.fetchAllGistTweets(gistId);
   }
 
   /// マスターギャラリーをリフレッシュ（認証済み前提）
@@ -475,6 +512,42 @@ class GalleryViewModel extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('deleteSelectedFromUserGist error: $e');
+      _errorMessage = 'Gist の更新に失敗しました';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// キーワード子Gistから選択中アイテムを削除して更新（deleted_idsに追加）
+  /// 成功時は残件数を返す（失敗時は null）
+  Future<int?> deleteSelectedFromKeywordGist(
+    String gistId,
+    List<TweetItem> currentItems,
+  ) async {
+    final remainingItems = currentItems
+        .where((item) => !_selectedIds.contains(item.id))
+        .toList();
+    try {
+      final jsonStr = await _repository.buildKeywordChildGistJsonAfterDelete(
+        gistId,
+        _selectedIds,
+      );
+      final success = await _githubService.updateGistFile(
+        gistId: gistId,
+        filename: 'data.json',
+        content: jsonStr,
+      );
+      if (success) {
+        _selectedIds.clear();
+        notifyListeners();
+        return remainingItems.length;
+      } else {
+        _errorMessage = 'Gist の更新に失敗しました';
+        notifyListeners();
+        return null;
+      }
+    } catch (e) {
+      debugPrint('deleteSelectedFromKeywordGist error: $e');
       _errorMessage = 'Gist の更新に失敗しました';
       notifyListeners();
       return null;

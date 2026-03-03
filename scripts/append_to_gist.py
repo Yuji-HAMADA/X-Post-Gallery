@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument("--foryou", action="store_true", help="For Youタイムラインから取得")
     parser.add_argument("-m", "--mode", default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("-n", "--num", type=int, default=100, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
+    parser.add_argument("--hashtag", type=str, default=None, help="キーワード検索（ハッシュタグ or 一般キーワード）")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止")
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
@@ -175,6 +176,8 @@ def run_extraction(args, skip_ids_file):
         ]
         if args.user:
             cmd.extend(["-u", args.user])
+        if args.hashtag:
+            cmd.extend(["--hashtag", args.hashtag])
         if args.stop_on_existing:
             cmd.append("--stop-on-existing")
     print(f"🚀 Running Extraction: {' '.join(cmd)}")
@@ -366,9 +369,118 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
     master_data["tweets"] = master_tweets
     return master_data
 
+def is_keyword_gist_format(data):
+    return isinstance(data, dict) and "keyword_gists" in data
+
+def process_keyword_mode(args, gist_filename, full_data):
+    """キーワード検索モード: キーワードごとに独立した子Gistを管理する"""
+    keyword = args.hashtag
+    keyword_gists = full_data.get("keyword_gists", {})
+
+    # 子Gistの取得 or 新規準備
+    child_gist_id = keyword_gists.get(keyword)
+    child_data = None
+    child_filename = "data.json"
+    if child_gist_id:
+        child_filename, child_data = fetch_gist_data(child_gist_id)
+    if child_data is None:
+        child_data = {"users": {}, "deleted_ids": []}
+
+    # skip_ids 構築（既存ツイート + 削除済みID）
+    all_ids = []
+    users_data = child_data.get("users", {})
+    for u_data in users_data.values():
+        all_ids.extend(get_existing_ids_ordered(u_data.get("tweets", [])))
+    all_ids.extend(child_data.get("deleted_ids", []))
+
+    skip_ids_file = write_skip_ids_file(all_ids)
+    try:
+        run_extraction(args, skip_ids_file)
+    finally:
+        os.unlink(skip_ids_file)
+
+    new_tweets = parse_tweets_js()
+    if not new_tweets:
+        print("✅ No new tweets.")
+        sys.exit(0)
+
+    # ユーザーごとにグループ化して子Gistに追加
+    user_groups = group_tweets_by_user(new_tweets)
+    added_count = 0
+    for user, tweets in user_groups.items():
+        existing = users_data.get(user, {}).get("tweets", [])
+        merged = append_tweets(existing, tweets)
+        users_data[user] = {"tweets": merged}
+        added_count += len(merged) - len(existing)
+
+    child_data["users"] = users_data
+    print(f"📊 Total added for '{keyword}': {added_count} tweets")
+
+    # 子Gistの保存
+    if child_gist_id:
+        fd, tmp = tempfile.mkstemp(suffix=".json")
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(child_data, f, ensure_ascii=False, indent=2)
+            subprocess.run(["gh", "gist", "edit", child_gist_id, "-f", child_filename, tmp])
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    else:
+        # 新規作成
+        tmp_dir = tempfile.mkdtemp()
+        tmp_file = os.path.join(tmp_dir, "data.json")
+        try:
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(child_data, f, ensure_ascii=False, indent=2)
+            result = subprocess.run(
+                ["gh", "gist", "create", tmp_file, "-d", f"Keyword: {keyword}"],
+                capture_output=True, text=True,
+            )
+        finally:
+            if os.path.exists(tmp_file):
+                os.unlink(tmp_file)
+            os.rmdir(tmp_dir)
+        if result.returncode != 0:
+            print(f"❌ Failed to create child Gist: {result.stderr}")
+            sys.exit(1)
+        child_gist_id = result.stdout.strip().rstrip("/").split("/")[-1]
+        print(f"✨ Created child Gist: {child_gist_id}")
+
+    # マスター更新: keyword_gists マッピング + 代表ツイート
+    keyword_gists[keyword] = child_gist_id
+    master_tweets = full_data.get("tweets", [])
+    master_tweets = [t for t in master_tweets if t.get("keyword") != keyword]
+    if new_tweets:
+        latest = new_tweets[0]
+        master_tweets.insert(0, {
+            "id_str": latest.get("id_str", ""),
+            "keyword": keyword,
+            "media_urls": latest.get("media_urls", [])[:1],
+        })
+    full_data["keyword_gists"] = keyword_gists
+    full_data["tweets"] = master_tweets
+
+    output_file = "assets/data/data.json"
+    os.makedirs("assets/data", exist_ok=True)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(full_data, f, ensure_ascii=False, indent=2)
+    subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
+    print(f"✅ Keyword Gist updated for '{keyword}'!")
+
 def main():
     args = parse_args()
     gist_filename, full_data = fetch_gist_data(args.gist_id)
+
+    # キーワード検索モード
+    if args.hashtag:
+        if not is_keyword_gist_format(full_data):
+            print(f"❌ Error: {args.gist_id} is not a Keyword Gist (keyword_gists key required).")
+            sys.exit(1)
+        process_keyword_mode(args, gist_filename, full_data)
+        return
+
+    # ユーザーモード（既存の処理）
     if not is_master_gist_format(full_data):
         print(f"❌ Error: {args.gist_id} is not a Master Gist.")
         sys.exit(1)

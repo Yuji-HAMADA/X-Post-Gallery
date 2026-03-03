@@ -9,12 +9,14 @@ class GalleryData {
   final List<TweetItem> items;
   final Map<String, String> userGists; // username -> gist_id
   final Map<String, String> characterGists; // character_name -> gist_id
+  final Map<String, String> keywordGists; // keyword -> gist_id
 
   const GalleryData({
     required this.userName,
     required this.items,
     this.userGists = const {},
     this.characterGists = const {},
+    this.keywordGists = const {},
   });
 }
 
@@ -100,11 +102,16 @@ class GalleryRepository {
         data['character_gists'] as Map<String, dynamic>? ?? {};
     final characterGists =
         characterGistsRaw.map((k, v) => MapEntry(k, v as String));
+    final keywordGistsRaw =
+        data['keyword_gists'] as Map<String, dynamic>? ?? {};
+    final keywordGists =
+        keywordGistsRaw.map((k, v) => MapEntry(k, v as String));
     return GalleryData(
       userName: data['user_screen_name'] ?? '',
       items: tweets,
       userGists: userGists,
       characterGists: characterGists,
+      keywordGists: keywordGists,
     );
   }
 
@@ -151,6 +158,52 @@ class GalleryRepository {
     throw Exception('Failed to load user gallery ($gistId)');
   }
 
+  /// Gist内の全ユーザーのツイートを結合して返す（キーワード検索用）
+  Future<List<TweetItem>> fetchAllGistTweets(String gistId) async {
+    final baseUrl = _gistRawBaseUrl(gistId);
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+
+    var response = await http.get(
+      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
+    );
+    if (response.statusCode == 404) {
+      response = await http.get(
+        Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'),
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load gist ($gistId)');
+    }
+
+    final data = json.decode(utf8.decode(response.bodyBytes));
+    final List<TweetItem> allTweets = [];
+
+    // multi-user形式: users -> username -> tweets を全結合
+    final users = data['users'] as Map<String, dynamic>?;
+    if (users != null) {
+      for (final userData in users.values) {
+        final tweets = (userData as Map<String, dynamic>)['tweets'] as List? ?? [];
+        allTweets.addAll(
+          tweets
+              .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+              .where((item) => item.mediaUrls.isNotEmpty),
+        );
+      }
+    }
+
+    // フォールバック: 直下の tweets
+    if (allTweets.isEmpty && data is Map<String, dynamic> && data.containsKey('tweets')) {
+      allTweets.addAll(
+        (data['tweets'] as List? ?? [])
+            .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+            .where((item) => item.mediaUrls.isNotEmpty),
+      );
+    }
+
+    return allTweets;
+  }
+
   /// 更新用の JSON 文字列を構築（マスターGist用）
   String buildGistJson(
     String userName,
@@ -191,6 +244,51 @@ class GalleryRepository {
       };
     }
     data['users'] = users;
+    return json.encode(data);
+  }
+
+  /// キーワード子Gistから選択したツイートを削除し、deleted_idsに追加したJSONを返す
+  Future<String> buildKeywordChildGistJsonAfterDelete(
+    String gistId,
+    Set<String> deletedIds,
+  ) async {
+    final baseUrl = _gistRawBaseUrl(gistId);
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+    final response = await http.get(
+      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch keyword gist ($gistId)');
+    }
+    final data =
+        json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+
+    // users 内の各ユーザーから対象ツイートを削除
+    final users = (data['users'] as Map<String, dynamic>?) ?? {};
+    final usersToRemove = <String>[];
+    for (final entry in users.entries) {
+      final userData = entry.value as Map<String, dynamic>;
+      final tweets = (userData['tweets'] as List?) ?? [];
+      final remaining = tweets
+          .where((t) => !deletedIds.contains((t as Map<String, dynamic>)['id_str']))
+          .toList();
+      if (remaining.isEmpty) {
+        usersToRemove.add(entry.key);
+      } else {
+        userData['tweets'] = remaining;
+      }
+    }
+    for (final u in usersToRemove) {
+      users.remove(u);
+    }
+    data['users'] = users;
+
+    // deleted_ids に追加（重複排除）
+    final existingDeleted =
+        ((data['deleted_ids'] as List?) ?? []).cast<String>().toSet();
+    existingDeleted.addAll(deletedIds);
+    data['deleted_ids'] = existingDeleted.toList();
+
     return json.encode(data);
   }
 

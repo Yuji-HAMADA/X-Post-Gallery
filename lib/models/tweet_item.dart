@@ -6,6 +6,7 @@ class TweetItem {
   final String? postUrl;
   final String? username; // マスターGistスリム形式用
   final String? matchSource; // "text" or "face"（retrieve_character_by_face.py が付与）
+  final String? keyword; // キーワード検索の代表ツイート用
 
   const TweetItem({
     required this.id,
@@ -15,6 +16,7 @@ class TweetItem {
     this.postUrl,
     this.username,
     this.matchSource,
+    this.keyword,
   });
 
   /// 新旧2形式のJSONを吸収する
@@ -54,6 +56,7 @@ class TweetItem {
       postUrl: (postUrl != null && postUrl.isNotEmpty) ? postUrl : null,
       username: json['username'] as String?,
       matchSource: json['match_source'] as String?,
+      keyword: json['keyword'] as String?,
     );
   }
 
