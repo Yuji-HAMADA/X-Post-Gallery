@@ -251,9 +251,33 @@ def main():
             except RuntimeError as e:
                 print(f'   ❌ {e}')
 
+    # 各キャラクター子Gistから代表ツイート（1件目）を収集
+    print(f'\n🖼️  代表ツイートを収集中...')
+    representative_tweets = []
+    for char_name_key, char_gist_entry in character_gists_map.items():
+        child_gist_id = get_gist_id_from_entry(char_gist_entry)
+        if not child_gist_id:
+            continue
+        try:
+            _, child_data = fetch_gist_data(child_gist_id)
+            child_tweets = child_data.get('users', {}).get(char_name_key, {}).get('tweets', [])
+            if child_tweets:
+                first_tweet = child_tweets[0]
+                media_urls = first_tweet.get('media_urls', [])
+                if media_urls:
+                    representative_tweets.append({
+                        'id_str': first_tweet.get('id_str', ''),
+                        'character': char_name_key,
+                        'media_urls': [media_urls[0]],
+                    })
+                    print(f'  ✅ {char_name_key}')
+        except RuntimeError as e:
+            print(f'  ⚠️  {char_name_key}: {e}')
+
     # キャラクターGistの character_gists を更新
     print(f'\n📝 キャラクターGist ({char_meta_filename}) を更新中...')
     char_meta_data['character_gists'] = character_gists_map
+    char_meta_data['tweets'] = representative_tweets
     try:
         update_gist(char_meta_gist_id, char_meta_filename, char_meta_data)
         print(f'✅ キャラクターGist 更新完了')

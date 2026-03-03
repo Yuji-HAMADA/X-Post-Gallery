@@ -1254,6 +1254,14 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
+    // 代表ツイートからサムネイルをキャラクター名でマッチ
+    final Map<String, TweetItem> thumbMap = {};
+    for (final item in vm.characterItems) {
+      if (item.character != null && item.mediaUrls.isNotEmpty) {
+        thumbMap.putIfAbsent(item.character!, () => item);
+      }
+    }
+
     return GridView.builder(
       controller: _charGridController,
       padding: const EdgeInsets.all(4),
@@ -1265,9 +1273,10 @@ class _GalleryPageState extends State<GalleryPage> {
       itemCount: entries.length,
       itemBuilder: (context, index) {
         final charName = entries[index].key;
+        final thumbItem = thumbMap[charName];
         return _buildLabeledCard(
           label: charName,
-          thumbItem: null,
+          thumbItem: thumbItem,
           onTap: () => _openCharacterGallery(charName),
         );
       },

@@ -650,7 +650,34 @@ def main():
         )
 
     # キャラクターGist を更新（character_gists に新規Gistが追加された可能性があるため）
-    char_meta_data['character_gists'] = master_data.get('character_gists', {})
+    character_gists_map = master_data.get('character_gists', {})
+    char_meta_data['character_gists'] = character_gists_map
+
+    # 各キャラクター子Gistから代表ツイート（1件目）を収集
+    print(f'\n🖼️  代表ツイートを収集中...')
+    representative_tweets = []
+    for char_name_key, char_gist_entry in character_gists_map.items():
+        child_gist_id = get_gist_id(char_gist_entry)
+        if not child_gist_id:
+            continue
+        try:
+            _, child_data = fetch_gist_raw(child_gist_id)
+            child_tweets = get_tweets(child_data, char_name_key)
+            if child_tweets:
+                first_tweet = child_tweets[0]
+                media_urls = first_tweet.get('media_urls', [])
+                if media_urls:
+                    representative_tweets.append({
+                        'id_str': first_tweet.get('id_str', ''),
+                        'character': char_name_key,
+                        'media_urls': [media_urls[0]],
+                    })
+                    print(f'  ✅ {char_name_key}')
+        except RuntimeError as e:
+            print(f'  ⚠️  {char_name_key}: {e}')
+
+    char_meta_data['tweets'] = representative_tweets
+
     print(f'\n📝 キャラクターGist ({char_meta_filename}) を更新中...')
     try:
         update_gist(char_meta_gist_id, char_meta_filename, char_meta_data)

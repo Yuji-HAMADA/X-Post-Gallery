@@ -54,6 +54,9 @@ class GalleryViewModel extends ChangeNotifier {
   List<TweetItem> _keywordItems = [];
   List<TweetItem> get keywordItems => _keywordItems;
 
+  List<TweetItem> _characterItems = [];
+  List<TweetItem> get characterItems => _characterItems;
+
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
@@ -215,6 +218,7 @@ class GalleryViewModel extends ChangeNotifier {
     try {
       final data = await _repository.fetchGalleryData(charGistId);
       _characterGists = data.characterGists;
+      _characterItems = data.items;
     } catch (e) {
       debugPrint('loadCharacterGallery error: $e');
     }
