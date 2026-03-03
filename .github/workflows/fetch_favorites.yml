@@ -154,7 +154,7 @@ jobs:
             reset_status "$SLOT1_ID"
           fi
 
-          # --- 1スロットを処理する関数 ---
+          # --- 1スロットを処理する関数（user / hashtag 両対応） ---
           process_slot() {
             local slot_id="$1"
             local slot_num="$2"
@@ -169,15 +169,13 @@ jobs:
               return 1
             fi
 
-            # 未処理ユーザーを取得
-            mapfile -t USERS_LIST < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | .user')
-            mapfile -t COUNTS_LIST < <(echo "$slot_json" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | select(.done != true) | (.count // ($def | tonumber) | tostring)')
-            mapfile -t STOP_FLAGS < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | (.stop_on_existing // true | tostring)')
+            # 未処理エントリを JSON Lines で取得（user / hashtag 両対応）
+            mapfile -t ENTRIES < <(echo "$slot_json" | jq -c '.users[] | select(.done != true)')
 
-            local user_count=${#USERS_LIST[@]}
-            echo "Unprocessed users in slot $slot_num: $user_count"
+            local entry_count=${#ENTRIES[@]}
+            echo "Unprocessed entries in slot $slot_num: $entry_count"
 
-            if [ "$user_count" -eq 0 ]; then
+            if [ "$entry_count" -eq 0 ]; then
               return 1  # 未処理なし
             fi
 
@@ -195,31 +193,59 @@ jobs:
             printf '%s' "$slot_json" > /tmp/fq_status.json
             gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_status.json
 
-            for i in "${!USERS_LIST[@]}"; do
-              USER="${USERS_LIST[$i]}"
-              COUNT="${COUNTS_LIST[$i]}"
-              STOP="${STOP_FLAGS[$i]}"
+            for i in "${!ENTRIES[@]}"; do
+              local entry="${ENTRIES[$i]}"
+              local USER HASHTAG ENTRY_GIST_ID COUNT STOP
 
-              echo "=========================================="
-              echo "Slot $slot_num [$((i+1))/$user_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
-              echo "=========================================="
+              USER=$(echo "$entry" | jq -r '.user // empty')
+              HASHTAG=$(echo "$entry" | jq -r '.hashtag // empty')
+              ENTRY_GIST_ID=$(echo "$entry" | jq -r '.gist_id // empty')
+              COUNT=$(echo "$entry" | jq -r --arg def "$DEFAULT_COUNT" '(.count // ($def | tonumber) | tostring)')
+              STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
 
-              if [ "$STOP" = "true" ]; then
-                ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+              if [ -n "$HASHTAG" ]; then
+                # キーワードエントリ
+                local target_gist="${ENTRY_GIST_ID:-$MASTER_GIST_ID}"
+                echo "=========================================="
+                echo "Slot $slot_num [$((i+1))/$entry_count]: #$HASHTAG (gist=$target_gist, count=$COUNT, stop_on_existing=$STOP)"
+                echo "=========================================="
+
+                if [ "$STOP" = "true" ]; then
+                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || true
+                else
+                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || true
+                fi
+              elif [ -n "$USER" ]; then
+                # ユーザーエントリ
+                echo "=========================================="
+                echo "Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
+                echo "=========================================="
+
+                if [ "$STOP" = "true" ]; then
+                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+                else
+                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+                fi
               else
-                ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+                echo "Warning: entry has neither user nor hashtag, skipping: $entry"
+                continue
               fi
 
               # 処理済みとして done: true をマーク
               LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
               if ! echo "$LATEST_JSON" | jq -e '.users' > /dev/null 2>&1; then
-                echo "Warning: fetch_queue.json read failed for done-marking @$USER, skipping"
+                echo "Warning: fetch_queue.json read failed for done-marking, skipping"
                 continue
               fi
-              LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
-                '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+              if [ -n "$HASHTAG" ]; then
+                LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg hashtag "$HASHTAG" \
+                  '.users = [.users[] | if .hashtag == $hashtag then . + {"done": true} else . end]')
+              else
+                LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
+                  '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+              fi
               if [ -z "$LATEST_JSON" ] || [ "$LATEST_JSON" = "null" ]; then
-                echo "Warning: jq produced empty output for done-marking @$USER, skipping"
+                echo "Warning: jq produced empty output for done-marking, skipping"
                 continue
               fi
               printf '%s' "$LATEST_JSON" > /tmp/fq_done.json
