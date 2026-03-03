@@ -517,42 +517,61 @@ class _GalleryPageState extends State<GalleryPage> {
     if (!mounted) return;
 
     final vm = context.read<GalleryViewModel>();
-    final userIdLower = userIdInput.trim().toLowerCase();
+    final inputTrimmed = userIdInput.trim();
+    final inputLower = inputTrimmed.toLowerCase();
+    // スペースを含む入力は X ユーザー名になれないのでキーワード専用扱い
+    final isKeywordInput = inputTrimmed.contains(' ');
 
-    // 1. userGists から検索 (case-insensitive)
-    String? matchedUsername;
-    for (final username in vm.userGists.keys) {
-      if (username.toLowerCase() == userIdLower) {
-        matchedUsername = username;
-        break;
-      }
-    }
-
-    if (matchedUsername != null) {
-      _openUserGallery(matchedUsername);
-      return;
-    }
-
-    // 2. マスターアイテムから検索 (case-insensitive)
-    final userRegExp = RegExp(r'^@([^:]+):');
-    for (final item in vm.items) {
-      final m = userRegExp.firstMatch(item.fullText);
-      if (m != null) {
-        final username = m.group(1)!.trim();
-        if (username.toLowerCase() == userIdLower) {
+    if (!isKeywordInput) {
+      // 1. userGists から検索 (case-insensitive)
+      String? matchedUsername;
+      for (final username in vm.userGists.keys) {
+        if (username.toLowerCase() == inputLower) {
           matchedUsername = username;
           break;
         }
       }
+
+      if (matchedUsername != null) {
+        _openUserGallery(matchedUsername);
+        return;
+      }
+
+      // 2. マスターアイテムから検索 (case-insensitive)
+      final userRegExp = RegExp(r'^@([^:]+):');
+      for (final item in vm.items) {
+        final m = userRegExp.firstMatch(item.fullText);
+        if (m != null) {
+          final username = m.group(1)!.trim();
+          if (username.toLowerCase() == inputLower) {
+            matchedUsername = username;
+            break;
+          }
+        }
+      }
+
+      if (matchedUsername != null) {
+        _openUserGallery(matchedUsername);
+        return;
+      }
     }
 
-    if (matchedUsername != null) {
-      _openUserGallery(matchedUsername);
+    // 3. keywordGists から検索 (case-insensitive)
+    for (final keyword in vm.keywordGists.keys) {
+      if (keyword.toLowerCase() == inputLower) {
+        _openKeywordGallery(keyword);
+        return;
+      }
+    }
+
+    // 4. キーワード入力の場合はユーザー検索に進まず新規キーワード追加へ
+    if (isKeywordInput) {
+      await _handleAddNewKeyword(inputTrimmed);
       return;
     }
 
-    // 3. マスターGistに存在しない → Xで存在確認してから新規追加へ
-    final username = userIdInput.trim();
+    // 5. マスターGistに存在しない → Xで存在確認してから新規追加へ
+    final username = inputTrimmed;
     if (mounted) {
       showDialog(
         context: context,
@@ -605,6 +624,49 @@ class _GalleryPageState extends State<GalleryPage> {
           backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
       );
+    }
+  }
+
+  /// キーワードGistに未登録の新規キーワードを追加する
+  Future<void> _handleAddNewKeyword(String keyword) async {
+    final result = await AppendConfigDialog.show(context);
+    if (result == null || !mounted) return;
+
+    final vm = context.read<GalleryViewModel>();
+    if (!await vm.isAdminAuthenticated()) {
+      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      return;
+    }
+
+    await vm.executeAppend(
+      hashtag: keyword,
+      count: result.count,
+      stopOnExisting: result.stopOnExisting,
+    );
+
+    if (!mounted) return;
+    final status = vm.appendStatus;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          status == AppendStatus.completed
+              ? 'キーワードを追加しました: $keyword'
+              : 'キーワードの追加に失敗しました',
+        ),
+        backgroundColor:
+            status == AppendStatus.completed ? Colors.green : Colors.redAccent,
+      ),
+    );
+    vm.clearAppendStatus();
+
+    // 成功したら追加されたキーワードのギャラリーを開く
+    if (status == AppendStatus.completed) {
+      for (final kw in vm.keywordGists.keys) {
+        if (kw.toLowerCase() == keyword.toLowerCase()) {
+          _openKeywordGallery(kw);
+          return;
+        }
+      }
     }
   }
 

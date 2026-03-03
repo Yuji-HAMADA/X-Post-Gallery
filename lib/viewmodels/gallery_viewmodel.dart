@@ -349,9 +349,14 @@ class GalleryViewModel extends ChangeNotifier {
     required bool stopOnExisting,
     bool isUserGist = false,
   }) async {
-    final targetGistId = defaultMasterGistId;
+    final isKeyword = hashtag != null && hashtag.isNotEmpty;
+    // キーワード追加は KEYWORD_GIST_ID、ユーザー追加は MASTER_GIST_ID を使用
+    final targetGistId =
+        isKeyword && keywordGistId.isNotEmpty ? keywordGistId : defaultMasterGistId;
     if (targetGistId.isEmpty) {
-      _errorMessage = 'マスターGist ID (MASTER_GIST_ID) が設定されていません';
+      _errorMessage = isKeyword
+          ? 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません'
+          : 'マスターGist ID (MASTER_GIST_ID) が設定されていません';
       notifyListeners();
       return;
     }
@@ -380,9 +385,14 @@ class GalleryViewModel extends ChangeNotifier {
       dispatchedAt,
     );
     if (completed) {
-      // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
-      // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
-      await loadGallery(targetGistId);
+      if (isKeyword) {
+        // キーワード追加後はキーワードギャラリーのみ再読み込み
+        await _loadKeywordGallery();
+      } else {
+        // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
+        // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
+        await loadGallery(targetGistId);
+      }
       _appendStatus = AppendStatus.completed;
     } else {
       _errorMessage = '追加がタイムアウトまたは失敗しました';

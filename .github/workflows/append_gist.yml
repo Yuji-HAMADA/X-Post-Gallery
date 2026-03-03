@@ -105,18 +105,21 @@ jobs:
           if [ "${{ github.event.inputs.force_empty }}" = "true" ]; then
             FORCE_FLAG="-f"
           fi
-          TARGET_FLAG=""
           if [ -n "${{ github.event.inputs.user }}" ]; then
-            TARGET_FLAG="-u ${{ github.event.inputs.user }}"
+            ./append_gist.sh \
+              -g "${{ github.event.inputs.gist_id }}" \
+              -u "${{ github.event.inputs.user }}" \
+              -n "${{ github.event.inputs.num_posts }}" \
+              $STOP_FLAG \
+              $FORCE_FLAG
           elif [ -n "${{ github.event.inputs.hashtag }}" ]; then
-            TARGET_FLAG="-t ${{ github.event.inputs.hashtag }}"
+            ./append_gist.sh \
+              -g "${{ github.event.inputs.gist_id }}" \
+              -t "${{ github.event.inputs.hashtag }}" \
+              -n "${{ github.event.inputs.num_posts }}" \
+              $STOP_FLAG \
+              $FORCE_FLAG
           else
             echo "❌ Error: user または hashtag のどちらかを指定してください"
             exit 1
           fi
-          ./append_gist.sh \
-            -g "${{ github.event.inputs.gist_id }}" \
-            $TARGET_FLAG \
-            -n "${{ github.event.inputs.num_posts }}" \
-            $STOP_FLAG \
-            $FORCE_FLAG
