@@ -117,7 +117,7 @@ jobs:
             # 未処理ユーザーを取得
             mapfile -t USERS_LIST < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | .user')
             mapfile -t COUNTS_LIST < <(echo "$slot_json" | jq -r --arg def "$DEFAULT_COUNT" '.users[] | select(.done != true) | (.count // ($def | tonumber) | tostring)')
-            mapfile -t STOP_FLAGS < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | (.stop_on_existing // true | tostring)')
+            mapfile -t STOP_FLAGS < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | (if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
 
             local user_count=${#USERS_LIST[@]}
             echo "Unprocessed users in slot $slot_num: $user_count"
