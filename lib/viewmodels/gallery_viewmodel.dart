@@ -12,9 +12,13 @@ enum RefreshStatus { idle, running, completed, failed }
 enum AppendStatus { idle, running, completed, failed }
 
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
-const String _externalFavoriteGistId = String.fromEnvironment('FAVORITE_GIST_ID');
+const String _externalFavoriteGistId = String.fromEnvironment(
+  'FAVORITE_GIST_ID',
+);
 const String _externalKeywordGistId = String.fromEnvironment('KEYWORD_GIST_ID');
-const String _externalCharacterGistId = String.fromEnvironment('CHARACTER_GIST_ID');
+const String _externalCharacterGistId = String.fromEnvironment(
+  'CHARACTER_GIST_ID',
+);
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -375,8 +379,9 @@ class GalleryViewModel extends ChangeNotifier {
   }) async {
     final isKeyword = hashtag != null && hashtag.isNotEmpty;
     // キーワード追加は KEYWORD_GIST_ID、ユーザー追加は MASTER_GIST_ID を使用
-    final targetGistId =
-        isKeyword && keywordGistId.isNotEmpty ? keywordGistId : defaultMasterGistId;
+    final targetGistId = isKeyword && keywordGistId.isNotEmpty
+        ? keywordGistId
+        : defaultMasterGistId;
     if (targetGistId.isEmpty) {
       _errorMessage = isKeyword
           ? 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません'

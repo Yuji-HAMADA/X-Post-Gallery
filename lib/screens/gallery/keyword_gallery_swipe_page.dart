@@ -102,9 +102,7 @@ class _KeywordGallerySwipePageState extends State<KeywordGallerySwipePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            status == AppendStatus.completed
-                ? '追加完了: $keyword'
-                : '追加に失敗しました',
+            status == AppendStatus.completed ? '追加完了: $keyword' : '追加に失敗しました',
           ),
           backgroundColor: status == AppendStatus.completed
               ? Colors.green

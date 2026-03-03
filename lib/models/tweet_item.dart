@@ -5,7 +5,8 @@ class TweetItem {
   final List<String> mediaUrls;
   final String? postUrl;
   final String? username; // マスターGistスリム形式用
-  final String? matchSource; // "text" or "face"（retrieve_character_by_face.py が付与）
+  final String?
+  matchSource; // "text" or "face"（retrieve_character_by_face.py が付与）
   final String? keyword; // キーワード検索の代表ツイート用
   final String? character; // キャラクター検索の代表ツイート用
 

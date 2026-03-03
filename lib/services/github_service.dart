@@ -11,6 +11,7 @@ const String _externalGithubUsername = String.fromEnvironment(
 const String _externalFetchQueueGistId = String.fromEnvironment(
   'FETCH_QUEUE_GIST_ID',
 );
+
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
   final String token = _externalToken.isNotEmpty
@@ -179,24 +180,27 @@ class GitHubService {
     }
 
     // スロット0を読み込み
-    final slot0Content =
-        await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
+    final slot0Content = await fetchGistContent(
+      fetchQueueGistId,
+      'fetch_queue.json',
+    );
     if (slot0Content == null) return false;
     final slot0Data = jsonDecode(slot0Content) as Map<String, dynamic>;
-    final slot0Users =
-        (slot0Data['users'] as List).cast<Map<String, dynamic>>();
+    final slot0Users = (slot0Data['users'] as List)
+        .cast<Map<String, dynamic>>();
 
     // スロット1を読み込み（sibling_gist_id がある場合）
     final siblingGistId = slot0Data['sibling_gist_id'] as String?;
     Map<String, dynamic>? slot1Data;
     List<Map<String, dynamic>>? slot1Users;
     if (siblingGistId != null && siblingGistId.isNotEmpty) {
-      final slot1Content =
-          await fetchGistContent(siblingGistId, 'fetch_queue.json');
+      final slot1Content = await fetchGistContent(
+        siblingGistId,
+        'fetch_queue.json',
+      );
       if (slot1Content != null) {
         slot1Data = jsonDecode(slot1Content) as Map<String, dynamic>;
-        slot1Users =
-            (slot1Data['users'] as List).cast<Map<String, dynamic>>();
+        slot1Users = (slot1Data['users'] as List).cast<Map<String, dynamic>>();
       }
     }
 
@@ -208,6 +212,7 @@ class GitHubService {
             u['done'] != true,
       );
     }
+
     if (isDuplicate(slot0Users) ||
         (slot1Users != null && isDuplicate(slot1Users))) {
       return true; // 既にキューに存在
@@ -253,35 +258,40 @@ class GitHubService {
     }
 
     // スロット0を読み込み
-    final slot0Content =
-        await fetchGistContent(fetchQueueGistId, 'fetch_queue.json');
+    final slot0Content = await fetchGistContent(
+      fetchQueueGistId,
+      'fetch_queue.json',
+    );
     if (slot0Content == null) return -1;
     final slot0Data = jsonDecode(slot0Content) as Map<String, dynamic>;
-    final slot0Users =
-        (slot0Data['users'] as List).cast<Map<String, dynamic>>();
+    final slot0Users = (slot0Data['users'] as List)
+        .cast<Map<String, dynamic>>();
 
     // スロット1を読み込み（sibling_gist_id がある場合）
     final siblingGistId = slot0Data['sibling_gist_id'] as String?;
     Map<String, dynamic>? slot1Data;
     List<Map<String, dynamic>>? slot1Users;
     if (siblingGistId != null && siblingGistId.isNotEmpty) {
-      final slot1Content =
-          await fetchGistContent(siblingGistId, 'fetch_queue.json');
+      final slot1Content = await fetchGistContent(
+        siblingGistId,
+        'fetch_queue.json',
+      );
       if (slot1Content != null) {
         slot1Data = jsonDecode(slot1Content) as Map<String, dynamic>;
-        slot1Users =
-            (slot1Data['users'] as List).cast<Map<String, dynamic>>();
+        slot1Users = (slot1Data['users'] as List).cast<Map<String, dynamic>>();
       }
     }
 
     // 両スロットの未処理ユーザー名を集める
     Set<String> existingUsers = {};
     for (final u in slot0Users) {
-      if (u['done'] != true) existingUsers.add((u['user'] as String).toLowerCase());
+      if (u['done'] != true)
+        existingUsers.add((u['user'] as String).toLowerCase());
     }
     if (slot1Users != null) {
       for (final u in slot1Users) {
-        if (u['done'] != true) existingUsers.add((u['user'] as String).toLowerCase());
+        if (u['done'] != true)
+          existingUsers.add((u['user'] as String).toLowerCase());
       }
     }
 
@@ -351,5 +361,4 @@ class GitHubService {
     }
     return {};
   }
-
 }

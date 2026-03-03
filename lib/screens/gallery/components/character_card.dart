@@ -46,17 +46,13 @@ class CharacterCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       character.label,
-                      style:
-                          const TextStyle(fontSize: 10, color: Colors.white),
+                      style: const TextStyle(fontSize: 10, color: Colors.white),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Text(
                     '${character.faceCount}',
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: Colors.white70,
-                    ),
+                    style: const TextStyle(fontSize: 9, color: Colors.white70),
                   ),
                 ],
               ),

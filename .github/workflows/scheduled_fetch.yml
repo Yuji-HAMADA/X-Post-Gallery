@@ -87,12 +87,20 @@ jobs:
           reset_status() {
             local gist_id="$1"
             local json
-            json=$(gh gist view "$gist_id" -f fetch_queue.json)
+            json=$(gh gist view "$gist_id" -f fetch_queue.json 2>/dev/null || echo "")
+            if ! echo "$json" | jq -e '.' > /dev/null 2>&1; then
+              echo "Warning: fetch_queue.json read failed for $gist_id, skipping reset"
+              return 0
+            fi
             local current_status
             current_status=$(echo "$json" | jq -r '.status // "idle"')
             if [ "$current_status" != "idle" ]; then
               echo "Resetting slot status to idle: $gist_id"
               json=$(echo "$json" | jq '.status = "idle"')
+              if [ -z "$json" ] || [ "$json" = "null" ]; then
+                echo "Warning: jq produced empty output for reset, skipping"
+                return 0
+              fi
               printf '%s' "$json" > /tmp/fq_reset.json
               gh gist edit "$gist_id" -f fetch_queue.json /tmp/fq_reset.json
             fi
@@ -112,7 +120,11 @@ jobs:
             echo "========== Checking slot $slot_num ($slot_id) =========="
 
             local slot_json
-            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json)
+            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+            if ! echo "$slot_json" | jq -e '.users' > /dev/null 2>&1; then
+              echo "Warning: fetch_queue.json read failed for slot $slot_num, skipping"
+              return 1
+            fi
 
             # 未処理ユーザーを取得
             mapfile -t USERS_LIST < <(echo "$slot_json" | jq -r '.users[] | select(.done != true) | .user')
@@ -127,8 +139,16 @@ jobs:
             fi
 
             # status を "processing" に設定
-            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json)
+            slot_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+            if ! echo "$slot_json" | jq -e '.' > /dev/null 2>&1; then
+              echo "Warning: fetch_queue.json read failed for status update on slot $slot_num, skipping"
+              return 1
+            fi
             slot_json=$(echo "$slot_json" | jq '.status = "processing"')
+            if [ -z "$slot_json" ] || [ "$slot_json" = "null" ]; then
+              echo "Warning: jq produced empty output for status update, skipping"
+              return 1
+            fi
             printf '%s' "$slot_json" > /tmp/fq_status.json
             gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_status.json
 
@@ -149,18 +169,34 @@ jobs:
 
               # 処理済みとして done: true をマーク
               # Gist を再取得してから書き戻す（Flutter の並行追加を保持するため）
-              LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json)
+              LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+              if ! echo "$LATEST_JSON" | jq -e '.users' > /dev/null 2>&1; then
+                echo "Warning: fetch_queue.json read failed for done-marking @$USER, skipping"
+                continue
+              fi
               LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
                 '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+              if [ -z "$LATEST_JSON" ] || [ "$LATEST_JSON" = "null" ]; then
+                echo "Warning: jq produced empty output for done-marking @$USER, skipping"
+                continue
+              fi
               printf '%s' "$LATEST_JSON" > /tmp/fq_done.json
               gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_done.json
             done
 
             # status を "idle" に戻す
-            LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json)
-            LATEST_JSON=$(echo "$LATEST_JSON" | jq '.status = "idle"')
-            printf '%s' "$LATEST_JSON" > /tmp/fq_idle.json
-            gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_idle.json
+            LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+            if echo "$LATEST_JSON" | jq -e '.' > /dev/null 2>&1; then
+              LATEST_JSON=$(echo "$LATEST_JSON" | jq '.status = "idle"')
+              if [ -n "$LATEST_JSON" ] && [ "$LATEST_JSON" != "null" ]; then
+                printf '%s' "$LATEST_JSON" > /tmp/fq_idle.json
+                gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_idle.json
+              else
+                echo "Warning: jq produced empty output for idle status on slot $slot_num, skipping"
+              fi
+            else
+              echo "Warning: fetch_queue.json read failed for idle status on slot $slot_num, skipping"
+            fi
 
             return 0  # 処理あり
           }

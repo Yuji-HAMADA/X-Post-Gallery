@@ -100,12 +100,14 @@ class GalleryRepository {
     final userGists = userGistsRaw.map((k, v) => MapEntry(k, v as String));
     final characterGistsRaw =
         data['character_gists'] as Map<String, dynamic>? ?? {};
-    final characterGists =
-        characterGistsRaw.map((k, v) => MapEntry(k, v as String));
+    final characterGists = characterGistsRaw.map(
+      (k, v) => MapEntry(k, v as String),
+    );
     final keywordGistsRaw =
         data['keyword_gists'] as Map<String, dynamic>? ?? {};
-    final keywordGists =
-        keywordGistsRaw.map((k, v) => MapEntry(k, v as String));
+    final keywordGists = keywordGistsRaw.map(
+      (k, v) => MapEntry(k, v as String),
+    );
     return GalleryData(
       userName: data['user_screen_name'] ?? '',
       items: tweets,
@@ -183,7 +185,8 @@ class GalleryRepository {
     final users = data['users'] as Map<String, dynamic>?;
     if (users != null) {
       for (final userData in users.values) {
-        final tweets = (userData as Map<String, dynamic>)['tweets'] as List? ?? [];
+        final tweets =
+            (userData as Map<String, dynamic>)['tweets'] as List? ?? [];
         allTweets.addAll(
           tweets
               .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
@@ -193,7 +196,9 @@ class GalleryRepository {
     }
 
     // フォールバック: 直下の tweets
-    if (allTweets.isEmpty && data is Map<String, dynamic> && data.containsKey('tweets')) {
+    if (allTweets.isEmpty &&
+        data is Map<String, dynamic> &&
+        data.containsKey('tweets')) {
       allTweets.addAll(
         (data['tweets'] as List? ?? [])
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
@@ -268,7 +273,9 @@ class GalleryRepository {
       final userData = entry.value as Map<String, dynamic>;
       final tweets = (userData['tweets'] as List?) ?? [];
       final remaining = tweets
-          .where((t) => !deletedIds.contains((t as Map<String, dynamic>)['id_str']))
+          .where(
+            (t) => !deletedIds.contains((t as Map<String, dynamic>)['id_str']),
+          )
           .toList();
       if (remaining.isEmpty) {
         usersToRemove.add(entry.key);
@@ -282,8 +289,9 @@ class GalleryRepository {
     data['users'] = users;
 
     // deleted_ids に追加（重複排除）
-    final existingDeleted =
-        ((data['deleted_ids'] as List?) ?? []).cast<String>().toSet();
+    final existingDeleted = ((data['deleted_ids'] as List?) ?? [])
+        .cast<String>()
+        .toSet();
     existingDeleted.addAll(deletedIds);
     data['deleted_ids'] = existingDeleted.toList();
 

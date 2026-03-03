@@ -476,7 +476,9 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
 
     if (remainingCount != null) {
-      if (remainingCount == 0 && widget.userGistUsername != null && widget.keywordChildGistId == null) {
+      if (remainingCount == 0 &&
+          widget.userGistUsername != null &&
+          widget.keywordChildGistId == null) {
         // ポストがなくなったユーザーをマスターGistから削除して画面を閉じる
         await vm.removeUserFromMaster(widget.userGistUsername!);
         if (mounted) Navigator.pop(context);
@@ -653,8 +655,9 @@ class _GalleryPageState extends State<GalleryPage> {
               ? 'キーワードを追加しました: $keyword'
               : 'キーワードの追加に失敗しました',
         ),
-        backgroundColor:
-            status == AppendStatus.completed ? Colors.green : Colors.redAccent,
+        backgroundColor: status == AppendStatus.completed
+            ? Colors.green
+            : Colors.redAccent,
       ),
     );
     vm.clearAppendStatus();
@@ -890,7 +893,11 @@ class _GalleryPageState extends State<GalleryPage> {
                     vm.userGists,
                     vm.favoriteUsers,
                   ),
-                  _buildUserGroupedGrid(vm.items, vm.userGists, vm.favoriteUsers),
+                  _buildUserGroupedGrid(
+                    vm.items,
+                    vm.userGists,
+                    vm.favoriteUsers,
+                  ),
                   _buildKeywordGrid(vm),
                   _buildCharacterGrid(vm),
                 ],
@@ -967,7 +974,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     )
                   : Text(displayTitle)),
         actions: [
-          if (isSelectionMode && (widget.userGistId != null || widget.keywordChildGistId != null))
+          if (isSelectionMode &&
+              (widget.userGistId != null || widget.keywordChildGistId != null))
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
@@ -1310,10 +1318,7 @@ class _GalleryPageState extends State<GalleryPage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => GalleryPage(
-              initialItems: items,
-              title: charName,
-            ),
+            builder: (_) => GalleryPage(initialItems: items, title: charName),
           ),
         );
       }

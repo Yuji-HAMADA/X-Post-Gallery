@@ -57,8 +57,8 @@ class _AppendConfigDialogState extends State<AppendConfigDialog> {
               ),
             ],
             selected: {_stopOnExisting},
-            onSelectionChanged:
-                (s) => setState(() => _stopOnExisting = s.first),
+            onSelectionChanged: (s) =>
+                setState(() => _stopOnExisting = s.first),
           ),
         ],
       ),
@@ -68,13 +68,10 @@ class _AppendConfigDialogState extends State<AppendConfigDialog> {
           child: const Text('キャンセル'),
         ),
         ElevatedButton(
-          onPressed: () => Navigator.pop(
-            context,
-            (
-              count: int.tryParse(_countController.text) ?? 100,
-              stopOnExisting: _stopOnExisting,
-            ),
-          ),
+          onPressed: () => Navigator.pop(context, (
+            count: int.tryParse(_countController.text) ?? 100,
+            stopOnExisting: _stopOnExisting,
+          )),
           child: const Text('実行'),
         ),
       ],
