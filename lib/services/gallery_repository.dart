@@ -35,6 +35,17 @@ class GalleryRepository {
   String _gistRawBaseUrl(String gistId) =>
       'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
 
+  /// data.json → gallary_data.json フォールバック付きで Gist raw を取得
+  Future<http.Response> _fetchGistRaw(String gistId) async {
+    final baseUrl = _gistRawBaseUrl(gistId);
+    final t = DateTime.now().millisecondsSinceEpoch;
+    var response = await http.get(Uri.parse('${baseUrl}data.json?t=$t'));
+    if (response.statusCode == 404) {
+      response = await http.get(Uri.parse('${baseUrl}gallary_data.json?t=$t'));
+    }
+    return response;
+  }
+
   /// Gist からギャラリーデータを取得（キャッシュ対応）
   Future<GalleryData> fetchGalleryData(
     String gistId, {
@@ -55,24 +66,13 @@ class GalleryRepository {
       }
     }
 
-    final baseUrl = _gistRawBaseUrl(gistId);
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-
-    debugPrint("Fetching from: ${baseUrl}data.json?t=$cacheBuster");
-
-    var response = await http.get(
-      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
-    );
-    String filename = 'data.json';
-    if (response.statusCode == 404) {
-      debugPrint("Falling back to gallary_data.json");
-      response = await http.get(
-        Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'),
-      );
-      filename = 'gallary_data.json';
-    }
+    final response = await _fetchGistRaw(gistId);
 
     if (response.statusCode == 200) {
+      // レスポンスURLからファイル名を判別
+      final filename =
+          response.request?.url.pathSegments.last.split('?').first ??
+          'data.json';
       lastGistFilename = filename;
       final jsonStr = utf8.decode(response.bodyBytes);
       // キャッシュ保存（Web版はスキップ、保存失敗しても続行）
@@ -121,16 +121,7 @@ class GalleryRepository {
   Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
     debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
 
-    final baseUrl = _gistRawBaseUrl(gistId);
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-
-    var url = '${baseUrl}data.json?t=$cacheBuster';
-    var response = await http.get(Uri.parse(url));
-
-    if (response.statusCode == 404) {
-      url = '${baseUrl}gallary_data.json?t=$cacheBuster';
-      response = await http.get(Uri.parse(url));
-    }
+    final response = await _fetchGistRaw(gistId);
 
     if (response.statusCode == 200) {
       final data = json.decode(utf8.decode(response.bodyBytes));
@@ -162,17 +153,7 @@ class GalleryRepository {
 
   /// Gist内の全ユーザーのツイートを結合して返す（キーワード検索用）
   Future<List<TweetItem>> fetchAllGistTweets(String gistId) async {
-    final baseUrl = _gistRawBaseUrl(gistId);
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-
-    var response = await http.get(
-      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
-    );
-    if (response.statusCode == 404) {
-      response = await http.get(
-        Uri.parse('${baseUrl}gallary_data.json?t=$cacheBuster'),
-      );
-    }
+    final response = await _fetchGistRaw(gistId);
 
     if (response.statusCode != 200) {
       throw Exception('Failed to load gist ($gistId)');
@@ -209,26 +190,16 @@ class GalleryRepository {
     return allTweets;
   }
 
-  /// 更新用の JSON 文字列を構築（マスターGist用）
-  String buildGistJson(
-    String userName,
+  /// マスター / キーワードマスター Gist 用の JSON 文字列を構築
+  String buildMasterGistJson(
     List<TweetItem> items, {
+    String userName = '',
     Map<String, String> userGists = const {},
+    Map<String, String> keywordGists = const {},
   }) {
     return json.encode({
       'user_screen_name': userName,
       if (userGists.isNotEmpty) 'user_gists': userGists,
-      'tweets': items.map((item) => item.toMasterJson()).toList(),
-    });
-  }
-
-  /// キーワードマスターGist用の JSON 文字列を構築
-  String buildKeywordGistJson(
-    List<TweetItem> items, {
-    Map<String, String> keywordGists = const {},
-  }) {
-    return json.encode({
-      'user_screen_name': '',
       if (keywordGists.isNotEmpty) 'keyword_gists': keywordGists,
       'tweets': items.map((item) => item.toMasterJson()).toList(),
     });

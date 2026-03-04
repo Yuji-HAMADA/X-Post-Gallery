@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
+import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
 
 /// 複数ユーザーギャラリーを左右スワイプで切り替えるページ
@@ -89,7 +90,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
-      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      if (mounted) showErrorSnackBar(context, 'マスターGist IDでログインしてください');
       return;
     }
 
@@ -99,12 +100,11 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
       stopOnExisting: result.stopOnExisting,
     );
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? 'キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
+      if (success) {
+        showSuccessSnackBar(context, 'キューに追加しました: @$username');
+      } else {
+        showErrorSnackBar(context, 'キューへの追加に失敗しました');
+      }
     }
   }
 
@@ -112,41 +112,10 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     final vm = context.read<GalleryViewModel>();
     final count = vm.selectedCount;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('削除確認'),
-        content: Text('$count 件の画像を削除しますか？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除'),
-          ),
-        ],
-      ),
-    );
+    if (!await showDeleteConfirmDialog(context, count)) return;
+    if (!mounted) return;
 
-    if (confirmed != true || !mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('削除中...'),
-          ],
-        ),
-      ),
-    );
+    showProgressDialog(context);
 
     final gistId = widget.userGistIds[_currentIndex]!;
     final currentItems = _loadedItems[username] ?? [];
@@ -170,23 +139,10 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
               .toList();
         });
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$count 件を削除しました'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      if (mounted) showSuccessSnackBar(context, '$count 件を削除しました');
     } else {
-      _showErrorSnackBar(vm.errorMessage);
+      if (mounted) showErrorSnackBar(context, vm.errorMessage);
     }
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
-    );
   }
 
   Future<void> _launchX(String username) async {
@@ -196,7 +152,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
         await launchUrl(url, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
-      _showErrorSnackBar('Link error: $e');
+      if (mounted) showErrorSnackBar(context, 'Link error: $e');
     }
   }
 

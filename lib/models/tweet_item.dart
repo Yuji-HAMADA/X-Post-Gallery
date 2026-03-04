@@ -90,6 +90,8 @@ class TweetItem {
   Map<String, dynamic> toMasterJson() => {
     'id_str': id,
     if (username != null) 'username': username,
+    if (keyword != null) 'keyword': keyword,
+    if (character != null) 'character': character,
     'media_urls': mediaUrls.isNotEmpty ? [mediaUrls.first] : [],
   };
 }

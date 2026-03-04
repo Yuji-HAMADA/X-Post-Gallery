@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/tweet_item.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
+import '../utils/env_helper.dart';
 
 enum GalleryStatus { initial, loading, authenticated, error }
 
@@ -78,28 +78,18 @@ class GalleryViewModel extends ChangeNotifier {
   static const int defaultRefreshCount = 18;
 
   // --- Helper ---
-  String get defaultMasterGistId {
-    return _externalMasterGistId.isNotEmpty
-        ? _externalMasterGistId
-        : (dotenv.env['MASTER_GIST_ID'] ?? '');
-  }
+  String get defaultMasterGistId =>
+      resolveEnv(_externalMasterGistId, 'MASTER_GIST_ID');
+  String get favoriteGistId =>
+      resolveEnv(_externalFavoriteGistId, 'FAVORITE_GIST_ID');
+  String get keywordGistId =>
+      resolveEnv(_externalKeywordGistId, 'KEYWORD_GIST_ID');
+  String get characterGistId =>
+      resolveEnv(_externalCharacterGistId, 'CHARACTER_GIST_ID');
 
-  String get favoriteGistId {
-    return _externalFavoriteGistId.isNotEmpty
-        ? _externalFavoriteGistId
-        : (dotenv.env['FAVORITE_GIST_ID'] ?? '');
-  }
-
-  String get keywordGistId {
-    return _externalKeywordGistId.isNotEmpty
-        ? _externalKeywordGistId
-        : (dotenv.env['KEYWORD_GIST_ID'] ?? '');
-  }
-
-  String get characterGistId {
-    return _externalCharacterGistId.isNotEmpty
-        ? _externalCharacterGistId
-        : (dotenv.env['CHARACTER_GIST_ID'] ?? '');
+  void _setError(String message) {
+    _errorMessage = message;
+    notifyListeners();
   }
 
   // --- アクション ---
@@ -239,15 +229,13 @@ class GalleryViewModel extends ChangeNotifier {
   Future<bool> refreshMasterGallery() async {
     final gistId = defaultMasterGistId;
     if (gistId.isEmpty) {
-      _errorMessage = 'マスターGist IDが設定されていません';
-      notifyListeners();
+      _setError('マスターGist IDが設定されていません');
       return false;
     }
 
     final gistExists = await _githubService.validateGistExists(gistId);
     if (!gistExists) {
-      _errorMessage = '指定されたGist IDが見つかりません';
-      notifyListeners();
+      _setError('指定されたGist IDが見つかりません');
       return false;
     }
 
@@ -307,8 +295,7 @@ class GalleryViewModel extends ChangeNotifier {
   Future<void> executeRefresh(int count) async {
     final masterGistId = defaultMasterGistId;
     if (masterGistId.isEmpty) {
-      _errorMessage = 'マスターGist ID (MASTER_GIST_ID) が設定されていません';
-      notifyListeners();
+      _setError('マスターGist ID (MASTER_GIST_ID) が設定されていません');
       return;
     }
 
@@ -376,8 +363,7 @@ class GalleryViewModel extends ChangeNotifier {
   }) async {
     final kwGistId = keywordGistId;
     if (kwGistId.isEmpty) {
-      _errorMessage = 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません';
-      notifyListeners();
+      _setError('キーワードGist ID (KEYWORD_GIST_ID) が設定されていません');
       return false;
     }
     final added = await _githubService.addKeywordToFetchQueue(
@@ -405,10 +391,11 @@ class GalleryViewModel extends ChangeNotifier {
         ? keywordGistId
         : defaultMasterGistId;
     if (targetGistId.isEmpty) {
-      _errorMessage = isKeyword
-          ? 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません'
-          : 'マスターGist ID (MASTER_GIST_ID) が設定されていません';
-      notifyListeners();
+      _setError(
+        isKeyword
+            ? 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません'
+            : 'マスターGist ID (MASTER_GIST_ID) が設定されていません',
+      );
       return;
     }
 
@@ -541,23 +528,17 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
-  /// 成功時は残件数を返す（失敗時は null）
-  Future<int?> deleteSelectedFromUserGist(
-    String gistId,
-    String username,
-    List<TweetItem> currentItems,
-  ) async {
-    final remainingItems = currentItems
+  /// Gistから選択中アイテムを削除する共通ヘルパー
+  Future<int?> _deleteSelectedFromGist({
+    required String gistId,
+    required List<TweetItem> currentItems,
+    required Future<String> Function() buildJson,
+  }) async {
+    final remainingCount = currentItems
         .where((item) => !_selectedIds.contains(item.id))
-        .toList();
+        .length;
     try {
-      final jsonStr = await _repository.buildUserBatchGistJson(
-        gistId,
-        username,
-        remainingItems,
-        deletedIds: _selectedIds,
-      );
+      final jsonStr = await buildJson();
       final success = await _githubService.updateGistFile(
         gistId: gistId,
         filename: 'data.json',
@@ -566,54 +547,52 @@ class GalleryViewModel extends ChangeNotifier {
       if (success) {
         _selectedIds.clear();
         notifyListeners();
-        return remainingItems.length;
+        return remainingCount;
       } else {
-        _errorMessage = 'Gist の更新に失敗しました';
-        notifyListeners();
+        _setError('Gist の更新に失敗しました');
         return null;
       }
     } catch (e) {
-      debugPrint('deleteSelectedFromUserGist error: $e');
-      _errorMessage = 'Gist の更新に失敗しました';
-      notifyListeners();
+      debugPrint('_deleteSelectedFromGist error: $e');
+      _setError('Gist の更新に失敗しました');
       return null;
     }
   }
 
-  /// キーワード子Gistから選択中アイテムを削除して更新（deleted_idsに追加）
-  /// 成功時は残件数を返す（失敗時は null）
-  Future<int?> deleteSelectedFromKeywordGist(
+  /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
+  Future<int?> deleteSelectedFromUserGist(
     String gistId,
+    String username,
     List<TweetItem> currentItems,
-  ) async {
+  ) {
     final remainingItems = currentItems
         .where((item) => !_selectedIds.contains(item.id))
         .toList();
-    try {
-      final jsonStr = await _repository.buildKeywordChildGistJsonAfterDelete(
+    return _deleteSelectedFromGist(
+      gistId: gistId,
+      currentItems: currentItems,
+      buildJson: () => _repository.buildUserBatchGistJson(
+        gistId,
+        username,
+        remainingItems,
+        deletedIds: _selectedIds,
+      ),
+    );
+  }
+
+  /// キーワード子Gistから選択中アイテムを削除して更新
+  Future<int?> deleteSelectedFromKeywordGist(
+    String gistId,
+    List<TweetItem> currentItems,
+  ) {
+    return _deleteSelectedFromGist(
+      gistId: gistId,
+      currentItems: currentItems,
+      buildJson: () => _repository.buildKeywordChildGistJsonAfterDelete(
         gistId,
         _selectedIds,
-      );
-      final success = await _githubService.updateGistFile(
-        gistId: gistId,
-        filename: 'data.json',
-        content: jsonStr,
-      );
-      if (success) {
-        _selectedIds.clear();
-        notifyListeners();
-        return remainingItems.length;
-      } else {
-        _errorMessage = 'Gist の更新に失敗しました';
-        notifyListeners();
-        return null;
-      }
-    } catch (e) {
-      debugPrint('deleteSelectedFromKeywordGist error: $e');
-      _errorMessage = 'Gist の更新に失敗しました';
-      notifyListeners();
-      return null;
-    }
+      ),
+    );
   }
 
   /// キーワードを完全に削除する（子Gistクリア + キーワードマスターから除去）
@@ -639,7 +618,7 @@ class GalleryViewModel extends ChangeNotifier {
         return item.keyword != keyword;
       }).toList();
 
-      final jsonStr = _repository.buildKeywordGistJson(
+      final jsonStr = _repository.buildMasterGistJson(
         _keywordItems,
         keywordGists: _keywordGists,
       );
@@ -691,9 +670,9 @@ class GalleryViewModel extends ChangeNotifier {
     }).toList();
 
     final filename = _repository.lastGistFilename ?? 'data.json';
-    final jsonStr = _repository.buildGistJson(
-      _userName,
+    final jsonStr = _repository.buildMasterGistJson(
       _items,
+      userName: _userName,
       userGists: _userGists,
     );
     await _githubService.updateGistFile(

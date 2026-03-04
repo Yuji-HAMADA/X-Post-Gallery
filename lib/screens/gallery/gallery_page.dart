@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
+import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
@@ -509,12 +510,16 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// ユーザー削除の確認ダイアログ
-  Future<void> _confirmDeleteUser(String username) async {
+  /// 削除確認ダイアログの共通処理
+  Future<void> _confirmDelete({
+    required String title,
+    required Future<bool> Function() onDelete,
+    required String successMessage,
+  }) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('ユーザー @$username を削除しますか？'),
+        title: Text(title),
         content: const Text('全てのデータが削除されます'),
         actions: [
           TextButton(
@@ -530,83 +535,30 @@ class _GalleryPageState extends State<GalleryPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    // プログレス表示
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('削除中...'),
-          ],
-        ),
-      ),
-    );
+    showProgressDialog(context);
 
-    final vm = context.read<GalleryViewModel>();
-    final success = await vm.deleteUser(username);
-    if (mounted) Navigator.pop(context); // プログレスを閉じる
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? '@$username を削除しました' : '削除に失敗しました'),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
-  }
-
-  /// キーワード削除の確認ダイアログ
-  Future<void> _confirmDeleteKeyword(String keyword) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('キーワード $keyword を削除しますか？'),
-        content: const Text('全てのデータが削除されます'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('削除中...'),
-          ],
-        ),
-      ),
-    );
-
-    final vm = context.read<GalleryViewModel>();
-    final success = await vm.deleteKeyword(keyword);
+    final success = await onDelete();
     if (mounted) Navigator.pop(context);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? '$keyword を削除しました' : '削除に失敗しました'),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
+      if (success) {
+        showSuccessSnackBar(context, successMessage);
+      } else {
+        showErrorSnackBar(context, '削除に失敗しました');
+      }
     }
   }
+
+  Future<void> _confirmDeleteUser(String username) => _confirmDelete(
+    title: 'ユーザー @$username を削除しますか？',
+    onDelete: () => context.read<GalleryViewModel>().deleteUser(username),
+    successMessage: '@$username を削除しました',
+  );
+
+  Future<void> _confirmDeleteKeyword(String keyword) => _confirmDelete(
+    title: 'キーワード $keyword を削除しますか？',
+    onDelete: () => context.read<GalleryViewModel>().deleteKeyword(keyword),
+    successMessage: '$keyword を削除しました',
+  );
 
   Future<void> _handleSearchUser() async {
     final userIdInput = await showDialog<String>(
