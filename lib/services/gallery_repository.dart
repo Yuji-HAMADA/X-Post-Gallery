@@ -222,12 +222,25 @@ class GalleryRepository {
     });
   }
 
+  /// キーワードマスターGist用の JSON 文字列を構築
+  String buildKeywordGistJson(
+    List<TweetItem> items, {
+    Map<String, String> keywordGists = const {},
+  }) {
+    return json.encode({
+      'user_screen_name': '',
+      if (keywordGists.isNotEmpty) 'keyword_gists': keywordGists,
+      'tweets': items.map((item) => item.toMasterJson()).toList(),
+    });
+  }
+
   /// バッチGist内の対象ユーザーのツイートを更新した全体JSONを返す
   Future<String> buildUserBatchGistJson(
     String gistId,
     String username,
-    List<TweetItem> remainingItems,
-  ) async {
+    List<TweetItem> remainingItems, {
+    Set<String> deletedIds = const {},
+  }) async {
     final baseUrl = _gistRawBaseUrl(gistId);
     final cacheBuster = DateTime.now().millisecondsSinceEpoch;
     final response = await http.get(
@@ -247,6 +260,16 @@ class GalleryRepository {
       };
     }
     data['users'] = users;
+
+    // deleted_ids に追加（重複排除）
+    if (deletedIds.isNotEmpty) {
+      final existingDeleted = ((data['deleted_ids'] as List?) ?? [])
+          .cast<String>()
+          .toSet();
+      existingDeleted.addAll(deletedIds);
+      data['deleted_ids'] = existingDeleted.toList();
+    }
+
     return json.encode(data);
   }
 

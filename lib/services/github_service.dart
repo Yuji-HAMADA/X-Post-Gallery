@@ -159,20 +159,10 @@ class GitHubService {
   Future<String?> fetchGistContent(String gistId, String filename) async {
     final url = Uri.parse('https://api.github.com/gists/$gistId');
     final response = await http.get(url, headers: _headers);
-    debugPrint('[fetchGistContent] gistId=$gistId, filename=$filename, status=${response.statusCode}');
-    if (response.statusCode != 200) {
-      debugPrint('[fetchGistContent] ERROR body: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
-      return null;
-    }
+    if (response.statusCode != 200) return null;
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final filesRaw = body['files'];
-    debugPrint('[fetchGistContent] files type: ${filesRaw.runtimeType}, keys: ${filesRaw is Map ? (filesRaw as Map).keys.toList() : "N/A"}');
-    final files = filesRaw as Map<String, dynamic>?;
-    final content = files?[filename]?['content'] as String?;
-    if (content == null) {
-      debugPrint('[fetchGistContent] file "$filename" not found. truncated=${body['truncated']}');
-    }
-    return content;
+    final files = body['files'] as Map<String, dynamic>?;
+    return files?[filename]?['content'] as String?;
   }
 
   /// fetch_queue.json にユーザーを追加する（2スロットリングバッファ対応）
@@ -184,21 +174,16 @@ class GitHubService {
     bool stopOnExisting = true,
   }) async {
     if (fetchQueueGistId.isEmpty) {
-      debugPrint('[addUserToFetchQueue] FETCH_QUEUE_GIST_ID is not set');
+      debugPrint('FETCH_QUEUE_GIST_ID is not set');
       return false;
     }
-    debugPrint('[addUserToFetchQueue] START: username=$username, fetchQueueGistId=$fetchQueueGistId');
 
     // スロット0を読み込み
     final slot0Content = await fetchGistContent(
       fetchQueueGistId,
       'fetch_queue.json',
     );
-    if (slot0Content == null) {
-      debugPrint('[addUserToFetchQueue] slot0Content is null');
-      return false;
-    }
-    debugPrint('[addUserToFetchQueue] slot0Content loaded');
+    if (slot0Content == null) return false;
     final slot0Data = jsonDecode(slot0Content) as Map<String, dynamic>;
     final slot0Users = (slot0Data['users'] as List)
         .cast<Map<String, dynamic>>();
@@ -230,7 +215,6 @@ class GitHubService {
 
     if (isDuplicate(slot0Users) ||
         (slot1Users != null && isDuplicate(slot1Users))) {
-      debugPrint('[addUserToFetchQueue] duplicate found, returning true');
       return true; // 既にキューに存在
     }
 
@@ -254,14 +238,11 @@ class GitHubService {
     targetUsers.add(newEntry);
     targetData['users'] = targetUsers;
 
-    debugPrint('[addUserToFetchQueue] writing to gist=$targetGistId, slot=${writeToSlot1 ? 1 : 0}');
-    final result = await updateGistFile(
+    return updateGistFile(
       gistId: targetGistId,
       filename: 'fetch_queue.json',
       content: jsonEncode(targetData),
     );
-    debugPrint('[addUserToFetchQueue] updateGistFile returned $result');
-    return result;
   }
 
   /// fetch_queue.json にキーワードを追加する（2スロットリングバッファ対応）

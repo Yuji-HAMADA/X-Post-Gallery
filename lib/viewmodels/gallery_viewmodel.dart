@@ -359,17 +359,13 @@ class GalleryViewModel extends ChangeNotifier {
     required int count,
     required bool stopOnExisting,
   }) async {
-    debugPrint('queueUserForFetch: username=$username, count=$count');
     final added = await _githubService.addUserToFetchQueue(
       username,
       count: count,
       stopOnExisting: stopOnExisting,
     );
-    debugPrint('queueUserForFetch: addUserToFetchQueue returned $added');
     if (!added) return false;
-    final triggered = await _githubService.triggerScheduledFetchWorkflow();
-    debugPrint('queueUserForFetch: triggerScheduledFetchWorkflow returned $triggered');
-    return triggered;
+    return _githubService.triggerScheduledFetchWorkflow();
   }
 
   /// キーワードをキューに追加して scheduled_fetch.yml をトリガーする
@@ -381,22 +377,17 @@ class GalleryViewModel extends ChangeNotifier {
     final kwGistId = keywordGistId;
     if (kwGistId.isEmpty) {
       _errorMessage = 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません';
-      debugPrint('queueKeywordForFetch: KEYWORD_GIST_ID is empty');
       notifyListeners();
       return false;
     }
-    debugPrint('queueKeywordForFetch: keyword=$keyword, gistId=$kwGistId, count=$count');
     final added = await _githubService.addKeywordToFetchQueue(
       keyword,
       gistId: kwGistId,
       count: count,
       stopOnExisting: stopOnExisting,
     );
-    debugPrint('queueKeywordForFetch: addKeywordToFetchQueue returned $added');
     if (!added) return false;
-    final triggered = await _githubService.triggerScheduledFetchWorkflow();
-    debugPrint('queueKeywordForFetch: triggerScheduledFetchWorkflow returned $triggered');
-    return triggered;
+    return _githubService.triggerScheduledFetchWorkflow();
   }
 
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
@@ -565,6 +556,7 @@ class GalleryViewModel extends ChangeNotifier {
         gistId,
         username,
         remainingItems,
+        deletedIds: _selectedIds,
       );
       final success = await _githubService.updateGistFile(
         gistId: gistId,
@@ -621,6 +613,67 @@ class GalleryViewModel extends ChangeNotifier {
       _errorMessage = 'Gist の更新に失敗しました';
       notifyListeners();
       return null;
+    }
+  }
+
+  /// キーワードを完全に削除する（子Gistクリア + キーワードマスターから除去）
+  Future<bool> deleteKeyword(String keyword) async {
+    try {
+      final childGistId = _keywordGists[keyword];
+      if (childGistId != null) {
+        // 子Gistを空にする（deleted_idsは破棄）
+        final emptyJson = jsonEncode({'users': {}});
+        await _githubService.updateGistFile(
+          gistId: childGistId,
+          filename: 'data.json',
+          content: emptyJson,
+        );
+      }
+
+      // キーワードマスターGistから除去
+      final kwGistId = keywordGistId;
+      if (kwGistId.isEmpty) return false;
+
+      _keywordGists = Map.from(_keywordGists)..remove(keyword);
+      _keywordItems = _keywordItems.where((item) {
+        return item.keyword != keyword;
+      }).toList();
+
+      final jsonStr = _repository.buildKeywordGistJson(
+        _keywordItems,
+        keywordGists: _keywordGists,
+      );
+      await _githubService.updateGistFile(
+        gistId: kwGistId,
+        filename: 'data.json',
+        content: jsonStr,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('deleteKeyword error: $e');
+      return false;
+    }
+  }
+
+  /// ユーザーを完全に削除する（子Gistクリア + マスターから除去）
+  Future<bool> deleteUser(String username) async {
+    try {
+      final gistId = _userGists[username];
+      if (gistId != null) {
+        // 子Gistを空にする（deleted_idsは破棄）
+        final emptyJson = jsonEncode({'users': {}});
+        await _githubService.updateGistFile(
+          gistId: gistId,
+          filename: 'data.json',
+          content: emptyJson,
+        );
+      }
+      await removeUserFromMaster(username);
+      return true;
+    } catch (e) {
+      debugPrint('deleteUser error: $e');
+      return false;
     }
   }
 

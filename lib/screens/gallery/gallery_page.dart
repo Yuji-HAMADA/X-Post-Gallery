@@ -509,6 +509,105 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
+  /// ユーザー削除の確認ダイアログ
+  Future<void> _confirmDeleteUser(String username) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('ユーザー @$username を削除しますか？'),
+        content: const Text('全てのデータが削除されます'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('削除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // プログレス表示
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('削除中...'),
+          ],
+        ),
+      ),
+    );
+
+    final vm = context.read<GalleryViewModel>();
+    final success = await vm.deleteUser(username);
+    if (mounted) Navigator.pop(context); // プログレスを閉じる
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '@$username を削除しました' : '削除に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  /// キーワード削除の確認ダイアログ
+  Future<void> _confirmDeleteKeyword(String keyword) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('キーワード $keyword を削除しますか？'),
+        content: const Text('全てのデータが削除されます'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('削除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('削除中...'),
+          ],
+        ),
+      ),
+    );
+
+    final vm = context.read<GalleryViewModel>();
+    final success = await vm.deleteKeyword(keyword);
+    if (mounted) Navigator.pop(context);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '$keyword を削除しました' : '削除に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   Future<void> _handleSearchUser() async {
     final userIdInput = await showDialog<String>(
       context: context,
@@ -1134,6 +1233,7 @@ class _GalleryPageState extends State<GalleryPage> {
           onTap: () => _openUserGallery(username),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
+          onLongPress: () => _confirmDeleteUser(username),
         );
       },
     );
@@ -1194,6 +1294,7 @@ class _GalleryPageState extends State<GalleryPage> {
           onTap: () => _openUserGallery(username, scope: favUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
+          onLongPress: () => _confirmDeleteUser(username),
         );
       },
     );
@@ -1237,6 +1338,7 @@ class _GalleryPageState extends State<GalleryPage> {
           label: keyword,
           thumbItem: thumbItem,
           onTap: () => _openKeywordGallery(keyword),
+          onLongPress: () => _confirmDeleteKeyword(keyword),
         );
       },
     );
@@ -1345,9 +1447,11 @@ class _GalleryPageState extends State<GalleryPage> {
     required String label,
     required TweetItem? thumbItem,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Stack(
         fit: StackFit.expand,
         children: [
