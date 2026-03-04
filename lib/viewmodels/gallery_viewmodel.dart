@@ -359,13 +359,44 @@ class GalleryViewModel extends ChangeNotifier {
     required int count,
     required bool stopOnExisting,
   }) async {
+    debugPrint('queueUserForFetch: username=$username, count=$count');
     final added = await _githubService.addUserToFetchQueue(
       username,
       count: count,
       stopOnExisting: stopOnExisting,
     );
+    debugPrint('queueUserForFetch: addUserToFetchQueue returned $added');
     if (!added) return false;
-    return _githubService.triggerScheduledFetchWorkflow();
+    final triggered = await _githubService.triggerScheduledFetchWorkflow();
+    debugPrint('queueUserForFetch: triggerScheduledFetchWorkflow returned $triggered');
+    return triggered;
+  }
+
+  /// キーワードをキューに追加して scheduled_fetch.yml をトリガーする
+  Future<bool> queueKeywordForFetch(
+    String keyword, {
+    required int count,
+    required bool stopOnExisting,
+  }) async {
+    final kwGistId = keywordGistId;
+    if (kwGistId.isEmpty) {
+      _errorMessage = 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません';
+      debugPrint('queueKeywordForFetch: KEYWORD_GIST_ID is empty');
+      notifyListeners();
+      return false;
+    }
+    debugPrint('queueKeywordForFetch: keyword=$keyword, gistId=$kwGistId, count=$count');
+    final added = await _githubService.addKeywordToFetchQueue(
+      keyword,
+      gistId: kwGistId,
+      count: count,
+      stopOnExisting: stopOnExisting,
+    );
+    debugPrint('queueKeywordForFetch: addKeywordToFetchQueue returned $added');
+    if (!added) return false;
+    final triggered = await _githubService.triggerScheduledFetchWorkflow();
+    debugPrint('queueKeywordForFetch: triggerScheduledFetchWorkflow returned $triggered');
+    return triggered;
   }
 
   /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）

@@ -572,7 +572,37 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    // 5. マスターGistに存在しない → Xで存在確認してから新規追加へ
+    // 5. どこにも見つからない → ユーザーかキーワードか選択ダイアログを表示
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('「$inputTrimmed」が見つかりません'),
+        content: const Text('ユーザーとして追加しますか？キーワードとして追加しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'user'),
+            child: const Text('ユーザー'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'keyword'),
+            child: const Text('キーワード'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null || !mounted) return;
+
+    if (choice == 'keyword') {
+      await _handleAddNewKeyword(inputTrimmed);
+      return;
+    }
+
+    // ユーザーとして追加: Xで存在確認
     final username = inputTrimmed;
     if (mounted) {
       showDialog(
@@ -640,36 +670,18 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    await vm.executeAppend(
-      hashtag: keyword,
+    final success = await vm.queueKeywordForFetch(
+      keyword,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
-
-    if (!mounted) return;
-    final status = vm.appendStatus;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          status == AppendStatus.completed
-              ? 'キーワードを追加しました: $keyword'
-              : 'キーワードの追加に失敗しました',
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'キューに追加しました: $keyword' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
-        backgroundColor: status == AppendStatus.completed
-            ? Colors.green
-            : Colors.redAccent,
-      ),
-    );
-    vm.clearAppendStatus();
-
-    // 成功したら追加されたキーワードのギャラリーを開く
-    if (status == AppendStatus.completed) {
-      for (final kw in vm.keywordGists.keys) {
-        if (kw.toLowerCase() == keyword.toLowerCase()) {
-          _openKeywordGallery(kw);
-          return;
-        }
-      }
+      );
     }
   }
 

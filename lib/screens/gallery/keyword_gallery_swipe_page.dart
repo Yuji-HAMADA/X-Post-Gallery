@@ -90,32 +90,20 @@ class _KeywordGallerySwipePageState extends State<KeywordGallerySwipePage> {
       return;
     }
 
-    // キーワード検索のAppendをトリガー
-    await vm.executeAppend(
-      hashtag: keyword,
+    // キーワード検索のAppendをキューに追加
+    final success = await vm.queueKeywordForFetch(
+      keyword,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
 
     if (mounted) {
-      final status = vm.appendStatus;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            status == AppendStatus.completed ? '追加完了: $keyword' : '追加に失敗しました',
-          ),
-          backgroundColor: status == AppendStatus.completed
-              ? Colors.green
-              : Colors.redAccent,
+          content: Text(success ? 'キューに追加しました: $keyword' : 'キューへの追加に失敗しました'),
+          backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
       );
-      vm.clearAppendStatus();
-
-      // リロード
-      if (status == AppendStatus.completed) {
-        setState(() => _loadedItems.remove(keyword));
-        _loadPage(_currentIndex);
-      }
     }
   }
 
