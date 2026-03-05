@@ -135,7 +135,7 @@ class _VectorCanvas extends StatelessWidget {
       constrained: false,
       boundaryMargin: EdgeInsets.zero,
       minScale: 0.1,
-      maxScale: 3.0,
+      maxScale: 4.0, // 拡大倍率の上限を上げて、2.0倍の表示を余裕でカバー
       child: SizedBox(
         width: totalWidth,
         height: maxHeight,
