@@ -190,7 +190,7 @@ def process(
         images = []
         embeddings_for_user = []
         processed = 0
-        first_image_checked = False
+        consecutive_no_faces = 0
 
         for tweet in tweets:
             if processed >= max_images:
@@ -209,16 +209,15 @@ def process(
 
                 faces = get_face_app().get(img)
                 
-                # 最初の一枚目で顔がない場合はアニメ垢と判定して即スキップ
-                if not first_image_checked:
-                    first_image_checked = True
-                    if not faces:
-                        print(f"    画像 1: 顔未検出 → アニメ垢と判定しユーザースキップ")
-                        break # break out of media_urls loop
-                
                 if not faces:
                     print(f"    画像 {processed+1}: 顔未検出、スキップ")
+                    consecutive_no_faces += 1
+                    if consecutive_no_faces >= 3:
+                        print(f"    → 3連続で顔未検出 → アニメ垢と判定しユーザースキップ")
+                        break # break out of media_urls loop
                     continue
+                else:
+                    consecutive_no_faces = 0 # reset on success
 
                 # 最大の顔を使用
                 face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
@@ -234,8 +233,8 @@ def process(
                 processed += 1
                 print(f"    画像 {processed}: ✓ ({w}x{h})")
             
-            # もし最初の画像で顔がなくて media_urls ループを抜けたなら、tweets ループも抜ける
-            if first_image_checked and not faces and processed == 0:
+            # もし3連続で顔がなくて media_urls ループを抜けたなら、tweets ループも抜ける
+            if consecutive_no_faces >= 3:
                 break
 
         # 指定枚数に達しなかったユーザーは採用しない（データ品質を揃えるため）
