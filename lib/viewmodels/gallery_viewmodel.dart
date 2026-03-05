@@ -1,9 +1,47 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import '../models/tweet_item.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
 import '../utils/env_helper.dart';
+
+/// Vector Gallery 用の画像データ
+class VectorImage {
+  final String url;
+  final String postUrl;
+  final int w;
+  final int h;
+
+  const VectorImage({
+    required this.url,
+    required this.postUrl,
+    required this.w,
+    required this.h,
+  });
+
+  factory VectorImage.fromJson(Map<String, dynamic> json) => VectorImage(
+    url: json['url'] as String? ?? '',
+    postUrl: json['post_url'] as String? ?? '',
+    w: (json['w'] as num?)?.toInt() ?? 0,
+    h: (json['h'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// Vector Gallery 用のユーザーデータ
+class VectorUser {
+  final String username;
+  final List<VectorImage> images;
+
+  const VectorUser({required this.username, required this.images});
+
+  factory VectorUser.fromJson(Map<String, dynamic> json) => VectorUser(
+    username: json['username'] as String? ?? '',
+    images: (json['images'] as List? ?? [])
+        .map((e) => VectorImage.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
+}
 
 enum GalleryStatus { initial, loading, authenticated, error }
 
@@ -19,6 +57,7 @@ const String _externalKeywordGistId = String.fromEnvironment('KEYWORD_GIST_ID');
 const String _externalCharacterGistId = String.fromEnvironment(
   'CHARACTER_GIST_ID',
 );
+const String _externalVectorGistId = String.fromEnvironment('VECTOR_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -61,6 +100,12 @@ class GalleryViewModel extends ChangeNotifier {
   List<TweetItem> _characterItems = [];
   List<TweetItem> get characterItems => _characterItems;
 
+  // --- Vector Gallery ---
+  List<VectorUser> _vectorUsers = [];
+  List<VectorUser> get vectorUsers => _vectorUsers;
+  bool _vectorLoading = false;
+  bool get vectorLoading => _vectorLoading;
+
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
@@ -86,6 +131,8 @@ class GalleryViewModel extends ChangeNotifier {
       resolveEnv(_externalKeywordGistId, 'KEYWORD_GIST_ID');
   String get characterGistId =>
       resolveEnv(_externalCharacterGistId, 'CHARACTER_GIST_ID');
+  String get vectorGistId =>
+      resolveEnv(_externalVectorGistId, 'VECTOR_GIST_ID');
 
   void _setError(String message) {
     _errorMessage = message;
@@ -715,4 +762,43 @@ class GalleryViewModel extends ChangeNotifier {
   /// スクロール位置の保存・復元
   Future<int?> getSavedScrollIndex() => _repository.getSavedScrollIndex();
   Future<void> saveScrollIndex(int index) => _repository.saveScrollIndex(index);
+
+  // --- Vector Gallery ---
+
+  /// Vector Gallery Gist から画像データを取得・パース
+  Future<void> loadVectorGallery() async {
+    final gistId = vectorGistId;
+    if (gistId.isEmpty) {
+      debugPrint('VECTOR_GIST_ID is not set');
+      return;
+    }
+
+    _vectorLoading = true;
+    notifyListeners();
+
+    try {
+      final t = DateTime.now().millisecondsSinceEpoch;
+      final url =
+          'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/?t=$t';
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) {
+        debugPrint('Vector Gist fetch failed: ${response.statusCode}');
+        _vectorLoading = false;
+        notifyListeners();
+        return;
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      _vectorUsers = (data['users'] as List? ?? [])
+          .map((e) => VectorUser.fromJson(e as Map<String, dynamic>))
+          .toList();
+
+      debugPrint('Vector Gallery loaded: ${_vectorUsers.length} users');
+    } catch (e) {
+      debugPrint('loadVectorGallery error: $e');
+    }
+
+    _vectorLoading = false;
+    notifyListeners();
+  }
 }

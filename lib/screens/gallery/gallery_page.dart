@@ -11,6 +11,7 @@ import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
 import 'keyword_gallery_swipe_page.dart';
 import 'user_gallery_swipe_page.dart';
+import 'vector_gallery_page.dart';
 
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
@@ -848,7 +849,7 @@ class _GalleryPageState extends State<GalleryPage> {
       return key != null && vm.isFavorite(key);
     }).toList();
 
-    final pageTitles = ['Favorite', 'User', 'Keyword', 'Character'];
+    final pageTitles = ['Favorite', 'User', 'Keyword', 'Character', 'Vector'];
     final currentTitle = vm.isSelectionMode
         ? '${vm.selectedIds.length}件選択中'
         : pageTitles[_currentPage];
@@ -865,7 +866,16 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: () =>
                       context.read<GalleryViewModel>().clearSelection(),
                 )
-              : null,
+              : _currentPage == 4 // Vector tab
+                  ? IconButton(
+                      icon: const Icon(Icons.home),
+                      onPressed: () {
+                        // Favoriteタブに遷移
+                        _pageController.jumpToPage(0);
+                        setState(() => _currentPage = 0);
+                      },
+                    )
+                  : null,
           title: Text(currentTitle),
           actions: [
             if (!vm.isSelectionMode) ...[
@@ -881,7 +891,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: _loadFavoritesFromGist,
                 ),
               ],
-              if (isUserPage || isCharPage)
+              if (isFavPage || isUserPage || isCharPage)
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: '再読み込み',
@@ -947,6 +957,10 @@ class _GalleryPageState extends State<GalleryPage> {
             ? const Center(child: CircularProgressIndicator())
             : PageView(
                 controller: _pageController,
+                // Vector タブではスワイプを無効化（InteractiveViewer と競合するため）
+                physics: _currentPage == 4
+                    ? const NeverScrollableScrollPhysics()
+                    : null,
                 onPageChanged: (page) {
                   setState(() => _currentPage = page);
                 },
@@ -963,6 +977,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   ),
                   _buildKeywordGrid(vm),
                   _buildCharacterGrid(vm),
+                  const VectorGalleryPage(),
                 ],
               ),
       ),
