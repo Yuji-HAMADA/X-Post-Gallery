@@ -78,7 +78,27 @@ class _GalleryPageState extends State<GalleryPage> {
     }
     if (found) {
       _restoreScrollPosition();
+      _applyInitialTab();
     }
+  }
+
+  void _applyInitialTab() {
+    final t = Uri.base.queryParameters['t'];
+    if (t == null) return;
+    const pageMap = {
+      'favorite': 0,
+      'user': 1,
+      'keyword': 2,
+      'character': 3,
+      'vector': 4,
+    };
+    final page = pageMap[t.toLowerCase()];
+    if (page == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _pageController.jumpToPage(page);
+      setState(() => _currentPage = page);
+    });
   }
 
   void _restoreScrollPosition() async {
@@ -343,18 +363,22 @@ class _GalleryPageState extends State<GalleryPage> {
 
     final vm = context.read<GalleryViewModel>();
     final result = await AppendConfigDialog.show(context);
+    debugPrint('_handleAppend: AppendConfigDialog result=$result');
     if (result == null) return;
 
     if (!await vm.isAdminAuthenticated()) {
+      debugPrint('_handleAppend: Admin NOT authenticated');
       if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
       return;
     }
 
+    debugPrint('_handleAppend: Queueing user @$username with count=${result.count}, stopOnExisting=${result.stopOnExisting}');
     final success = await vm.queueUserForFetch(
       username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
+    debugPrint('_handleAppend: queueUserForFetch success=$success');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

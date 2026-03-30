@@ -68,10 +68,15 @@ class _AppendConfigDialogState extends State<AppendConfigDialog> {
           child: const Text('キャンセル'),
         ),
         ElevatedButton(
-          onPressed: () => Navigator.pop(context, (
-            count: int.tryParse(_countController.text) ?? 100,
-            stopOnExisting: _stopOnExisting,
-          )),
+          onPressed: () {
+            final count = int.tryParse(_countController.text) ?? 100;
+            final stopOnExisting = _stopOnExisting;
+            debugPrint('AppendConfigDialog: Execute pressed. count=$count, stopOnExisting=$stopOnExisting');
+            Navigator.pop(context, (
+              count: count,
+              stopOnExisting: stopOnExisting,
+            ));
+          },
           child: const Text('実行'),
         ),
       ],

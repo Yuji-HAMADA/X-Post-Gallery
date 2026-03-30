@@ -115,6 +115,7 @@ class GitHubService {
     required String filename,
     required String content,
   }) async {
+    debugPrint('GitHubService: updateGistFile gistId=$gistId, filename=$filename');
     final url = Uri.parse('https://api.github.com/gists/$gistId');
     final response = await http.patch(
       url,
@@ -125,6 +126,7 @@ class GitHubService {
         },
       }),
     );
+    debugPrint('GitHubService: updateGistFile response status=${response.statusCode}');
     return response.statusCode == 200;
   }
 
@@ -194,7 +196,23 @@ class GitHubService {
     if (response.statusCode != 200) return null;
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final files = body['files'] as Map<String, dynamic>?;
-    return files?[filename]?['content'] as String?;
+    final fileObj = files?[filename] as Map<String, dynamic>?;
+    
+    if (fileObj == null) return null;
+
+    final isTruncated = fileObj['truncated'] as bool? ?? false;
+    final rawUrl = fileObj['raw_url'] as String?;
+
+    if (isTruncated && rawUrl != null) {
+      // truncated されている場合は raw_url から直接取得する
+      final rawResponse = await http.get(Uri.parse(rawUrl), headers: _headers);
+      if (rawResponse.statusCode == 200) {
+        return rawResponse.body;
+      }
+      return null;
+    }
+
+    return fileObj['content'] as String?;
   }
 
   /// 2スロットリングバッファの読み込み
@@ -257,10 +275,17 @@ class GitHubService {
     int? count,
     bool stopOnExisting = true,
   }) async {
+    debugPrint('GitHubService: addUserToFetchQueue username=$username');
     final slots = await _loadQueueSlots();
-    if (slots == null) return false;
+    if (slots == null) {
+      debugPrint('GitHubService: addUserToFetchQueue FAILED to load slots');
+      return false;
+    }
 
-    if (_isDuplicateInSlots(slots, 'user', username)) return true;
+    if (_isDuplicateInSlots(slots, 'user', username)) {
+      debugPrint('GitHubService: addUserToFetchQueue DUPLICATE found for $username');
+      return true;
+    }
 
     final target = slots.writeTarget(fetchQueueGistId);
     final newEntry = <String, dynamic>{
@@ -271,6 +296,7 @@ class GitHubService {
     target.users.add(newEntry);
     target.data['users'] = target.users;
 
+    debugPrint('GitHubService: addUserToFetchQueue writing to gistId=${target.gistId}');
     return updateGistFile(
       gistId: target.gistId,
       filename: 'fetch_queue.json',
