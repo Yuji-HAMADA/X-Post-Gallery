@@ -5,6 +5,7 @@ import 'package:x_post_gallery/screens/gallery/gallery_page.dart';
 import 'package:x_post_gallery/viewmodels/gallery_viewmodel.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
 
   runApp(const ReViewGallery());

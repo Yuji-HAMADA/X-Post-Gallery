@@ -171,9 +171,9 @@ class _DetailImageItemState extends State<DetailImageItem>
             const double scale = 2.0;
 
             final Matrix4 result = Matrix4.identity()
-              ..translateByDouble(position.dx, position.dy, 0.0, 1.0)
-              ..scaleByDouble(scale, scale, 1.0, 1.0)
-              ..translateByDouble(-position.dx, -position.dy, 0.0, 1.0);
+              ..translate(position.dx, position.dy)
+              ..scale(scale, scale)
+              ..translate(-position.dx, -position.dy);
             _runAnimationForIndex(index, result);
             _updateZoomState(true);
           }

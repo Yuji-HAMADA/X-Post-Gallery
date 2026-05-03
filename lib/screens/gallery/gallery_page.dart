@@ -929,44 +929,48 @@ class _GalleryPageState extends State<GalleryPage> {
                   switch (value) {
                     case 'key':
                       _showPasswordDialog(canCancel: true);
+                      break;
                     case 'refresh':
                       _handleRefresh();
+                      break;
                     case 'search_user':
                       _handleSearchUser();
+                      break;
                     case 'fetch_favorites':
                       _handleFetchAllFavorites();
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'search_user',
                     child: ListTile(
-                      leading: Icon(Icons.person_search),
-                      title: Text('キーワード検索'),
+                      leading: const Icon(Icons.person_search),
+                      title: const Text('キーワード検索'),
                       dense: true,
                     ),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'fetch_favorites',
                     child: ListTile(
-                      leading: Icon(Icons.favorite),
-                      title: Text('お気に入り一括取得'),
+                      leading: const Icon(Icons.favorite),
+                      title: const Text('お気に入り一括取得'),
                       dense: true,
                     ),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'key',
                     child: ListTile(
-                      leading: Icon(Icons.vpn_key_outlined),
-                      title: Text('Gist ID'),
+                      leading: const Icon(Icons.vpn_key_outlined),
+                      title: const Text('Gist ID'),
                       dense: true,
                     ),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'refresh',
                     child: ListTile(
-                      leading: Icon(Icons.auto_awesome),
-                      title: Text('ForYou'),
+                      leading: const Icon(Icons.auto_awesome),
+                      title: const Text('ForYou'),
                       dense: true,
                     ),
                   ),
@@ -1123,44 +1127,48 @@ class _GalleryPageState extends State<GalleryPage> {
                 switch (value) {
                   case 'key':
                     _showPasswordDialog(canCancel: true);
+                    break;
                   case 'refresh':
                     _handleRefresh();
+                    break;
                   case 'search_user':
                     _handleSearchUser();
+                    break;
                   case 'fetch_favorites':
                     _handleFetchAllFavorites();
+                    break;
                 }
               },
               itemBuilder: (context) => [
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'search_user',
                   child: ListTile(
-                    leading: Icon(Icons.person_search),
-                    title: Text('キーワード検索'),
+                    leading: const Icon(Icons.person_search),
+                    title: const Text('キーワード検索'),
                     dense: true,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'fetch_favorites',
                   child: ListTile(
-                    leading: Icon(Icons.favorite),
-                    title: Text('お気に入り一括取得'),
+                    leading: const Icon(Icons.favorite),
+                    title: const Text('お気に入り一括取得'),
                     dense: true,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'key',
                   child: ListTile(
-                    leading: Icon(Icons.vpn_key_outlined),
-                    title: Text('Gist ID'),
+                    leading: const Icon(Icons.vpn_key_outlined),
+                    title: const Text('Gist ID'),
                     dense: true,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'refresh',
                   child: ListTile(
-                    leading: Icon(Icons.auto_awesome),
-                    title: Text('ForYou'),
+                    leading: const Icon(Icons.auto_awesome),
+                    title: const Text('ForYou'),
                     dense: true,
                   ),
                 ),
