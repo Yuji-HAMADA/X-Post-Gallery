@@ -2,7 +2,7 @@ name: Fetch Favorites
 
 on:
   schedule:
-    - cron: '0 17 * * *'  # UTC 17:00 = JST 2:00
+    - cron: '0 5,11,17,23 * * *'  # UTC 5:00, 11:00, 17:00, 23:00 = JST 14:00, 20:00, 2:00, 8:00
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   fetch-favorites:
     runs-on: ubuntu-latest
-    timeout-minutes: 720
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -87,24 +87,29 @@ jobs:
             exit 1
           fi
 
-          for USER in "${FAV_USERS[@]}"; do
-            # 未処理エントリに既に存在するかチェック
-            EXISTS=$(echo "$QUEUE_JSON" | jq -r --arg u "$USER" \
-              '[.users[] | select(.done != true and (.user | ascii_downcase) == ($u | ascii_downcase))] | length')
-            if [ "$EXISTS" -gt 0 ]; then
-              echo "Skip (already queued): @$USER"
-              continue
-            fi
-            # 追加
-            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg u "$USER" \
-              '.users += [{"user": $u, "count": 100, "stop_on_existing": true}]')
-            echo "Added: @$USER"
-          done
+          # 未処理エントリ（done != true）があるかチェック
+          UNFINISHED_COUNT=$(echo "$QUEUE_JSON" | jq -r '[.users[]? | select(.done != true)] | length')
+          echo "Unprocessed entries in current queue: $UNFINISHED_COUNT"
 
-          # Gist に書き戻し
-          printf '%s' "$QUEUE_JSON" > /tmp/fq_favs.json
-          gh gist edit "$SLOT0_ID" -f fetch_queue.json /tmp/fq_favs.json
-          echo "Queue updated."
+          if [ "$UNFINISHED_COUNT" -gt 0 ]; then
+            echo "Queue still has unprocessed entries. Skipping favorites reloading to resume progress."
+          else
+            echo "All previous queue entries are finished (or queue is empty). Reloading favorites list."
+            # users 配列をクリアして、新しいお気に入りリストを設定
+            QUEUE_JSON=$(echo "$QUEUE_JSON" | jq '.users = []')
+
+            for USER in "${FAV_USERS[@]}"; do
+              # 追加
+              QUEUE_JSON=$(echo "$QUEUE_JSON" | jq --arg u "$USER" \
+                '.users += [{"user": $u, "count": 100, "stop_on_existing": true}]')
+              echo "Added: @$USER"
+            done
+
+            # Gist に書き戻し
+            printf '%s' "$QUEUE_JSON" > /tmp/fq_favs.json
+            gh gist edit "$SLOT0_ID" -f fetch_queue.json /tmp/fq_favs.json
+            echo "Queue updated with fresh favorites."
+          fi
 
       - name: Process Queue
         env:
@@ -112,6 +117,9 @@ jobs:
           FETCH_QUEUE_GIST_ID: ${{ secrets.FETCH_QUEUE_GIST_ID }}
         run: |
           chmod +x append_gist.sh
+
+          # --- 開始時間の記録（5時間タイムアウト判定用） ---
+          START_TIME=$(date +%s)
 
           # --- スロット0を読み込み、sibling_gist_id でスロット1のIDを取得 ---
           SLOT0_ID="$FETCH_QUEUE_GIST_ID"
@@ -251,6 +259,19 @@ jobs:
               fi
               printf '%s' "$LATEST_JSON" > /tmp/fq_done.json
               gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_done.json
+
+              # タイムアウト判定 (5時間 = 18000 秒)
+              CURRENT_TIME=$(date +%s)
+              ELAPSED=$((CURRENT_TIME - START_TIME))
+              if [ "$ELAPSED" -ge 18000 ]; then
+                echo "⚠️ Time limit of 5 hours reached ($ELAPSED seconds elapsed). Saving progress and stopping execution."
+                # 両スロットのステータスを idle に戻して終了する
+                reset_status "$SLOT0_ID"
+                if [ -n "$SLOT1_ID" ]; then
+                  reset_status "$SLOT1_ID"
+                fi
+                exit 0
+              fi
             done
 
             # status を "idle" に戻す
