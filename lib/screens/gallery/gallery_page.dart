@@ -595,7 +595,10 @@ class _GalleryPageState extends State<GalleryPage> {
     if (!mounted) return;
 
     final vm = context.read<GalleryViewModel>();
-    final inputTrimmed = userIdInput.trim();
+    var inputTrimmed = userIdInput.trim();
+    if (inputTrimmed.startsWith('@')) {
+      inputTrimmed = inputTrimmed.substring(1).trim();
+    }
     final inputLower = inputTrimmed.toLowerCase();
     // スペースを含む入力は X ユーザー名になれないのでキーワード専用扱い
     final isKeywordInput = inputTrimmed.contains(' ');

@@ -8,5 +8,6 @@
     "**/x_post_gallery.iml": true,
     "**/.metadata": true
   },
-  "remote.autoForwardPortsFallback": 0
+  "remote.autoForwardPortsFallback": 0,
+  "java.configuration.updateBuildConfiguration": "interactive"
 }
