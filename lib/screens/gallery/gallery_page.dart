@@ -1226,6 +1226,9 @@ class _GalleryPageState extends State<GalleryPage> {
           item.username ??
           (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
               '_unknown');
+      if (favoriteUsers.contains(key)) {
+        continue;
+      }
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
@@ -1557,7 +1560,9 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Future<void> _toggleUserRandomMode() async {
     final vm = context.read<GalleryViewModel>();
-    final usernames = _getAllUsernames(vm.items);
+    final usernames = _getAllUsernames(vm.items)
+        .where((username) => !vm.favoriteUsers.contains(username))
+        .toList();
     if (usernames.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1574,7 +1579,7 @@ class _GalleryPageState extends State<GalleryPage> {
       MaterialPageRoute(
         builder: (_) => RandomGallerySwipePage(
           usernames: usernames,
-          title: 'ランダム表示 (全ユーザー)',
+          title: 'ランダム表示 (ユーザー)',
         ),
       ),
     );
@@ -1600,6 +1605,9 @@ class _GalleryPageState extends State<GalleryPage> {
             item.username ??
             (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
                 '_unknown');
+        if (vm.favoriteUsers.contains(key)) {
+          continue;
+        }
         countMap[key] = (countMap[key] ?? 0) + 1;
       }
       sortedUsernames = countMap.keys.toList()

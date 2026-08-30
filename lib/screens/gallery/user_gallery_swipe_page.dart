@@ -145,6 +145,54 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     }
   }
 
+  Future<void> _confirmDeleteUser(String username) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ユーザー削除'),
+        content: Text('ユーザー @$username と、そのすべてのポストをマスターGistおよびローカルキャッシュから完全に削除しますか？\n(Gist自体の削除ではなく、インデックスからの除外です)'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('削除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (!mounted) return;
+    final vm = context.read<GalleryViewModel>();
+    if (!await vm.isAdminAuthenticated()) {
+      if (mounted) {
+        showErrorSnackBar(context, 'マスターGist IDでログインしてください');
+      }
+      return;
+    }
+
+    if (mounted) {
+      showProgressDialog(context);
+    }
+
+    final success = await vm.deleteUser(username);
+
+    if (mounted) {
+      Navigator.pop(context); // Close progress dialog
+      if (success) {
+        showSuccessSnackBar(context, '@$username を削除しました');
+        Navigator.pop(context); // Go back to previous screen
+      } else {
+        showErrorSnackBar(context, '削除失敗: ${vm.errorMessage}');
+      }
+    }
+  }
+
   Future<void> _launchX(String username) async {
     final url = Uri.parse('https://x.com/$username');
     try {
@@ -216,6 +264,11 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                   icon: const Icon(Icons.add),
                   tooltip: '追加',
                   onPressed: () => _handleAppend(username),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.redAccent),
+                  tooltip: 'ユーザーを削除',
+                  onPressed: () => _confirmDeleteUser(username),
                 ),
               ],
             ],
