@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_image_item.dart';
+import 'user_gallery_swipe_page.dart';
 
 /// ランダムに選んだユーザーの画像を左右スワイプで表示するページ
 class RandomGallerySwipePage extends StatefulWidget {
@@ -147,15 +148,32 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     }
   }
 
-  Future<void> _launchXProfile(String username) async {
-    final url = Uri.parse('https://x.com/$username');
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      _showError('リンクを開けませんでした: $e');
+  void _openUserGallery(String username) {
+    if (!mounted) return;
+    final vm = context.read<GalleryViewModel>();
+
+    int initialIndex = widget.usernames.indexWhere(
+      (u) => u.toLowerCase() == username.toLowerCase(),
+    );
+
+    List<String> sortedUsernames = List.from(widget.usernames);
+    if (initialIndex < 0) {
+      sortedUsernames.insert(0, username);
+      initialIndex = 0;
     }
+
+    final gistIds = sortedUsernames.map((u) => vm.userGists[u]).toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UserGallerySwipePage(
+          usernames: sortedUsernames,
+          userGistIds: gistIds,
+          initialIndex: initialIndex,
+        ),
+      ),
+    );
   }
 
   void _showError(String msg) {
@@ -253,7 +271,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
             foregroundColor: Colors.white,
             title: currentUsername != null
                 ? GestureDetector(
-                    onTap: () => _launchXProfile(currentUsername),
+                    onTap: () => _openUserGallery(currentUsername),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -266,8 +284,8 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
                         ),
                         const SizedBox(width: 4),
                         const Icon(
-                          Icons.open_in_new,
-                          size: 14,
+                          Icons.chevron_right,
+                          size: 18,
                           color: Colors.white70,
                         ),
                       ],
