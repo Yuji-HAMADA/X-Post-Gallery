@@ -12,6 +12,7 @@ import 'components/user_id_input_dialog.dart';
 import 'keyword_gallery_swipe_page.dart';
 import 'user_gallery_swipe_page.dart';
 import 'vector_gallery_page.dart';
+import 'random_gallery_swipe_page.dart';
 
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
@@ -48,6 +49,8 @@ class _GalleryPageState extends State<GalleryPage> {
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
   bool _aiFilterEnabled = false; // AI（顔認識）で抽出した画像のみ表示するフィルター
+  bool _isFavRandomChecked = false;
+  bool _isUserRandomChecked = false;
 
   @override
   void initState() {
@@ -942,9 +945,27 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'fetch_favorites':
                       _handleFetchAllFavorites();
                       break;
+                    case 'random_fav':
+                      _toggleFavRandomMode();
+                      break;
+                    case 'random_user':
+                      _toggleUserRandomMode();
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
+                  if (isFavPage)
+                    CheckedPopupMenuItem<String>(
+                      value: 'random_fav',
+                      checked: _isFavRandomChecked,
+                      child: const Text('ランダム選択'),
+                    ),
+                  if (isUserPage)
+                    CheckedPopupMenuItem<String>(
+                      value: 'random_user',
+                      checked: _isUserRandomChecked,
+                      child: const Text('ランダム選択'),
+                    ),
                   PopupMenuItem(
                     value: 'search_user',
                     child: ListTile(
@@ -1490,6 +1511,77 @@ class _GalleryPageState extends State<GalleryPage> {
         ],
       ),
     );
+  }
+
+  List<String> _getAllUsernames(List<TweetItem> items) {
+    final userRegExp = RegExp(r'^@([^:]+):');
+    final Set<String> usernames = {};
+    for (final item in items) {
+      final key = item.username ??
+          userRegExp.firstMatch(item.fullText)?.group(1)?.trim();
+      if (key != null && key != '_unknown') {
+        usernames.add(key);
+      }
+    }
+    return usernames.toList();
+  }
+
+  Future<void> _toggleFavRandomMode() async {
+    final vm = context.read<GalleryViewModel>();
+    final usernames = vm.favoriteUsers.toList();
+    if (usernames.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('お気に入りユーザーが登録されていません')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isFavRandomChecked = true);
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RandomGallerySwipePage(
+          usernames: usernames,
+          title: 'ランダム表示 (お気に入り)',
+        ),
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _isFavRandomChecked = false);
+    }
+  }
+
+  Future<void> _toggleUserRandomMode() async {
+    final vm = context.read<GalleryViewModel>();
+    final usernames = _getAllUsernames(vm.items);
+    if (usernames.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ユーザーが見つかりません')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isUserRandomChecked = true);
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RandomGallerySwipePage(
+          usernames: usernames,
+          title: 'ランダム表示 (全ユーザー)',
+        ),
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _isUserRandomChecked = false);
+    }
   }
 
   Future<void> _openUserGallery(String username, {List<String>? scope}) async {
