@@ -1614,10 +1614,13 @@ class _GalleryPageState extends State<GalleryPage> {
         ..sort((a, b) => countMap[b]!.compareTo(countMap[a]!));
     }
 
-    final initialIndex = sortedUsernames.indexWhere(
+    int initialIndex = sortedUsernames.indexWhere(
       (u) => u.toLowerCase() == username.toLowerCase(),
     );
-    final safeIndex = initialIndex < 0 ? 0 : initialIndex;
+    if (initialIndex < 0) {
+      sortedUsernames = List.from(sortedUsernames)..insert(0, username);
+      initialIndex = 0;
+    }
 
     final gistIds = sortedUsernames.map((u) => vm.userGists[u]).toList();
 
@@ -1628,7 +1631,7 @@ class _GalleryPageState extends State<GalleryPage> {
           builder: (_) => UserGallerySwipePage(
             usernames: sortedUsernames,
             userGistIds: gistIds,
-            initialIndex: safeIndex,
+            initialIndex: initialIndex,
           ),
         ),
       );
