@@ -78,6 +78,15 @@ class TweetItem {
   List<String> get origUrls =>
       mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
 
+  /// ツイート本文の先頭にある "@username:" からスクリーンネームを抽出する（username フィールドがある場合はそれを優先する）
+  String? get extractedUsername {
+    if (username != null && username!.isNotEmpty) {
+      return username;
+    }
+    final match = RegExp(r'^@([^:]+):').firstMatch(fullText);
+    return match?.group(1)?.trim();
+  }
+
   Map<String, dynamic> toJson() => {
     'full_text': fullText,
     'created_at': createdAt,

@@ -117,21 +117,10 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     }
   }
 
-  String? _getUsername(TweetItem item) {
-    if (item.username != null && item.username!.isNotEmpty) {
-      return item.username;
-    }
-    final match = RegExp(r'^@([^:]+):').firstMatch(item.fullText);
-    if (match != null) {
-      return match.group(1)?.trim();
-    }
-    return null;
-  }
-
   Future<void> _launchTweet(TweetItem item) async {
     String? urlStr = item.postUrl;
     if (urlStr == null || urlStr.isEmpty) {
-      final username = _getUsername(item);
+      final username = item.extractedUsername;
       if (username != null && username.isNotEmpty && item.id.isNotEmpty) {
         urlStr = 'https://x.com/$username/status/${item.id}';
       }
@@ -256,7 +245,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     }
 
     final currentItem = _historyIndex < _historyItems.length ? _historyItems[_historyIndex] : null;
-    final currentUsername = currentItem != null ? _getUsername(currentItem) : null;
+    final currentUsername = currentItem?.extractedUsername;
 
     return Consumer<GalleryViewModel>(
       builder: (context, vm, _) {

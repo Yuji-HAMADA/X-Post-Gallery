@@ -30,12 +30,7 @@ void main() {
 
       final item = TweetItem.fromJson(json);
       expect(item.username, isNull);
-
-      // Extract username using the same regex as the application code
-      final match = RegExp(r'^@([^:]+):').firstMatch(item.fullText);
-      final extractedUsername = match?.group(1)?.trim();
-
-      expect(extractedUsername, 'extracted_user');
+      expect(item.extractedUsername, 'extracted_user');
     });
 
     test('All usernames helper logic should properly extract unique list of usernames', () {
@@ -70,11 +65,9 @@ void main() {
         ),
       ];
 
-      final userRegExp = RegExp(r'^@([^:]+):');
       final Set<String> usernames = {};
       for (final item in items) {
-        final key = item.username ??
-            userRegExp.firstMatch(item.fullText)?.group(1)?.trim();
+        final key = item.extractedUsername;
         if (key != null && key != '_unknown') {
           usernames.add(key);
         }

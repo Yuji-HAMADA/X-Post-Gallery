@@ -222,11 +222,10 @@ class GalleryViewModel extends ChangeNotifier {
       return await _repository.fetchUserGist(gistId, username);
     }
     // マスターデータからフィルタ（1件のみユーザー等）
-    final pattern = RegExp(r'^@([^:]+):');
     return _items.where((item) {
-      final m = pattern.firstMatch(item.fullText);
-      return m != null &&
-          m.group(1)?.trim().toLowerCase() == username.toLowerCase();
+      final extName = item.extractedUsername;
+      return extName != null &&
+          extName.toLowerCase() == username.toLowerCase();
     }).toList();
   }
 
@@ -709,12 +708,7 @@ class GalleryViewModel extends ChangeNotifier {
     if (masterGistId.isEmpty) return;
 
     _userGists = Map.from(_userGists)..remove(username);
-    _items = _items.where((item) {
-      final key =
-          item.username ??
-          RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
-      return key != username;
-    }).toList();
+    _items = _items.where((item) => item.extractedUsername != username).toList();
 
     final filename = _repository.lastGistFilename ?? 'data.json';
     final jsonStr = _repository.buildMasterGistJson(

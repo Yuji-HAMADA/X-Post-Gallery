@@ -18,7 +18,7 @@ from pathlib import Path
 
 import requests
 
-MASTER_GIST_ID = "a1d145b2d15d227ed1c051f3824b19fc"
+MASTER_GIST_ID = "8c6c667667a8e1c442e4fdb3939f40de"
 GITHUB_API = "https://api.github.com"
 USER_PATTERN = re.compile(r"^@([^:]+):")
 

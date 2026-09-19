@@ -622,11 +622,9 @@ class _GalleryPageState extends State<GalleryPage> {
       }
 
       // 2. マスターアイテムから検索 (case-insensitive)
-      final userRegExp = RegExp(r'^@([^:]+):');
       for (final item in vm.items) {
-        final m = userRegExp.firstMatch(item.fullText);
-        if (m != null) {
-          final username = m.group(1)!.trim();
+        final username = item.extractedUsername;
+        if (username != null) {
           if (username.toLowerCase() == inputLower) {
             matchedUsername = username;
             break;
@@ -873,9 +871,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final isUserPage = _currentPage == 1;
     final isCharPage = _currentPage == 3;
     final favoriteItems = vm.items.where((item) {
-      final key =
-          item.username ??
-          RegExp(r'^@([^:]+):').firstMatch(item.fullText)?.group(1)?.trim();
+      final key = item.extractedUsername;
       return key != null && vm.isFavorite(key);
     }).toList();
 
@@ -1219,13 +1215,9 @@ class _GalleryPageState extends State<GalleryPage> {
     Map<String, String> userGists,
     Set<String> favoriteUsers,
   ) {
-    final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
-      final key =
-          item.username ??
-          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
-              '_unknown');
+      final key = item.extractedUsername ?? '_unknown';
       if (favoriteUsers.contains(key)) {
         continue;
       }
@@ -1281,13 +1273,9 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    final userRegExp = RegExp(r'^@([^:]+):');
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in favoriteItems) {
-      final key =
-          item.username ??
-          (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
-              '_unknown');
+      final key = item.extractedUsername ?? '_unknown';
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
@@ -1517,11 +1505,9 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   List<String> _getAllUsernames(List<TweetItem> items) {
-    final userRegExp = RegExp(r'^@([^:]+):');
     final Set<String> usernames = {};
     for (final item in items) {
-      final key = item.username ??
-          userRegExp.firstMatch(item.fullText)?.group(1)?.trim();
+      final key = item.extractedUsername;
       if (key != null && key != '_unknown') {
         usernames.add(key);
       }
@@ -1598,13 +1584,9 @@ class _GalleryPageState extends State<GalleryPage> {
       sortedUsernames = scope;
     } else {
       // グリッドと同じ順序（マスター件数降順）でユーザー一覧を構築
-      final userRegExp = RegExp(r'^@([^:]+):');
       final Map<String, int> countMap = {};
       for (final item in vm.items) {
-        final key =
-            item.username ??
-            (userRegExp.firstMatch(item.fullText)?.group(1)?.trim() ??
-                '_unknown');
+        final key = item.extractedUsername ?? '_unknown';
         if (vm.favoriteUsers.contains(key)) {
           continue;
         }
