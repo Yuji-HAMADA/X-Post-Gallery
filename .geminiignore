@@ -36,7 +36,6 @@ assets/data/data.json
 
 # Google Services
 android/app/google-services.json
-lib/firebase_options.dart
 
 # Git
 .git/
