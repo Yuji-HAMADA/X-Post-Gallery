@@ -10,18 +10,14 @@ PostViewer (package name: `x_post_gallery`) is a Flutter gallery app that displa
 
 ```bash
 # Flutter
-flutter run -d chrome          # Run web dev server
-flutter build web               # Build for web (deployed to Firebase Hosting)
+flutter run                      # Run on default device
 flutter analyze                  # Run Dart static analysis (uses flutter_lints)
 flutter test                     # Run widget tests
-
-# Web build with GitHub token baked in
-flutter build web --dart-define=GITHUB_TOKEN=<token>
 
 # Python scraping pipeline (requires data/auth.json with X session cookies)
 python3 scripts/extract_media.py -u <username> --mode all -n 100
 python3 scripts/update_data.py
-
+```
 # Full pipeline via shell script (requires gh CLI authenticated)
 ./gh_upload_gist.sh -u <username> -m all -n 100
 ```
