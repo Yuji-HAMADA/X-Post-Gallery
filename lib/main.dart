@@ -22,9 +22,10 @@ class ReViewGallery extends StatelessWidget {
         title: 'ReViewGallery',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: Colors.indigo,
-          brightness: Brightness.dark,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.indigo,
+            brightness: Brightness.dark,
+          ),
         ),
         home: const GalleryPage(),
       ),
