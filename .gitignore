@@ -50,6 +50,7 @@ data/auth.json
 data/debug_screen.png
 data/known_ids.txt
 data/tweets.js
+data/cleanup_dead_links_state.json
 assets/data/data.json
 
 scripts/split_gist_by_user.py
