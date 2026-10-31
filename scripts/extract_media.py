@@ -121,7 +121,10 @@ async def run():
         page.on("response", handle_response)
         
         await page.goto(url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(10000)
+        try:
+            await page.wait_for_selector('article', timeout=12000)
+        except Exception:
+            await page.wait_for_timeout(3000)
 
         # ページ全体のテキストからレート制限をチェック
         try:
@@ -213,12 +216,6 @@ async def run():
             print("🚨 Rate limit detected from X! Exiting with code 42.")
             await browser.close()
             sys.exit(42)
-
-        # 既知ツイートが多数あるユーザーなのに、記事が一切パースできなかった場合はロード失敗またはブロックとみなす
-        if len(seen_ids) == 0 and len(new_tweets) == 0 and len(skip_ids) >= 5:
-            print(f"❌ Error: No articles found for user with {len(skip_ids)} known tweets. Page load failed or blocked.")
-            await browser.close()
-            sys.exit(2)
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")
