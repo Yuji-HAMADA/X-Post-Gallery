@@ -50,7 +50,22 @@ async def extract_tweet_data(article):
     is_repost = any(w in inner_text for w in ["リポスト", "Reposted", "reposted"])
     if is_repost: return None
 
-    is_pinned = any(w in inner_text for w in ["固定されたポスト", "Pinned", "Pinned Tweet", "固定されたツイート"])
+    # 固定ツイート（Pinned Tweet）判定（言語・UI構造差異に対応）
+    social_context = await article.query_selector('[data-testid="socialContext"]')
+    social_text = (await social_context.inner_text()).strip() if social_context else ""
+    pinned_keywords = [
+        "固定されたポスト", "固定されたツイート", "固定ツイート",
+        "ピン留めされたポスト", "ピン留め",
+        "Pinned", "Pinned Tweet", "Pinned Post", "Pinned post"
+    ]
+    is_pinned = (
+        any(w in inner_text for w in pinned_keywords) or
+        any(w in social_text for w in pinned_keywords)
+    )
+    if not is_pinned and social_context:
+        sc_html = (await social_context.inner_html()).lower()
+        if "pin" in sc_html or any(w in social_text for w in ["固定", "ピン"]):
+            is_pinned = True
 
     tweet_text_el = await article.query_selector('[data-testid="tweetText"]')
     raw_text = await tweet_text_el.inner_text() if tweet_text_el else ""
@@ -125,6 +140,7 @@ async def run():
             await page.wait_for_selector('article', timeout=12000)
         except Exception:
             await page.wait_for_timeout(3000)
+        await asyncio.sleep(2)
 
         # ページ全体のテキストからレート制限をチェック
         try:
@@ -146,8 +162,10 @@ async def run():
             print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
 
         CONSECUTIVE_STOP = 5  # 連続一致でストップする閾値
+        MIN_SCROLLS_FOR_STOP = 3  # 通常ツイートを十分に確認するため停止判定前に最低限必要なスクロール回数
         new_tweets, seen_ids = [], set()
         stall_count = 0
+        scroll_count = 0
         MAX_STALLS = 5
         skipped_count = 0
         hit_existing = False
@@ -167,32 +185,45 @@ async def run():
 
                 is_pinned = data.get("is_pinned", False)
 
+                # 固定ツイート（Pinned）は重複停止カウント（stop_on_existing）から明確に除外・スキップ
+                if is_pinned:
+                    if tid in skip_ids:
+                        skipped_count += 1
+                    else:
+                        new_tweets.append(data)
+                        print(f"  [{len(new_tweets)}] Saved (Pinned): @{tid}")
+                    continue
+
                 if tid in skip_ids:
-                    # Pinnedポストは過去の投稿であることが多いため連続一致判定からは除外
-                    if args.stop_on_existing and gist_id_index and not is_pinned:
+                    # 通常ツイートの連続一致判定
+                    if args.stop_on_existing and gist_id_index:
                         gist_idx = gist_id_index.get(tid, -1)
                         if gist_idx >= 0 and last_gist_index >= 0 and gist_idx == last_gist_index + 1:
                             consecutive_count += 1
                         else:
                             consecutive_count = 1
                         last_gist_index = gist_idx
-                        if consecutive_count >= CONSECUTIVE_STOP:
-                            print(f"🛑 {CONSECUTIVE_STOP} consecutive existing IDs matched in order. Stopping.")
+
+                        # 固定ツイートより下の通常ツイートを確認し、数回スクロールした後に停止判定
+                        if consecutive_count >= CONSECUTIVE_STOP and scroll_count >= MIN_SCROLLS_FOR_STOP:
+                            print(f"🛑 {CONSECUTIVE_STOP} consecutive existing IDs matched in order (after {scroll_count} scrolls). Stopping.")
                             hit_existing = True
                             break
                     skipped_count += 1
                     continue
 
-                # 新規ポスト → 連続カウントをリセット（Pinnedは除外）
-                if not is_pinned:
-                    consecutive_count = 0
-                    last_gist_index = -1
+                # 新規通常ポスト → 連続カウントをリセット
+                consecutive_count = 0
+                last_gist_index = -1
 
                 new_tweets.append(data)
                 print(f"  [{len(new_tweets)}] Saved: @{tid}")
 
                 if len(new_tweets) >= args.num:
                     break
+
+            if consecutive_count >= CONSECUTIVE_STOP and scroll_count >= MIN_SCROLLS_FOR_STOP:
+                hit_existing = True
 
             if len(new_tweets) >= args.num or hit_existing or rate_limit_hit: break
 
@@ -205,7 +236,14 @@ async def run():
                     print(f"\n⚠️ No more posts found after {MAX_STALLS} scrolls. Stopping.")
                     break
 
-            await page.mouse.wheel(0, 2000)
+            scroll_count += 1
+            # 中央領域でマウスホイールおよびwindow.scrollByを併用して確実にスクロール
+            try:
+                await page.mouse.move(600, 500)
+                await page.mouse.wheel(0, 2000)
+                await page.evaluate("window.scrollBy(0, 2000)")
+            except Exception:
+                await page.mouse.wheel(0, 2000)
             await asyncio.sleep(4)
 
         if skipped_count:
