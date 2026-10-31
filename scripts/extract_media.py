@@ -178,10 +178,24 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
         return False
 
     print("\n🔍 Diagnosing reason for 0 saved tweets:")
+    current_url = page.url
+    page_title = await page.title()
+    print(f"  🌐 Current URL: {current_url}")
+    print(f"  📄 Page Title: {page_title}")
     try:
-        body_text = await page.inner_text("body")
+        body_text = (await page.inner_text("body")).strip()
     except Exception:
         body_text = ""
+
+    # ログイン画面リダイレクト
+    if "/i/flow/login" in current_url or "login" in current_url.lower():
+        print("  ❌ Cause: Redirected to login flow. Session in auth.json has expired or is blocked.")
+        return True
+
+    # アカウントアクセス認証（CAPTCHA等）
+    if "/account/access" in current_url:
+        print("  ❌ Cause: Redirected to account access verification (CAPTCHA/Challenge).")
+        return True
 
     # 2. ログイン壁
     has_login_button = await page.query_selector('[data-testid="loginButton"]') is not None
@@ -216,7 +230,8 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
         return False
 
     # 6. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合のみ）
-    print("  ❌ Cause: Timeline articles failed to load into DOM (DOM timeout or blocked by overlay).")
+    body_preview = body_text.replace('\n', ' ')[:200]
+    print(f"  ❌ Cause: Timeline articles failed to load into DOM. Body snippet: {repr(body_preview)}")
     return True
 
 async def run():
@@ -233,9 +248,27 @@ async def run():
     print(f"🚀 Mode: {mode} | Target: {target_label} | URL: {url}")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(storage_state=AUTH_PATH)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
+        )
+        context = await browser.new_context(
+            storage_state=AUTH_PATH,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 900},
+        )
         page = await context.new_page()
+
+        # navigator.webdriver を隠蔽
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
 
         rate_limit_hit = False
 
@@ -250,14 +283,31 @@ async def run():
 
         await page.goto(url, wait_until="domcontentloaded")
         await dismiss_modals(page)
+
+        # タイムラインの初期記事が現れるまで待機
+        articles_ready = False
         try:
-            await page.wait_for_selector(TWEET_SELECTOR, timeout=12000)
+            await page.wait_for_selector(TWEET_SELECTOR, timeout=15000)
+            articles_ready = True
         except Exception:
             await dismiss_modals(page)
             try:
-                await page.wait_for_selector(TWEET_SELECTOR, timeout=5000)
+                await page.wait_for_selector(TWEET_SELECTOR, timeout=8000)
+                articles_ready = True
             except Exception:
-                await page.wait_for_timeout(2000)
+                pass
+
+        # 初期タイムアウト時、一度リロードして再試行
+        if not articles_ready:
+            print("🔄 Initial load timed out with 0 articles. Attempting page reload...")
+            try:
+                await page.reload(wait_until="domcontentloaded")
+                await dismiss_modals(page)
+                await page.wait_for_selector(TWEET_SELECTOR, timeout=15000)
+                articles_ready = True
+            except Exception:
+                print("⚠️ Page reload finished; proceeding to timeline scanning.")
+
         await asyncio.sleep(2)
         await dismiss_modals(page)
 
