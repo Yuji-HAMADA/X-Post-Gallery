@@ -108,6 +108,102 @@ async def extract_tweet_data(article):
         "is_pinned": is_pinned
     }
 
+async def dismiss_modals(page):
+    """ログインダイアログ、センシティブ警告、シートダイアログ等を自動解除する"""
+    try:
+        # 1. センシティブ警告・プロファイル閲覧確認ボタンの自動クリック
+        sensitive_btn_texts = ["プロフィールを表示", "表示する", "表示", "View profile", "Yes, view profile"]
+        for txt in sensitive_btn_texts:
+            btn = await page.query_selector(f'div[role="button"]:has-text("{txt}"), button:has-text("{txt}")')
+            if btn:
+                try:
+                    await btn.click()
+                    print(f"🔓 Dismissed profile warning banner: '{txt}'")
+                    await asyncio.sleep(1)
+                    break
+                except Exception:
+                    pass
+
+        # 2. 閉じるボタンのクリック（ダイアログの「×」）
+        close_btn = await page.query_selector('div[role="dialog"] [aria-label="閉じる"], div[role="dialog"] [aria-label="Close"], [data-testid="app-bar-close"]')
+        if close_btn:
+            try:
+                await close_btn.click()
+                print("🔓 Clicked dialog close button.")
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+        # 3. Escape キー送信
+        await page.keyboard.press("Escape")
+
+        # 4. ログインオーバーレイ等の除去とスクロールロック解除
+        await page.evaluate("""() => {
+            const selectors = ['[data-testid="sheetDialog"]', '[data-testid="mask"]', 'div[role="dialog"]'];
+            selectors.forEach(sel => {
+                document.querySelectorAll(sel).forEach(el => {
+                    const text = el.innerText || "";
+                    if (text.includes("ログイン") || text.includes("Log in") || text.includes("Sign in") || text.includes("アカウントを作成")) {
+                        el.remove();
+                    }
+                });
+            });
+            document.body.style.overflow = "auto";
+        }""")
+    except Exception:
+        pass
+
+async def diagnose_empty_state(page, seen_ids_count, skipped_count):
+    """0件終了時にページ状態を解析し、明確な原因を出力する"""
+    print("\n🔍 Diagnosing reason for 0 saved tweets:")
+    try:
+        body_text = await page.inner_text("body")
+    except Exception:
+        body_text = ""
+
+    # 1. ログイン壁
+    has_login_button = await page.query_selector('[data-testid="loginButton"]') is not None
+    has_account_switcher = await page.query_selector('[data-testid="SideNav_AccountSwitcher_Button"]') is not None
+    login_phrases = ["ログインして続行", "Log in to X", "Sign in to X", "アカウントを作成", "Create account", "いまどうしてる？"]
+    if has_login_button and not has_account_switcher and any(lp in body_text for lp in login_phrases):
+        print("  ❌ Cause: Login wall detected. Session in auth.json may be expired, logged out, or restricted.")
+        return
+
+    # 2. アカウント状態
+    if any(m in body_text for m in ["このアカウントは存在しません", "This account doesn’t exist", "This account does not exist"]):
+        print("  ❌ Cause: Account does not exist.")
+        return
+    if any(m in body_text for m in ["アカウントは凍結されています", "Account suspended"]):
+        print("  ❌ Cause: Account is suspended.")
+        return
+    if any(m in body_text for m in ["ポストは非公開です", "These posts are protected"]):
+        print("  ❌ Cause: Account is private / protected.")
+        return
+    if any(m in body_text for m in ["ブロックされています", "You are blocked"]):
+        print("  ❌ Cause: Blocked by target user.")
+        return
+
+    # 3. センシティブ警告ブロック
+    if any(m in body_text for m in ["センシティブな内容", "Potentially sensitive content", "プロフィールを表示"]):
+        print("  ❌ Cause: Profile warning / sensitive content banner blocked timeline rendering.")
+        return
+
+    # 4. 投稿なし
+    if any(m in body_text for m in ["まだポストはありません", "No posts yet", "ポストはまだありません"]):
+        print("  ❌ Cause: User has no posts on this timeline.")
+        return
+
+    # 5. スキップによる0件（全て既存ID）
+    if skipped_count > 0:
+        print(f"  ℹ️ Cause: All {skipped_count} parsed posts were already known (in skip_ids).")
+        return
+
+    # 6. DOM / レンダリング失敗
+    if seen_ids_count == 0:
+        print("  ❌ Cause: Timeline articles failed to load into DOM (DOM timeout or blocked by overlay).")
+    else:
+        print(f"  ℹ️ Cause: Found {seen_ids_count} posts, but none contained valid media images (text-only or filtered).")
+
 async def run():
     args = parse_args()
     if not args.user and not args.hashtag:
@@ -135,12 +231,20 @@ async def run():
 
         page.on("response", handle_response)
         
+        TWEET_SELECTOR = 'article, [data-testid="tweet"]'
+
         await page.goto(url, wait_until="domcontentloaded")
+        await dismiss_modals(page)
         try:
-            await page.wait_for_selector('article', timeout=12000)
+            await page.wait_for_selector(TWEET_SELECTOR, timeout=12000)
         except Exception:
-            await page.wait_for_timeout(3000)
+            await dismiss_modals(page)
+            try:
+                await page.wait_for_selector(TWEET_SELECTOR, timeout=5000)
+            except Exception:
+                await page.wait_for_timeout(2000)
         await asyncio.sleep(2)
+        await dismiss_modals(page)
 
         # ページ全体のテキストからレート制限をチェック
         try:
@@ -174,6 +278,8 @@ async def run():
 
         while len(new_tweets) < args.num and not hit_existing and not rate_limit_hit:
             articles = await page.query_selector_all('article')
+            if not articles:
+                articles = await page.query_selector_all('[data-testid="tweet"]')
             prev_seen = len(seen_ids)
             for article in articles:
                 data = await extract_tweet_data(article)
@@ -244,6 +350,7 @@ async def run():
                 await page.evaluate("window.scrollBy(0, 2000)")
             except Exception:
                 await page.mouse.wheel(0, 2000)
+            await dismiss_modals(page)
             await asyncio.sleep(4)
 
         if skipped_count:
@@ -254,6 +361,16 @@ async def run():
             print("🚨 Rate limit detected from X! Exiting with code 42.")
             await browser.close()
             sys.exit(42)
+
+        # 0件で終了した場合の原因診断とスクリーンショット保存
+        if len(new_tweets) == 0:
+            await diagnose_empty_state(page, len(seen_ids), skipped_count)
+            debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
+            try:
+                await page.screenshot(path=debug_screen, full_page=False)
+                print(f"  📸 Debug screenshot saved to: {debug_screen}")
+            except Exception:
+                pass
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")
