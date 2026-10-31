@@ -33,35 +33,48 @@ def build_url(user, hashtag, mode):
 
 async def extract_tweet_data(article):
     """1つのarticle要素からツイート情報を抽出するロジック"""
-    # ステータスIDとユーザー名の取得
-    links = await article.query_selector_all('a[href*="/status/"]')
+    # ステータスIDとユーザー名の取得（投稿自身のタイムスタンプリンクを最優先）
     origin_user, origin_status_id = "unknown", ""
-    for link in links:
-        href = await link.get_attribute('href')
-        match = re.search(r'/([^/]+)/status/(\d+)', href)
-        if match:
-            origin_user, origin_status_id = match.group(1), match.group(2)
-            break
-    
+    time_link = await article.query_selector('a:has(time)')
+    if time_link:
+        href = await time_link.get_attribute('href')
+        if href:
+            match = re.search(r'/([^/]+)/status/(\d+)', href)
+            if match:
+                origin_user, origin_status_id = match.group(1), match.group(2)
+
+    # フォールバック: timeリンクがない場合は引用ツイート外のステータスリンクを探索
+    if not origin_status_id:
+        links = await article.query_selector_all('a[href*="/status/"]')
+        for link in links:
+            is_quoted = await link.evaluate("""(node) => {
+                return !!node.closest('[data-testid="quotedTweet"]');
+            }""")
+            if is_quoted: continue
+            href = await link.get_attribute('href')
+            if not href: continue
+            match = re.search(r'/([^/]+)/status/(\d+)', href)
+            if match:
+                origin_user, origin_status_id = match.group(1), match.group(2)
+                break
+
     if not origin_status_id: return None
 
-    # テキストとリポスト判定（リポストは除外）
-    inner_text = await article.inner_text()
-    is_repost = any(w in inner_text for w in ["リポスト", "Reposted", "reposted"])
+    # ソーシャルコンテキストの取得（リポスト判定・固定ツイート判定用）
+    social_context = await article.query_selector('[data-testid="socialContext"]')
+    social_text = (await social_context.inner_text()).strip() if social_context else ""
+
+    # リポスト判定（本文の「リポスト」表記による誤爆を防ぐため socialContext のみで判定）
+    is_repost = any(w in social_text for w in ["リポスト", "Reposted", "reposted"])
     if is_repost: return None
 
     # 固定ツイート（Pinned Tweet）判定（言語・UI構造差異に対応）
-    social_context = await article.query_selector('[data-testid="socialContext"]')
-    social_text = (await social_context.inner_text()).strip() if social_context else ""
     pinned_keywords = [
         "固定されたポスト", "固定されたツイート", "固定ツイート",
         "ピン留めされたポスト", "ピン留め",
         "Pinned", "Pinned Tweet", "Pinned Post", "Pinned post"
     ]
-    is_pinned = (
-        any(w in inner_text for w in pinned_keywords) or
-        any(w in social_text for w in pinned_keywords)
-    )
+    is_pinned = any(w in social_text for w in pinned_keywords)
     if not is_pinned and social_context:
         sc_html = (await social_context.inner_html()).lower()
         if "pin" in sc_html or any(w in social_text for w in ["固定", "ピン"]):
@@ -153,56 +166,58 @@ async def dismiss_modals(page):
     except Exception:
         pass
 
-async def diagnose_empty_state(page, seen_ids_count, skipped_count):
+async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articles_detected):
     """0件終了時にページ状態を解析し、明確な原因を出力する"""
+    # 1. スキップ実績または走査実績がある場合は正常な0件終了（バーチャルスクロールによるDOM消去を考慮）
+    if skipped_count > 0:
+        print(f"  ℹ️ All {skipped_count} parsed posts were already known. No new tweets to save.")
+        return False
+
+    if seen_ids_count > 0 or total_articles_detected > 0:
+        print(f"  ℹ️ Found {seen_ids_count or total_articles_detected} posts, but none contained new valid media images.")
+        return False
+
     print("\n🔍 Diagnosing reason for 0 saved tweets:")
     try:
         body_text = await page.inner_text("body")
     except Exception:
         body_text = ""
 
-    # 1. ログイン壁
+    # 2. ログイン壁
     has_login_button = await page.query_selector('[data-testid="loginButton"]') is not None
     has_account_switcher = await page.query_selector('[data-testid="SideNav_AccountSwitcher_Button"]') is not None
     login_phrases = ["ログインして続行", "Log in to X", "Sign in to X", "アカウントを作成", "Create account", "いまどうしてる？"]
     if has_login_button and not has_account_switcher and any(lp in body_text for lp in login_phrases):
         print("  ❌ Cause: Login wall detected. Session in auth.json may be expired, logged out, or restricted.")
-        return
+        return True
 
-    # 2. アカウント状態
+    # 3. アカウント状態
     if any(m in body_text for m in ["このアカウントは存在しません", "This account doesn’t exist", "This account does not exist"]):
         print("  ❌ Cause: Account does not exist.")
-        return
+        return True
     if any(m in body_text for m in ["アカウントは凍結されています", "Account suspended"]):
         print("  ❌ Cause: Account is suspended.")
-        return
+        return True
     if any(m in body_text for m in ["ポストは非公開です", "These posts are protected"]):
         print("  ❌ Cause: Account is private / protected.")
-        return
+        return True
     if any(m in body_text for m in ["ブロックされています", "You are blocked"]):
         print("  ❌ Cause: Blocked by target user.")
-        return
+        return True
 
-    # 3. センシティブ警告ブロック
+    # 4. センシティブ警告ブロック
     if any(m in body_text for m in ["センシティブな内容", "Potentially sensitive content", "プロフィールを表示"]):
         print("  ❌ Cause: Profile warning / sensitive content banner blocked timeline rendering.")
-        return
+        return True
 
-    # 4. 投稿なし
+    # 5. 投稿なし
     if any(m in body_text for m in ["まだポストはありません", "No posts yet", "ポストはまだありません"]):
         print("  ❌ Cause: User has no posts on this timeline.")
-        return
+        return False
 
-    # 5. スキップによる0件（全て既存ID）
-    if skipped_count > 0:
-        print(f"  ℹ️ Cause: All {skipped_count} parsed posts were already known (in skip_ids).")
-        return
-
-    # 6. DOM / レンダリング失敗
-    if seen_ids_count == 0:
-        print("  ❌ Cause: Timeline articles failed to load into DOM (DOM timeout or blocked by overlay).")
-    else:
-        print(f"  ℹ️ Cause: Found {seen_ids_count} posts, but none contained valid media images (text-only or filtered).")
+    # 6. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合のみ）
+    print("  ❌ Cause: Timeline articles failed to load into DOM (DOM timeout or blocked by overlay).")
+    return True
 
 async def run():
     args = parse_args()
@@ -270,6 +285,7 @@ async def run():
         new_tweets, seen_ids = [], set()
         stall_count = 0
         scroll_count = 0
+        total_articles_detected = 0
         MAX_STALLS = 5
         skipped_count = 0
         hit_existing = False
@@ -280,6 +296,8 @@ async def run():
             articles = await page.query_selector_all('article')
             if not articles:
                 articles = await page.query_selector_all('[data-testid="tweet"]')
+            if articles:
+                total_articles_detected += len(articles)
             prev_seen = len(seen_ids)
             for article in articles:
                 data = await extract_tweet_data(article)
@@ -328,9 +346,6 @@ async def run():
                 if len(new_tweets) >= args.num:
                     break
 
-            if consecutive_count >= CONSECUTIVE_STOP and scroll_count >= MIN_SCROLLS_FOR_STOP:
-                hit_existing = True
-
             if len(new_tweets) >= args.num or hit_existing or rate_limit_hit: break
 
             # スクロールしても新しいarticleが出てこなければ終端
@@ -362,15 +377,16 @@ async def run():
             await browser.close()
             sys.exit(42)
 
-        # 0件で終了した場合の原因診断とスクリーンショット保存
+        # 0件で終了した場合の原因診断とスクリーンショット保存（異常検知時のみ）
         if len(new_tweets) == 0:
-            await diagnose_empty_state(page, len(seen_ids), skipped_count)
-            debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
-            try:
-                await page.screenshot(path=debug_screen, full_page=False)
-                print(f"  📸 Debug screenshot saved to: {debug_screen}")
-            except Exception:
-                pass
+            is_error = await diagnose_empty_state(page, len(seen_ids), skipped_count, total_articles_detected)
+            if is_error:
+                debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
+                try:
+                    await page.screenshot(path=debug_screen, full_page=False)
+                    print(f"  📸 Debug screenshot saved to: {debug_screen}")
+                except Exception:
+                    pass
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")
