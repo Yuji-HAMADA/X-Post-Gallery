@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 import argparse
 from urllib.parse import quote
 from playwright.async_api import async_playwright
@@ -49,6 +50,8 @@ async def extract_tweet_data(article):
     is_repost = any(w in inner_text for w in ["リポスト", "Reposted", "reposted"])
     if is_repost: return None
 
+    is_pinned = any(w in inner_text for w in ["固定されたポスト", "Pinned", "Pinned Tweet", "固定されたツイート"])
+
     tweet_text_el = await article.query_selector('[data-testid="tweetText"]')
     raw_text = await tweet_text_el.inner_text() if tweet_text_el else ""
     full_text = f"@{origin_user}: {raw_text}"
@@ -86,7 +89,8 @@ async def extract_tweet_data(article):
             "created_at": timestamp,
             "entities": {"media": media_urls},
             "extended_entities": {"media": media_urls}
-        }
+        },
+        "is_pinned": is_pinned
     }
 
 async def run():
@@ -106,9 +110,26 @@ async def run():
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(storage_state=AUTH_PATH)
         page = await context.new_page()
+
+        rate_limit_hit = False
+
+        async def handle_response(response):
+            nonlocal rate_limit_hit
+            if response.status == 429:
+                rate_limit_hit = True
+
+        page.on("response", handle_response)
         
         await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(10000)
+
+        # ページ全体のテキストからレート制限をチェック
+        try:
+            body_text = await page.inner_text("body")
+            if any(msg in body_text for msg in ["Rate limit exceeded", "レート制限", "レート制限を超えました"]):
+                rate_limit_hit = True
+        except Exception:
+            pass
 
         # 既知IDの読み込み（スキップ対象）
         skip_ids = set()
@@ -130,7 +151,7 @@ async def run():
         consecutive_count = 0
         last_gist_index = -1
 
-        while len(new_tweets) < args.num and not hit_existing:
+        while len(new_tweets) < args.num and not hit_existing and not rate_limit_hit:
             articles = await page.query_selector_all('article')
             prev_seen = len(seen_ids)
             for article in articles:
@@ -141,8 +162,11 @@ async def run():
                 if tid in seen_ids: continue
                 seen_ids.add(tid)
 
+                is_pinned = data.get("is_pinned", False)
+
                 if tid in skip_ids:
-                    if args.stop_on_existing and gist_id_index:
+                    # Pinnedポストは過去の投稿であることが多いため連続一致判定からは除外
+                    if args.stop_on_existing and gist_id_index and not is_pinned:
                         gist_idx = gist_id_index.get(tid, -1)
                         if gist_idx >= 0 and last_gist_index >= 0 and gist_idx == last_gist_index + 1:
                             consecutive_count += 1
@@ -156,9 +180,10 @@ async def run():
                     skipped_count += 1
                     continue
 
-                # 新規ポスト → 連続カウントをリセット
-                consecutive_count = 0
-                last_gist_index = -1
+                # 新規ポスト → 連続カウントをリセット（Pinnedは除外）
+                if not is_pinned:
+                    consecutive_count = 0
+                    last_gist_index = -1
 
                 new_tweets.append(data)
                 print(f"  [{len(new_tweets)}] Saved: @{tid}")
@@ -166,7 +191,7 @@ async def run():
                 if len(new_tweets) >= args.num:
                     break
 
-            if len(new_tweets) >= args.num or hit_existing: break
+            if len(new_tweets) >= args.num or hit_existing or rate_limit_hit: break
 
             # スクロールしても新しいarticleが出てこなければ終端
             if len(seen_ids) > prev_seen:
@@ -182,6 +207,18 @@ async def run():
 
         if skipped_count:
             print(f"⏭️ Skipped {skipped_count} already-known posts.")
+
+        # レート制限検知時
+        if rate_limit_hit:
+            print("🚨 Rate limit detected from X! Exiting with code 42.")
+            await browser.close()
+            sys.exit(42)
+
+        # 既知ツイートが多数あるユーザーなのに、記事が一切パースできなかった場合はロード失敗またはブロックとみなす
+        if len(seen_ids) == 0 and len(new_tweets) == 0 and len(skip_ids) >= 5:
+            print(f"❌ Error: No articles found for user with {len(skip_ids)} known tweets. Page load failed or blocked.")
+            await browser.close()
+            sys.exit(2)
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")

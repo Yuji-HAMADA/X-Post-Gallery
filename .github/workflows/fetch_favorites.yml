@@ -87,11 +87,20 @@ jobs:
             exit 1
           fi
 
-          # 未処理エントリ（done != true）があるかチェック
-          UNFINISHED_COUNT=$(echo "$QUEUE_JSON" | jq -r '[.users[]? | select(.done != true)] | length')
-          echo "Unprocessed entries in current queue: $UNFINISHED_COUNT"
+          # スロット1のIDも取得して両方の未処理エントリをチェック
+          SLOT1_ID=$(echo "$QUEUE_JSON" | jq -r '.sibling_gist_id // empty')
+          UNFINISHED_COUNT_0=$(echo "$QUEUE_JSON" | jq -r '[.users[]? | select(.done != true)] | length')
+          UNFINISHED_COUNT_1=0
+          if [ -n "$SLOT1_ID" ]; then
+            SLOT1_JSON=$(gh gist view "$SLOT1_ID" -f fetch_queue.json 2>/dev/null || echo "")
+            if echo "$SLOT1_JSON" | jq -e '.users' > /dev/null 2>&1; then
+              UNFINISHED_COUNT_1=$(echo "$SLOT1_JSON" | jq -r '[.users[]? | select(.done != true)] | length')
+            fi
+          fi
+          TOTAL_UNFINISHED=$((UNFINISHED_COUNT_0 + UNFINISHED_COUNT_1))
+          echo "Unprocessed entries: Slot0=$UNFINISHED_COUNT_0, Slot1=$UNFINISHED_COUNT_1 (Total=$TOTAL_UNFINISHED)"
 
-          if [ "$UNFINISHED_COUNT" -gt 0 ]; then
+          if [ "$TOTAL_UNFINISHED" -gt 0 ]; then
             echo "Queue still has unprocessed entries. Skipping favorites reloading to resume progress."
           else
             echo "All previous queue entries are finished (or queue is empty). Reloading favorites list."
@@ -120,6 +129,7 @@ jobs:
 
           # --- 開始時間の記録（5時間タイムアウト判定用） ---
           START_TIME=$(date +%s)
+          CONSECUTIVE_ERRORS=0
 
           # --- スロット0を読み込み、sibling_gist_id でスロット1のIDを取得 ---
           SLOT0_ID="$FETCH_QUEUE_GIST_ID"
@@ -204,7 +214,7 @@ jobs:
 
             for i in "${!ENTRIES[@]}"; do
               local entry="${ENTRIES[$i]}"
-              local USER HASHTAG ENTRY_GIST_ID COUNT STOP
+              local USER HASHTAG ENTRY_GIST_ID COUNT STOP EXIT_CODE=0
 
               USER=$(echo "$entry" | jq -r '.user // empty')
               HASHTAG=$(echo "$entry" | jq -r '.hashtag // empty')
@@ -220,9 +230,9 @@ jobs:
                 echo "=========================================="
 
                 if [ "$STOP" = "true" ]; then
-                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || true
+                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || EXIT_CODE=$?
                 else
-                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || true
+                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || EXIT_CODE=$?
                 fi
               elif [ -n "$USER" ]; then
                 # ユーザーエントリ
@@ -231,16 +241,41 @@ jobs:
                 echo "=========================================="
 
                 if [ "$STOP" = "true" ]; then
-                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
                 else
-                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
                 fi
               else
                 echo "Warning: entry has neither user nor hashtag, skipping: $entry"
                 continue
               fi
 
-              # 処理済みとして done: true をマーク
+              # エラー・レートリミットハンドリング
+              if [ $EXIT_CODE -eq 42 ]; then
+                echo "🚨 Rate limit encountered. Preserving current entry as unprocessed and pausing workflow."
+                reset_status "$SLOT0_ID"
+                if [ -n "$SLOT1_ID" ]; then
+                  reset_status "$SLOT1_ID"
+                fi
+                exit 0
+              elif [ $EXIT_CODE -ne 0 ]; then
+                echo "⚠️ Crawl failed for this entry (exit code $EXIT_CODE). Leaving undone for next retry."
+                CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+                if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
+                  echo "🚨 3 consecutive crawl errors encountered (possible block/network issue). Pausing workflow to preserve progress."
+                  reset_status "$SLOT0_ID"
+                  if [ -n "$SLOT1_ID" ]; then
+                    reset_status "$SLOT1_ID"
+                  fi
+                  exit 0
+                fi
+                continue
+              fi
+
+              # 正常終了時のみエラーカウントリセット
+              CONSECUTIVE_ERRORS=0
+
+              # 処理成功時のみ done: true をマーク
               LATEST_JSON=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
               if ! echo "$LATEST_JSON" | jq -e '.users' > /dev/null 2>&1; then
                 echo "Warning: fetch_queue.json read failed for done-marking, skipping"
@@ -272,6 +307,9 @@ jobs:
                 fi
                 exit 0
               fi
+
+              # レートリミット緩和のためのウェイト (5秒)
+              sleep 5
             done
 
             # status を "idle" に戻す

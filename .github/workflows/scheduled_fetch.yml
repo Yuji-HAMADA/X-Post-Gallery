@@ -69,6 +69,10 @@ jobs:
         run: |
           chmod +x append_gist.sh
 
+          # --- 開始時間の記録（5時間タイムアウト判定用） ---
+          START_TIME=$(date +%s)
+          CONSECUTIVE_ERRORS=0
+
           # --- スロット0を読み込み、sibling_gist_id でスロット1のIDを取得 ---
           SLOT0_ID="$FETCH_QUEUE_GIST_ID"
           SLOT0_JSON=$(gh gist view "$SLOT0_ID" -f fetch_queue.json)
@@ -152,7 +156,7 @@ jobs:
 
             for i in "${!ENTRIES[@]}"; do
               local entry="${ENTRIES[$i]}"
-              local USER HASHTAG ENTRY_GIST_ID COUNT STOP
+              local USER HASHTAG ENTRY_GIST_ID COUNT STOP EXIT_CODE=0
 
               USER=$(echo "$entry" | jq -r '.user // empty')
               HASHTAG=$(echo "$entry" | jq -r '.hashtag // empty')
@@ -168,9 +172,9 @@ jobs:
                 echo "=========================================="
 
                 if [ "$STOP" = "true" ]; then
-                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || true
+                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || EXIT_CODE=$?
                 else
-                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || true
+                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || EXIT_CODE=$?
                 fi
               elif [ -n "$USER" ]; then
                 # ユーザーエントリ
@@ -179,14 +183,39 @@ jobs:
                 echo "=========================================="
 
                 if [ "$STOP" = "true" ]; then
-                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || true
+                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
                 else
-                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || true
+                  ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
                 fi
               else
                 echo "Warning: entry has neither user nor hashtag, skipping: $entry"
                 continue
               fi
+
+              # エラー・レートリミットハンドリング
+              if [ $EXIT_CODE -eq 42 ]; then
+                echo "🚨 Rate limit encountered. Preserving current entry as unprocessed and pausing workflow."
+                reset_status "$SLOT0_ID"
+                if [ -n "$SLOT1_ID" ]; then
+                  reset_status "$SLOT1_ID"
+                fi
+                exit 0
+              elif [ $EXIT_CODE -ne 0 ]; then
+                echo "⚠️ Crawl failed for this entry (exit code $EXIT_CODE). Leaving undone for next retry."
+                CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+                if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
+                  echo "🚨 3 consecutive crawl errors encountered (possible block/network issue). Pausing workflow to preserve progress."
+                  reset_status "$SLOT0_ID"
+                  if [ -n "$SLOT1_ID" ]; then
+                    reset_status "$SLOT1_ID"
+                  fi
+                  exit 0
+                fi
+                continue
+              fi
+
+              # 正常終了時のみエラーカウントリセット
+              CONSECUTIVE_ERRORS=0
 
               # 処理済みとして done: true をマーク
               # Gist を再取得してから書き戻す（Flutter の並行追加を保持するため）
@@ -208,6 +237,21 @@ jobs:
               fi
               printf '%s' "$LATEST_JSON" > /tmp/fq_done.json
               gh gist edit "$slot_id" -f fetch_queue.json /tmp/fq_done.json
+
+              # タイムアウト判定 (5時間 = 18000 秒)
+              CURRENT_TIME=$(date +%s)
+              ELAPSED=$((CURRENT_TIME - START_TIME))
+              if [ "$ELAPSED" -ge 18000 ]; then
+                echo "⚠️ Time limit of 5 hours reached ($ELAPSED seconds elapsed). Saving progress and stopping execution."
+                reset_status "$SLOT0_ID"
+                if [ -n "$SLOT1_ID" ]; then
+                  reset_status "$SLOT1_ID"
+                fi
+                exit 0
+              fi
+
+              # レートリミット緩和のためのウェイト (5秒)
+              sleep 5
             done
 
             # status を "idle" に戻す

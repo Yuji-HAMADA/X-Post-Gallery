@@ -181,7 +181,10 @@ def run_extraction(args, skip_ids_file):
         if args.stop_on_existing:
             cmd.append("--stop-on-existing")
     print(f"🚀 Running Extraction: {' '.join(cmd)}")
-    subprocess.run(cmd)
+    res = subprocess.run(cmd)
+    if res.returncode != 0:
+        print(f"❌ Extraction script failed with exit code {res.returncode}")
+        sys.exit(res.returncode)
 
 def parse_tweets_js():
     if not os.path.exists(TWEETS_JS):
