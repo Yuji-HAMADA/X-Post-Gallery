@@ -738,7 +738,7 @@ class GalleryViewModel extends ChangeNotifier {
 
       final addedCount = await _githubService.addUsersToFetchQueue(
         _favoriteUsers,
-        count: 100,
+        count: 500,
         stopOnExisting: true,
       );
 

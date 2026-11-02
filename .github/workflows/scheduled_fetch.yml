@@ -83,7 +83,7 @@ jobs:
           fi
 
           MASTER_GIST_ID=$(echo "$SLOT0_JSON" | jq -r '.master_gist_id')
-          DEFAULT_COUNT=$(echo "$SLOT0_JSON" | jq -r '.default_count // 300')
+          DEFAULT_COUNT=$(echo "$SLOT0_JSON" | jq -r '.default_count // 500')
           echo "Master Gist: $MASTER_GIST_ID"
           echo "Default count: $DEFAULT_COUNT"
 

@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("-u", "--user", default=None, help="Target user ID")
     parser.add_argument("--foryou", action="store_true", help="For Youタイムラインから取得")
     parser.add_argument("-m", "--mode", default="post_only", help="(deprecated, ignored: always post_only)")
-    parser.add_argument("-n", "--num", type=int, default=100, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
+    parser.add_argument("-n", "--num", type=int, default=500, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
     parser.add_argument("--hashtag", type=str, default=None, help="キーワード検索（ハッシュタグ or 一般キーワード）")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止")
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")

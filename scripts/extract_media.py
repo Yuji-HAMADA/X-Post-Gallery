@@ -14,7 +14,7 @@ AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-n", "--num", type=int, default=100)
+    parser.add_argument("-n", "--num", type=int, default=500)
     parser.add_argument("-u", "--user", type=str, default=None, help="Target user ID (--user または --hashtag のどちらか必須)")
     parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
     parser.add_argument("--mode", type=str, default="post_only", help="(deprecated, ignored: always post_only)")
@@ -150,7 +150,7 @@ async def dismiss_modals(page):
         # 3. Escape キー送信
         await page.keyboard.press("Escape")
 
-        # 4. ログインオーバーレイ等の除去とスクロールロック解除
+        # 4. ログインオーバーレイ等の除去
         await page.evaluate("""() => {
             const selectors = ['[data-testid="sheetDialog"]', '[data-testid="mask"]', 'div[role="dialog"]'];
             selectors.forEach(sel => {
@@ -161,21 +161,56 @@ async def dismiss_modals(page):
                     }
                 });
             });
-            document.body.style.overflow = "auto";
         }""")
     except Exception:
         pass
 
+async def check_account_status(page):
+    """アカウントが存在しない、または凍結されているか、認証エラーかを早期チェック"""
+    try:
+        current_url = page.url
+        body_text = (await page.inner_text("body")).strip()
+        page_title = await page.title()
+    except Exception:
+        return None
+
+    # 1. 認証エラー・セッション切れ
+    if "/i/flow/login" in current_url or "login" in current_url.lower():
+        return "auth_error"
+    if "/account/access" in current_url:
+        return "auth_error"
+
+    has_login_button = await page.query_selector('[data-testid="loginButton"]') is not None
+    has_account_switcher = await page.query_selector('[data-testid="SideNav_AccountSwitcher_Button"]') is not None
+    login_phrases = ["ログインして続行", "Log in to X", "Sign in to X", "アカウントを作成", "Create account"]
+    if has_login_button and not has_account_switcher and any(lp in body_text for lp in login_phrases):
+        return "auth_error"
+
+    # 2. アカウント不在・凍結
+    dead_phrases = [
+        "このアカウントは存在しません",
+        "This account doesn’t exist",
+        "This account does not exist",
+        "該当するアカウントは見つかりませんでした",
+        "アカウントは凍結されています",
+        "Account suspended",
+    ]
+    for phrase in dead_phrases:
+        if phrase in body_text or phrase in page_title:
+            return "account_dead"
+
+    return None
+
 async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articles_detected):
-    """0件終了時にページ状態を解析し、明確な原因を出力する"""
+    """0件終了時にページ状態を解析し、状態文字列を返す"""
     # 1. スキップ実績または走査実績がある場合は正常な0件終了（バーチャルスクロールによるDOM消去を考慮）
     if skipped_count > 0:
         print(f"  ℹ️ All {skipped_count} parsed posts were already known. No new tweets to save.")
-        return False
+        return "ok"
 
     if seen_ids_count > 0 or total_articles_detected > 0:
         print(f"  ℹ️ Found {seen_ids_count or total_articles_detected} posts, but none contained new valid media images.")
-        return False
+        return "ok"
 
     print("\n🔍 Diagnosing reason for 0 saved tweets:")
     current_url = page.url
@@ -190,12 +225,12 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
     # ログイン画面リダイレクト
     if "/i/flow/login" in current_url or "login" in current_url.lower():
         print("  ❌ Cause: Redirected to login flow. Session in auth.json has expired or is blocked.")
-        return True
+        return "auth_error"
 
     # アカウントアクセス認証（CAPTCHA等）
     if "/account/access" in current_url:
         print("  ❌ Cause: Redirected to account access verification (CAPTCHA/Challenge).")
-        return True
+        return "auth_error"
 
     # 2. ログイン壁
     has_login_button = await page.query_selector('[data-testid="loginButton"]') is not None
@@ -203,36 +238,43 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
     login_phrases = ["ログインして続行", "Log in to X", "Sign in to X", "アカウントを作成", "Create account", "いまどうしてる？"]
     if has_login_button and not has_account_switcher and any(lp in body_text for lp in login_phrases):
         print("  ❌ Cause: Login wall detected. Session in auth.json may be expired, logged out, or restricted.")
-        return True
+        return "auth_error"
 
     # 3. アカウント状態
-    if any(m in body_text for m in ["このアカウントは存在しません", "This account doesn’t exist", "This account does not exist"]):
-        print("  ❌ Cause: Account does not exist.")
-        return True
-    if any(m in body_text for m in ["アカウントは凍結されています", "Account suspended"]):
-        print("  ❌ Cause: Account is suspended.")
-        return True
+    dead_phrases = [
+        "このアカウントは存在しません",
+        "This account doesn’t exist",
+        "This account does not exist",
+        "該当するアカウントは見つかりませんでした",
+        "アカウントは凍結されています",
+        "Account suspended",
+    ]
+    for m in dead_phrases:
+        if m in body_text or m in page_title:
+            print(f"  ❌ Cause: Account does not exist or is suspended ({m}).")
+            return "account_dead"
+
     if any(m in body_text for m in ["ポストは非公開です", "These posts are protected"]):
         print("  ❌ Cause: Account is private / protected.")
-        return True
+        return "account_dead"
     if any(m in body_text for m in ["ブロックされています", "You are blocked"]):
         print("  ❌ Cause: Blocked by target user.")
-        return True
+        return "account_dead"
 
     # 4. センシティブ警告ブロック
     if any(m in body_text for m in ["センシティブな内容", "Potentially sensitive content", "プロフィールを表示"]):
         print("  ❌ Cause: Profile warning / sensitive content banner blocked timeline rendering.")
-        return True
+        return "error"
 
     # 5. 投稿なし
     if any(m in body_text for m in ["まだポストはありません", "No posts yet", "ポストはまだありません"]):
         print("  ❌ Cause: User has no posts on this timeline.")
-        return False
+        return "ok"
 
     # 6. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合のみ）
     body_preview = body_text.replace('\n', ' ')[:200]
     print(f"  ❌ Cause: Timeline articles failed to load into DOM. Body snippet: {repr(body_preview)}")
-    return True
+    return "error"
 
 async def run():
     args = parse_args()
@@ -284,6 +326,18 @@ async def run():
         await page.goto(url, wait_until="domcontentloaded")
         await dismiss_modals(page)
 
+        # ユーザー指定時、早期にアカウント存在・凍結・認証チェック
+        if args.user:
+            early_status = await check_account_status(page)
+            if early_status == "account_dead":
+                print(f"❌ Account @{args.user} does not exist or is suspended. Exiting with code 44.")
+                await browser.close()
+                sys.exit(44)
+            elif early_status == "auth_error":
+                print("❌ Auth session error (login required). Exiting with code 41.")
+                await browser.close()
+                sys.exit(41)
+
         # タイムラインの初期記事が現れるまで待機
         articles_ready = False
         try:
@@ -296,6 +350,18 @@ async def run():
                 articles_ready = True
             except Exception:
                 pass
+
+        # 初期タイムアウト時、アカウント状態を再確認
+        if not articles_ready and args.user:
+            status_check = await check_account_status(page)
+            if status_check == "account_dead":
+                print(f"❌ Account @{args.user} does not exist or is suspended. Exiting with code 44.")
+                await browser.close()
+                sys.exit(44)
+            elif status_check == "auth_error":
+                print("❌ Auth session error (login required). Exiting with code 41.")
+                await browser.close()
+                sys.exit(41)
 
         # 初期タイムアウト時、一度リロードして再試行
         if not articles_ready:
@@ -336,7 +402,7 @@ async def run():
         stall_count = 0
         scroll_count = 0
         total_articles_detected = 0
-        MAX_STALLS = 5
+        MAX_STALLS = 8
         skipped_count = 0
         hit_existing = False
         consecutive_count = 0
@@ -408,15 +474,22 @@ async def run():
                     break
 
             scroll_count += 1
-            # 中央領域でマウスホイールおよびwindow.scrollByを併用して確実にスクロール
+            # 1000pxずつスムーズにスクロールしてバーチャルスクロールによる取りこぼしを防止
             try:
-                await page.mouse.move(600, 500)
-                await page.mouse.wheel(0, 2000)
-                await page.evaluate("window.scrollBy(0, 2000)")
+                await page.evaluate("window.scrollBy(0, 1000)")
             except Exception:
-                await page.mouse.wheel(0, 2000)
+                await page.mouse.wheel(0, 1000)
             await dismiss_modals(page)
-            await asyncio.sleep(4)
+
+            # ローディングスピナーが表示されている場合はロード完了を少し待機
+            try:
+                spinner = await page.query_selector('div[role="progressbar"]')
+                if spinner:
+                    await asyncio.sleep(2)
+            except Exception:
+                pass
+
+            await asyncio.sleep(2.5)
 
         if skipped_count:
             print(f"⏭️ Skipped {skipped_count} already-known posts.")
@@ -429,14 +502,25 @@ async def run():
 
         # 0件で終了した場合の原因診断とスクリーンショット保存（異常検知時のみ）
         if len(new_tweets) == 0:
-            is_error = await diagnose_empty_state(page, len(seen_ids), skipped_count, total_articles_detected)
-            if is_error:
+            diag_status = await diagnose_empty_state(page, len(seen_ids), skipped_count, total_articles_detected)
+            if diag_status in ("account_dead", "auth_error", "error"):
                 debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
                 try:
                     await page.screenshot(path=debug_screen, full_page=False)
                     print(f"  📸 Debug screenshot saved to: {debug_screen}")
                 except Exception:
                     pass
+
+                await browser.close()
+                if diag_status == "account_dead":
+                    print(f"🚨 Account @{args.user} is dead/suspended. Exiting with code 44.")
+                    sys.exit(44)
+                elif diag_status == "auth_error":
+                    print("🚨 Auth session error. Exiting with code 41.")
+                    sys.exit(41)
+                else:
+                    print("🚨 Extraction failed. Exiting with code 1.")
+                    sys.exit(1)
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")
