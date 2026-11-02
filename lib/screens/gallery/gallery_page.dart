@@ -1224,9 +1224,23 @@ class _GalleryPageState extends State<GalleryPage> {
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    // マスター件数降順でソート
-    final entries = grouped.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    // 登録された順序（userGists のキー順 = マスターに登録された順）の逆順（最新登録順）でエントリを構築
+    final List<MapEntry<String, List<TweetItem>>> entries = [];
+    for (final username in userGists.keys.toList().reversed) {
+      if (favoriteUsers.contains(username)) continue;
+      final userItems = grouped[username];
+      if (userItems != null && userItems.isNotEmpty) {
+        entries.add(MapEntry(username, userItems));
+      }
+    }
+    // userGists に未登録だが items に存在するユーザーのフォールバック
+    for (final entry in grouped.entries) {
+      if (!userGists.containsKey(entry.key)) {
+        entries.add(entry);
+      }
+    }
+
+    final userUsernames = entries.map((e) => e.key).toList();
 
     return GridView.builder(
       controller: _gridController,
@@ -1248,7 +1262,7 @@ class _GalleryPageState extends State<GalleryPage> {
           username: username,
           thumbItem: thumbItem,
           isFavorite: favoriteUsers.contains(username),
-          onTap: () => _openUserGallery(username),
+          onTap: () => _openUserGallery(username, scope: userUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
           onLongPress: () => _confirmDeleteUser(username),
@@ -1279,8 +1293,20 @@ class _GalleryPageState extends State<GalleryPage> {
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    final entries = grouped.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    // 登録された順序（favoriteUsers の配列・追加順）の逆順（最新登録順）でエントリを構築
+    final List<MapEntry<String, List<TweetItem>>> entries = [];
+    for (final username in favoriteUsers.toList().reversed) {
+      final userItems = grouped[username];
+      if (userItems != null && userItems.isNotEmpty) {
+        entries.add(MapEntry(username, userItems));
+      }
+    }
+    // grouped に存在するが favoriteUsers に含まれない場合のフォールバック
+    for (final entry in grouped.entries) {
+      if (!favoriteUsers.contains(entry.key)) {
+        entries.add(entry);
+      }
+    }
 
     // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
     final favUsernames = entries.map((e) => e.key).toList();
@@ -1583,17 +1609,23 @@ class _GalleryPageState extends State<GalleryPage> {
       // お気に入りなど呼び出し元が既に順序を決めているケース
       sortedUsernames = scope;
     } else {
-      // グリッドと同じ順序（マスター件数降順）でユーザー一覧を構築
-      final Map<String, int> countMap = {};
+      // グリッドと同じ登録逆順（最新登録順）でユーザー一覧を構築
+      final Set<String> registered = {};
+      final List<String> list = [];
+      for (final u in vm.userGists.keys.toList().reversed) {
+        if (!vm.favoriteUsers.contains(u)) {
+          list.add(u);
+          registered.add(u);
+        }
+      }
       for (final item in vm.items) {
         final key = item.extractedUsername ?? '_unknown';
-        if (vm.favoriteUsers.contains(key)) {
-          continue;
+        if (!vm.favoriteUsers.contains(key) && !registered.contains(key)) {
+          list.add(key);
+          registered.add(key);
         }
-        countMap[key] = (countMap[key] ?? 0) + 1;
       }
-      sortedUsernames = countMap.keys.toList()
-        ..sort((a, b) => countMap[b]!.compareTo(countMap[a]!));
+      sortedUsernames = list;
     }
 
     int initialIndex = sortedUsernames.indexWhere(
