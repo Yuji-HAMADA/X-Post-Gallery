@@ -140,8 +140,10 @@ for i in "${!ENTRIES[@]}"; do
   fi
 
   if [ $EXIT_CODE -ne 0 ]; then
-    if [ -n "$USER" ]; then
-      echo "⚠️ Crawl failed for @$USER (code $EXIT_CODE)."
+    CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+    echo "⚠️ Crawl failed (code $EXIT_CODE). Consecutive errors: $CONSECUTIVE_ERRORS/3"
+
+    if [ -n "$USER" ] && [ $EXIT_CODE -eq 44 ]; then
       echo "🗑️ Removing invalid/dead user @$USER from favorites.json (Gist: $FAVORITE_GIST_ID)..."
 
       # favorites.json から該当ユーザーを削除（case-insensitive）
@@ -165,22 +167,20 @@ for i in "${!ENTRIES[@]}"; do
         printf '%s' "$LATEST_JSON" > "$TMP_DONE"
         gh gist edit "$SLOT0_ID" -f fetch_queue.json "$TMP_DONE"
         rm -f "$TMP_DONE"
-        echo "✅ Marked @$USER as done in fetch_queue.json."
+        echo "✅ Marked dead user @$USER as done in fetch_queue.json."
       fi
-
-      # アカウント削除時は連続エラーカウントをリセットして次のアカウントへ進む
-      CONSECUTIVE_ERRORS=0
-      sleep 2
-      continue
+    elif [ -n "$USER" ]; then
+      echo "⚠️ Temporary crawl failure for @$USER (code $EXIT_CODE). Leaving undone for next run."
     else
       echo "⚠️ Crawl returned code $EXIT_CODE for hashtag #$HASHTAG. Leaving undone for next run."
-      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
-      if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
-        echo "🚨 3 consecutive crawl failures. Aborting batch run."
-        exit 1
-      fi
-      continue
     fi
+
+    if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
+      echo "🚨 3 consecutive crawl failures. Aborting batch run to prevent infinite loop."
+      exit 1
+    fi
+    sleep 2
+    continue
   fi
 
   # 成功時: done: true を Gist に反映
