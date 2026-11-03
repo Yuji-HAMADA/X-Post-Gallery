@@ -214,15 +214,54 @@ process_slot() {
       exit 41
     fi
 
-    # エラー時の連続失敗ハンドリング
+    # エラー時のハンドリング
     if [ $EXIT_CODE -ne 0 ]; then
-      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
-      echo "⚠️ Crawl failed for this entry (code $EXIT_CODE). Consecutive errors: $CONSECUTIVE_ERRORS/3"
+      if [ $EXIT_CODE -eq 44 ]; then
+        echo "🗑️ Inaccessible or dead user @$USER (code 44). Marking as done to safely skip."
+        local latest_json
+        latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+        if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
+          latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+            '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+          local tmp_done
+          tmp_done=$(mktemp /tmp/scheduled_fq_done_XXXXXX.json)
+          printf '%s' "$latest_json" > "$tmp_done"
+          gh gist edit "$slot_id" -f fetch_queue.json "$tmp_done"
+          rm -f "$tmp_done"
+        fi
+        CONSECUTIVE_ERRORS=0
+        echo "⏩ Skipped inaccessible user @$USER and proceeding to next entry."
 
-      if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
-        echo "🚨 3 consecutive crawl errors encountered. Aborting to protect accounts and prevent stack."
-        reset_all_slots
-        exit 1
+      elif [ $EXIT_CODE -eq 43 ]; then
+        echo "⚠️ Server-side or timeline DOM error (code 43) for target: ${USER:-#$HASHTAG}"
+        local latest_json
+        latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+        if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
+          if [ -n "$HASHTAG" ]; then
+            latest_json=$(echo "$latest_json" | jq --arg hashtag "$HASHTAG" \
+              '.users = [.users[] | if .hashtag == $hashtag then . + {"done": true} else . end]')
+          else
+            latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+              '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+          fi
+          local tmp_done
+          tmp_done=$(mktemp /tmp/scheduled_fq_done_XXXXXX.json)
+          printf '%s' "$latest_json" > "$tmp_done"
+          gh gist edit "$slot_id" -f fetch_queue.json "$tmp_done"
+          rm -f "$tmp_done"
+        fi
+        CONSECUTIVE_ERRORS=0
+        echo "⏩ Safely skipped target in current queue and proceeding to next entry."
+
+      else
+        CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+        echo "⚠️ Crawl failed for this entry (code $EXIT_CODE). Consecutive errors: $CONSECUTIVE_ERRORS/3"
+
+        if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
+          echo "🚨 3 consecutive crawl errors encountered. Aborting to protect accounts and prevent stack."
+          reset_all_slots
+          exit 1
+        fi
       fi
       sleep 2
       continue

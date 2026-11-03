@@ -140,11 +140,8 @@ for i in "${!ENTRIES[@]}"; do
   fi
 
   if [ $EXIT_CODE -ne 0 ]; then
-    CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
-    echo "⚠️ Crawl failed (code $EXIT_CODE). Consecutive errors: $CONSECUTIVE_ERRORS/3"
-
     if [ -n "$USER" ] && [ $EXIT_CODE -eq 44 ]; then
-      echo "🗑️ Removing invalid/dead user @$USER from favorites.json (Gist: $FAVORITE_GIST_ID)..."
+      echo "🗑️ Removing inaccessible/dead user @$USER from favorites.json (Gist: $FAVORITE_GIST_ID)..."
 
       # favorites.json から該当ユーザーを削除（case-insensitive）
       FAV_CURR=$(gh gist view "$FAVORITE_GIST_ID" -f favorites.json 2>/dev/null || echo "")
@@ -167,18 +164,54 @@ for i in "${!ENTRIES[@]}"; do
         printf '%s' "$LATEST_JSON" > "$TMP_DONE"
         gh gist edit "$SLOT0_ID" -f fetch_queue.json "$TMP_DONE"
         rm -f "$TMP_DONE"
-        echo "✅ Marked dead user @$USER as done in fetch_queue.json."
+        echo "✅ Marked inaccessible user @$USER as done in fetch_queue.json."
       fi
-    elif [ -n "$USER" ]; then
-      echo "⚠️ Temporary crawl failure for @$USER (code $EXIT_CODE). Leaving undone for next run."
+
+      # 無効アカウントの正常スキップのため連続エラーカウントはリセット
+      CONSECUTIVE_ERRORS=0
+      echo "⏩ Automatically skipped inaccessible user @$USER and proceeding to next account."
+
+    elif [ $EXIT_CODE -eq 43 ]; then
+      echo "⚠️ Server-side or timeline DOM error (code 43) for target: ${USER:-#$HASHTAG}"
+
+      # キューを done: true にして次回以降へのスタックを防止し、自動スキップ
+      LATEST_JSON=$(gh gist view "$SLOT0_ID" -f fetch_queue.json 2>/dev/null || echo "")
+      if echo "$LATEST_JSON" | jq -e '.users' > /dev/null 2>&1; then
+        if [ -n "$HASHTAG" ]; then
+          LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg hashtag "$HASHTAG" \
+            '.users = [.users[] | if .hashtag == $hashtag then . + {"done": true} else . end]')
+        else
+          LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
+            '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+        fi
+        TMP_DONE=$(mktemp /tmp/fq_done_XXXXXX.json)
+        printf '%s' "$LATEST_JSON" > "$TMP_DONE"
+        gh gist edit "$SLOT0_ID" -f fetch_queue.json "$TMP_DONE"
+        rm -f "$TMP_DONE"
+        echo "✅ Marked target as done in current queue to skip and prevent stuck queue."
+      fi
+
+      # 一時スキップとして扱い連続エラーカウントはリセット
+      CONSECUTIVE_ERRORS=0
+      echo "⏩ Safely skipped target and proceeding to next account."
+
     else
-      echo "⚠️ Crawl returned code $EXIT_CODE for hashtag #$HASHTAG. Leaving undone for next run."
+      # その他の予期せぬスクリプトエラー
+      CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
+      echo "⚠️ Unexpected crawl failure (code $EXIT_CODE). Consecutive errors: $CONSECUTIVE_ERRORS/3"
+
+      if [ -n "$USER" ]; then
+        echo "⚠️ Crawl error for @$USER (code $EXIT_CODE). Leaving undone for next run."
+      else
+        echo "⚠️ Crawl returned code $EXIT_CODE for hashtag #$HASHTAG. Leaving undone for next run."
+      fi
+
+      if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
+        echo "🚨 3 consecutive crawl failures. Aborting batch run to prevent infinite loop."
+        exit 1
+      fi
     fi
 
-    if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
-      echo "🚨 3 consecutive crawl failures. Aborting batch run to prevent infinite loop."
-      exit 1
-    fi
     sleep 2
     continue
   fi

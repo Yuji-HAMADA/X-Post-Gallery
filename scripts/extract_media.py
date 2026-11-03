@@ -166,7 +166,7 @@ async def dismiss_modals(page):
         pass
 
 async def check_account_status(page):
-    """アカウントが存在しない、または凍結されているか、認証エラーかを早期チェック"""
+    """アカウントが存在しない、凍結、非公開、閲覧制限（年齢制限等）、認証エラー、またはサーバ障害かを早期チェック"""
     try:
         current_url = page.url
         body_text = (await page.inner_text("body")).strip()
@@ -186,7 +186,7 @@ async def check_account_status(page):
     if has_login_button and not has_account_switcher and any(lp in body_text for lp in login_phrases):
         return "auth_error"
 
-    # 2. アカウント不在・凍結
+    # 2. アカウント不在・凍結・非公開・ブロック・年齢制限
     dead_phrases = [
         "このアカウントは存在しません",
         "This account doesn’t exist",
@@ -194,10 +194,32 @@ async def check_account_status(page):
         "該当するアカウントは見つかりませんでした",
         "アカウントは凍結されています",
         "Account suspended",
+        "ポストは非公開です",
+        "These posts are protected",
+        "ブロックされています",
+        "You are blocked",
+        # 年齢制限 / 生年月日未登録等による閲覧ブロック
+        "Age-restricted account",
+        "Age-restricted adult content",
+        "add your birthdate",
+        "年齢制限のあるアカウント",
+        "年齢制限のある成人向けコンテンツ",
+        "生年月日を追加",
     ]
     for phrase in dead_phrases:
         if phrase in body_text or phrase in page_title:
             return "account_dead"
+
+    # 3. サーバ側の一時エラー
+    server_error_phrases = [
+        "Something went wrong",
+        "問題が発生しました",
+        "Cannot retrieve posts at this time",
+        "ポストを読み込めません",
+    ]
+    for phrase in server_error_phrases:
+        if phrase in body_text:
+            return "server_error"
 
     return None
 
@@ -240,7 +262,7 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
         print("  ❌ Cause: Login wall detected. Session in auth.json may be expired, logged out, or restricted.")
         return "auth_error"
 
-    # 3. アカウント状態
+    # 3. アカウント状態（不在・凍結・非公開・ブロック・年齢制限）
     dead_phrases = [
         "このアカウントは存在しません",
         "This account doesn’t exist",
@@ -248,33 +270,47 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
         "該当するアカウントは見つかりませんでした",
         "アカウントは凍結されています",
         "Account suspended",
+        "ポストは非公開です",
+        "These posts are protected",
+        "ブロックされています",
+        "You are blocked",
+        "Age-restricted account",
+        "Age-restricted adult content",
+        "add your birthdate",
+        "年齢制限のあるアカウント",
+        "年齢制限のある成人向けコンテンツ",
+        "生年月日を追加",
     ]
     for m in dead_phrases:
         if m in body_text or m in page_title:
-            print(f"  ❌ Cause: Account does not exist or is suspended ({m}).")
+            print(f"  ❌ Cause: Account is inaccessible, suspended, non-existent, or age-restricted ({m}).")
             return "account_dead"
 
-    if any(m in body_text for m in ["ポストは非公開です", "These posts are protected"]):
-        print("  ❌ Cause: Account is private / protected.")
-        return "account_dead"
-    if any(m in body_text for m in ["ブロックされています", "You are blocked"]):
-        print("  ❌ Cause: Blocked by target user.")
-        return "account_dead"
-
-    # 4. センシティブ警告ブロック
+    # 4. センシティブ警告ブロック（ボタン解除不能な場合）
     if any(m in body_text for m in ["センシティブな内容", "Potentially sensitive content", "プロフィールを表示"]):
         print("  ❌ Cause: Profile warning / sensitive content banner blocked timeline rendering.")
-        return "error"
+        return "account_dead"
 
     # 5. 投稿なし
     if any(m in body_text for m in ["まだポストはありません", "No posts yet", "ポストはまだありません"]):
         print("  ❌ Cause: User has no posts on this timeline.")
         return "ok"
 
-    # 6. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合のみ）
+    # 6. サーバ側エラー
+    server_error_phrases = [
+        "Something went wrong",
+        "問題が発生しました",
+        "Cannot retrieve posts at this time",
+        "ポストを読み込めません",
+    ]
+    if any(m in body_text for m in server_error_phrases):
+        print("  ❌ Cause: Server error or timeline failed to load on X side.")
+        return "server_error"
+
+    # 7. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合）
     body_preview = body_text.replace('\n', ' ')[:200]
     print(f"  ❌ Cause: Timeline articles failed to load into DOM. Body snippet: {repr(body_preview)}")
-    return "error"
+    return "server_error"
 
 async def run():
     args = parse_args()
@@ -330,7 +366,7 @@ async def run():
         if args.user:
             early_status = await check_account_status(page)
             if early_status == "account_dead":
-                print(f"❌ Account @{args.user} does not exist or is suspended. Exiting with code 44.")
+                print(f"❌ Account @{args.user} is dead/suspended/inaccessible. Exiting with code 44.")
                 await browser.close()
                 sys.exit(44)
             elif early_status == "auth_error":
@@ -341,12 +377,12 @@ async def run():
         # タイムラインの初期記事が現れるまで待機
         articles_ready = False
         try:
-            await page.wait_for_selector(TWEET_SELECTOR, timeout=15000)
+            await page.wait_for_selector(TWEET_SELECTOR, timeout=10000)
             articles_ready = True
         except Exception:
             await dismiss_modals(page)
             try:
-                await page.wait_for_selector(TWEET_SELECTOR, timeout=8000)
+                await page.wait_for_selector(TWEET_SELECTOR, timeout=5000)
                 articles_ready = True
             except Exception:
                 pass
@@ -355,7 +391,7 @@ async def run():
         if not articles_ready and args.user:
             status_check = await check_account_status(page)
             if status_check == "account_dead":
-                print(f"❌ Account @{args.user} does not exist or is suspended. Exiting with code 44.")
+                print(f"❌ Account @{args.user} is dead/suspended/inaccessible (e.g. age-restricted). Exiting with code 44.")
                 await browser.close()
                 sys.exit(44)
             elif status_check == "auth_error":
@@ -369,10 +405,39 @@ async def run():
             try:
                 await page.reload(wait_until="domcontentloaded")
                 await dismiss_modals(page)
-                await page.wait_for_selector(TWEET_SELECTOR, timeout=15000)
+                await page.wait_for_selector(TWEET_SELECTOR, timeout=8000)
                 articles_ready = True
             except Exception:
-                print("⚠️ Page reload finished; proceeding to timeline scanning.")
+                print("⚠️ Page reload finished; articles still not detected in DOM.")
+
+        # リロード後も記事が検出されない場合は無駄なスクロールをスキップして即時診断・終了
+        if not articles_ready:
+            diag_status = await diagnose_empty_state(page, 0, 0, 0)
+            if diag_status in ("account_dead", "auth_error", "server_error"):
+                debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
+                try:
+                    await page.screenshot(path=debug_screen, full_page=False)
+                    print(f"  📸 Debug screenshot saved to: {debug_screen}")
+                except Exception:
+                    pass
+
+                await browser.close()
+                if diag_status == "account_dead":
+                    print(f"🚨 Account @{args.user} is dead/suspended/inaccessible. Exiting with code 44.")
+                    sys.exit(44)
+                elif diag_status == "auth_error":
+                    print("🚨 Auth session error. Exiting with code 41.")
+                    sys.exit(41)
+                else:
+                    print("🚨 Server error or timeline DOM failure. Exiting with code 43.")
+                    sys.exit(43)
+            elif diag_status == "ok":
+                # 投稿なしなど正常な0件
+                with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+                    f.write("window.YTD.tweets.part0 = []")
+                print("\n✅ Done: 0 tweets saved (empty timeline).")
+                await browser.close()
+                sys.exit(0)
 
         await asyncio.sleep(2)
         await dismiss_modals(page)
@@ -503,7 +568,7 @@ async def run():
         # 0件で終了した場合の原因診断とスクリーンショット保存（異常検知時のみ）
         if len(new_tweets) == 0:
             diag_status = await diagnose_empty_state(page, len(seen_ids), skipped_count, total_articles_detected)
-            if diag_status in ("account_dead", "auth_error", "error"):
+            if diag_status in ("account_dead", "auth_error", "server_error", "error"):
                 debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
                 try:
                     await page.screenshot(path=debug_screen, full_page=False)
@@ -513,14 +578,14 @@ async def run():
 
                 await browser.close()
                 if diag_status == "account_dead":
-                    print(f"🚨 Account @{args.user} is dead/suspended. Exiting with code 44.")
+                    print(f"🚨 Account @{args.user} is dead/suspended/inaccessible. Exiting with code 44.")
                     sys.exit(44)
                 elif diag_status == "auth_error":
                     print("🚨 Auth session error. Exiting with code 41.")
                     sys.exit(41)
                 else:
-                    print("🚨 Extraction failed. Exiting with code 1.")
-                    sys.exit(1)
+                    print("🚨 Server error or timeline DOM failure. Exiting with code 43.")
+                    sys.exit(43)
 
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write("window.YTD.tweets.part0 = ")
