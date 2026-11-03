@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../viewmodels/gallery_viewmodel.dart';
 
 /// 進捗表示ダイアログを表示する
 void showProgressDialog(BuildContext context, {String message = '削除中...'}) {
@@ -94,4 +95,20 @@ void showToastNotification(
       duration: duration,
     ),
   );
+}
+
+/// アカウントの優先順位を最上位に更新し、スライドイントースト通知を表示する共通アクション
+Future<void> pinAccountToTop(
+  BuildContext context,
+  GalleryViewModel vm,
+  String username,
+) async {
+  await vm.bumpUserPriority(username);
+  if (context.mounted) {
+    showToastNotification(
+      context,
+      '@$username を一番上に移動しました',
+      icon: Icons.push_pin,
+    );
+  }
 }

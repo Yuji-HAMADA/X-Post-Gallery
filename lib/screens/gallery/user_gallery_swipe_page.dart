@@ -254,16 +254,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 IconButton(
                   icon: const Icon(Icons.push_pin_outlined),
                   tooltip: '一番上に移動',
-                  onPressed: () async {
-                    await vm.bumpUserPriority(username);
-                    if (context.mounted) {
-                      showToastNotification(
-                        context,
-                        '@$username を一番上に移動しました',
-                        icon: Icons.push_pin,
-                      );
-                    }
-                  },
+                  onPressed: () => pinAccountToTop(context, vm, username),
                 ),
                 IconButton(
                   icon: Icon(

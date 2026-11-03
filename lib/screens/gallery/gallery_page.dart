@@ -716,14 +716,7 @@ class _GalleryPageState extends State<GalleryPage> {
   /// ピン留め短押し時: アカウントの優先順位を最上位に更新しトースト通知を表示
   Future<void> _handlePriorityTap(String username) async {
     final vm = context.read<GalleryViewModel>();
-    await vm.bumpUserPriority(username);
-    if (mounted) {
-      showToastNotification(
-        context,
-        '@$username を一番上に移動しました',
-        icon: Icons.push_pin,
-      );
-    }
+    await pinAccountToTop(context, vm, username);
   }
 
   /// マスターGistに存在しない新規ユーザーを追加する
@@ -1233,6 +1226,38 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
+  /// 優先順位（priority_updated_at 降順）および元の登録順（降順/LIFO）でユーザーを比較する
+  int _compareUserPriority(
+    String userA,
+    String userB,
+    Map<String, int> userPriorities,
+    Map<String, int> originalIndex,
+  ) {
+    final pA = userPriorities[userA] ?? 0;
+    final pB = userPriorities[userB] ?? 0;
+    final cmp = pB.compareTo(pA);
+    if (cmp != 0) return cmp;
+
+    final idxA = originalIndex[userA] ?? -1;
+    final idxB = originalIndex[userB] ?? -1;
+    return idxB.compareTo(idxA);
+  }
+
+  /// ユーザーのツイート一覧からサムネイル付きの代表アイテムを選択する
+  TweetItem _selectThumbnailItem(List<TweetItem> userItems) {
+    return userItems.firstWhere(
+      (i) => i.thumbnailUrl.isNotEmpty,
+      orElse: () => userItems.isNotEmpty
+          ? userItems.first
+          : TweetItem(
+              id: '',
+              fullText: '',
+              createdAt: '',
+              mediaUrls: const [],
+            ),
+    );
+  }
+
   /// ユーザーグループ化したグリッド（メインギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
@@ -1274,17 +1299,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     // priority_updated_at の降順（新しい順）でソート
-    // priority_updated_at が等しい場合は元の登録インデックスの降順（最新登録順/LIFO）
-    entries.sort((a, b) {
-      final pA = userPriorities[a.key] ?? 0;
-      final pB = userPriorities[b.key] ?? 0;
-      final cmp = pB.compareTo(pA);
-      if (cmp != 0) return cmp;
-
-      final idxA = originalIndex[a.key] ?? -1;
-      final idxB = originalIndex[b.key] ?? -1;
-      return idxB.compareTo(idxA);
-    });
+    entries.sort((a, b) => _compareUserPriority(a.key, b.key, userPriorities, originalIndex));
 
     final userUsernames = entries.map((e) => e.key).toList();
 
@@ -1300,17 +1315,7 @@ class _GalleryPageState extends State<GalleryPage> {
       itemBuilder: (context, index) {
         final username = entries[index].key;
         final userItems = entries[index].value;
-        final thumbItem = userItems.firstWhere(
-          (i) => i.thumbnailUrl.isNotEmpty,
-          orElse: () => userItems.isNotEmpty
-              ? userItems.first
-              : TweetItem(
-                  id: '',
-                  fullText: '',
-                  createdAt: '',
-                  mediaUrls: const [],
-                ),
-        );
+        final thumbItem = _selectThumbnailItem(userItems);
         return UserCard(
           username: username,
           thumbItem: thumbItem,
@@ -1372,17 +1377,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     // priority_updated_at の降順（新しい順）でソート
-    // priority_updated_at が等しい場合はお気に入り追加順の逆順（最新追加順/LIFO）
-    entries.sort((a, b) {
-      final pA = userPriorities[a.key] ?? 0;
-      final pB = userPriorities[b.key] ?? 0;
-      final cmp = pB.compareTo(pA);
-      if (cmp != 0) return cmp;
-
-      final idxA = originalIndex[a.key] ?? -1;
-      final idxB = originalIndex[b.key] ?? -1;
-      return idxB.compareTo(idxA);
-    });
+    entries.sort((a, b) => _compareUserPriority(a.key, b.key, userPriorities, originalIndex));
 
     // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
     final favUsernames = entries.map((e) => e.key).toList();
@@ -1399,17 +1394,7 @@ class _GalleryPageState extends State<GalleryPage> {
       itemBuilder: (context, index) {
         final username = entries[index].key;
         final userItems = entries[index].value;
-        final thumbItem = userItems.firstWhere(
-          (i) => i.thumbnailUrl.isNotEmpty,
-          orElse: () => userItems.isNotEmpty
-              ? userItems.first
-              : TweetItem(
-                  id: '',
-                  fullText: '',
-                  createdAt: '',
-                  mediaUrls: const [],
-                ),
-        );
+        final thumbItem = _selectThumbnailItem(userItems);
         return UserCard(
           username: username,
           thumbItem: thumbItem,
@@ -1715,16 +1700,7 @@ class _GalleryPageState extends State<GalleryPage> {
         }
       }
 
-      list.sort((a, b) {
-        final pA = vm.userPriorities[a] ?? 0;
-        final pB = vm.userPriorities[b] ?? 0;
-        final cmp = pB.compareTo(pA);
-        if (cmp != 0) return cmp;
-
-        final idxA = originalIndex[a] ?? -1;
-        final idxB = originalIndex[b] ?? -1;
-        return idxB.compareTo(idxA);
-      });
+      list.sort((a, b) => _compareUserPriority(a, b, vm.userPriorities, originalIndex));
 
       sortedUsernames = list;
     }

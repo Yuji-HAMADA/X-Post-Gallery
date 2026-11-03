@@ -706,17 +706,11 @@ class GalleryViewModel extends ChangeNotifier {
     }
   }
 
-  /// ハート長押し時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
-  Future<bool> bumpUserPriority(String username) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    _userPriorities = Map.from(_userPriorities)..[username] = now;
-    notifyListeners();
-
+  /// マスターGistの最新状態をGitHubに保存してキャッシュをクリアする
+  Future<bool> _saveMasterGist() async {
     final masterGistId = defaultMasterGistId;
     if (masterGistId.isEmpty) {
-      debugPrint(
-        'bumpUserPriority: defaultMasterGistId is empty, skipping Gist update',
-      );
+      debugPrint('_saveMasterGist: defaultMasterGistId is empty, skipping update');
       return true;
     }
 
@@ -738,9 +732,17 @@ class GalleryViewModel extends ChangeNotifier {
       }
       return success;
     } catch (e) {
-      debugPrint('bumpUserPriority error: $e');
+      debugPrint('_saveMasterGist error: $e');
       return false;
     }
+  }
+
+  /// ピン留め（最上位移動）時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
+  Future<bool> bumpUserPriority(String username) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _userPriorities = Map.from(_userPriorities)..[username] = now;
+    notifyListeners();
+    return await _saveMasterGist();
   }
 
   /// 新規アカウント登録時: priority_updated_at に現在時刻を設定しマスターGistを更新
@@ -749,56 +751,16 @@ class GalleryViewModel extends ChangeNotifier {
     _userGists = Map.from(_userGists)..[username] = gistId;
     _userPriorities = Map.from(_userPriorities)..[username] = now;
     notifyListeners();
-
-    final masterGistId = defaultMasterGistId;
-    if (masterGistId.isEmpty) return true;
-
-    try {
-      final filename = _repository.lastGistFilename ?? 'data.json';
-      final jsonStr = _repository.buildMasterGistJson(
-        _items,
-        userName: _userName,
-        userGists: _userGists,
-        userPriorities: _userPriorities,
-      );
-      final success = await _githubService.updateGistFile(
-        gistId: masterGistId,
-        filename: filename,
-        content: jsonStr,
-      );
-      if (success) {
-        await _repository.clearCache();
-      }
-      return success;
-    } catch (e) {
-      debugPrint('registerUser error: $e');
-      return false;
-    }
+    return await _saveMasterGist();
   }
 
   /// 全ポスト削除後にマスターGistからユーザーを除去する
   Future<void> removeUserFromMaster(String username) async {
-    final masterGistId = defaultMasterGistId;
-    if (masterGistId.isEmpty) return;
-
     _userGists = Map.from(_userGists)..remove(username);
     _userPriorities = Map.from(_userPriorities)..remove(username);
     _items = _items.where((item) => item.extractedUsername != username).toList();
-
-    final filename = _repository.lastGistFilename ?? 'data.json';
-    final jsonStr = _repository.buildMasterGistJson(
-      _items,
-      userName: _userName,
-      userGists: _userGists,
-      userPriorities: _userPriorities,
-    );
-    await _githubService.updateGistFile(
-      gistId: masterGistId,
-      filename: filename,
-      content: jsonStr,
-    );
-    await _repository.clearCache();
     notifyListeners();
+    await _saveMasterGist();
   }
 
   // --- お気に入り一括取得 ---
