@@ -713,6 +713,19 @@ class _GalleryPageState extends State<GalleryPage> {
     await _handleAddNewUser(username);
   }
 
+  /// ピン留め短押し時: アカウントの優先順位を最上位に更新しトースト通知を表示
+  Future<void> _handlePriorityTap(String username) async {
+    final vm = context.read<GalleryViewModel>();
+    await vm.bumpUserPriority(username);
+    if (mounted) {
+      showToastNotification(
+        context,
+        '@$username を一番上に移動しました',
+        icon: Icons.push_pin,
+      );
+    }
+  }
+
   /// マスターGistに存在しない新規ユーザーを追加する
   Future<void> _handleAddNewUser(String username) async {
     final result = await AppendConfigDialog.show(context);
@@ -729,6 +742,9 @@ class _GalleryPageState extends State<GalleryPage> {
       count: result.count,
       stopOnExisting: result.stopOnExisting,
     );
+    if (success) {
+      await vm.registerUser(username);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1017,11 +1033,13 @@ class _GalleryPageState extends State<GalleryPage> {
                     favoriteItems,
                     vm.userGists,
                     vm.favoriteUsers,
+                    vm.userPriorities,
                   ),
                   _buildUserGroupedGrid(
                     vm.items,
                     vm.userGists,
                     vm.favoriteUsers,
+                    vm.userPriorities,
                   ),
                   _buildKeywordGrid(vm),
                   _buildCharacterGrid(vm),
@@ -1107,8 +1125,13 @@ class _GalleryPageState extends State<GalleryPage> {
               onPressed: _showDeleteConfirmDialog,
             )
           else if (isUserFilter || isHashtagFilter) ...[
-            // ユーザー／ハッシュタグフィルター画面: ハート（ユーザーのみ）＋ 追加ボタン
-            if (isUserFilter && widget.userGistUsername != null)
+            // ユーザー／ハッシュタグフィルター画面: 一番上に移動 ＋ ハート（ユーザーのみ）＋ 追加ボタン
+            if (isUserFilter && widget.userGistUsername != null) ...[
+              IconButton(
+                icon: const Icon(Icons.push_pin_outlined),
+                tooltip: '一番上に移動',
+                onPressed: () => _handlePriorityTap(widget.userGistUsername!),
+              ),
               Consumer<GalleryViewModel>(
                 builder: (context, vm, _) => IconButton(
                   icon: Icon(
@@ -1122,6 +1145,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: () => vm.toggleFavorite(widget.userGistUsername!),
                 ),
               ),
+            ],
             IconButton(
               icon: const Icon(Icons.add),
               tooltip: '追加',
@@ -1214,6 +1238,7 @@ class _GalleryPageState extends State<GalleryPage> {
     List<TweetItem> items,
     Map<String, String> userGists,
     Set<String> favoriteUsers,
+    Map<String, int> userPriorities,
   ) {
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
@@ -1224,21 +1249,42 @@ class _GalleryPageState extends State<GalleryPage> {
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    // 登録された順序（userGists のキー順 = マスターに登録された順）の逆順（最新登録順）でエントリを構築
+    // 元の登録順序（userGists のキー順）のインデックスを保持
+    final originalKeys = userGists.keys.toList();
+    final Map<String, int> originalIndex = {};
+    for (int i = 0; i < originalKeys.length; i++) {
+      originalIndex[originalKeys[i]] = i;
+    }
+
     final List<MapEntry<String, List<TweetItem>>> entries = [];
-    for (final username in userGists.keys.toList().reversed) {
+    final Set<String> addedUsers = {};
+
+    for (final username in originalKeys) {
       if (favoriteUsers.contains(username)) continue;
-      final userItems = grouped[username];
-      if (userItems != null && userItems.isNotEmpty) {
-        entries.add(MapEntry(username, userItems));
-      }
+      final userItems = grouped[username] ?? [];
+      entries.add(MapEntry(username, userItems));
+      addedUsers.add(username);
     }
-    // userGists に未登録だが items に存在するユーザーのフォールバック
+
     for (final entry in grouped.entries) {
-      if (!userGists.containsKey(entry.key)) {
+      if (!addedUsers.contains(entry.key)) {
         entries.add(entry);
+        addedUsers.add(entry.key);
       }
     }
+
+    // priority_updated_at の降順（新しい順）でソート
+    // priority_updated_at が等しい場合は元の登録インデックスの降順（最新登録順/LIFO）
+    entries.sort((a, b) {
+      final pA = userPriorities[a.key] ?? 0;
+      final pB = userPriorities[b.key] ?? 0;
+      final cmp = pB.compareTo(pA);
+      if (cmp != 0) return cmp;
+
+      final idxA = originalIndex[a.key] ?? -1;
+      final idxB = originalIndex[b.key] ?? -1;
+      return idxB.compareTo(idxA);
+    });
 
     final userUsernames = entries.map((e) => e.key).toList();
 
@@ -1256,7 +1302,14 @@ class _GalleryPageState extends State<GalleryPage> {
         final userItems = entries[index].value;
         final thumbItem = userItems.firstWhere(
           (i) => i.thumbnailUrl.isNotEmpty,
-          orElse: () => userItems.first,
+          orElse: () => userItems.isNotEmpty
+              ? userItems.first
+              : TweetItem(
+                  id: '',
+                  fullText: '',
+                  createdAt: '',
+                  mediaUrls: const [],
+                ),
         );
         return UserCard(
           username: username,
@@ -1276,6 +1329,7 @@ class _GalleryPageState extends State<GalleryPage> {
     List<TweetItem> favoriteItems,
     Map<String, String> userGists,
     Set<String> favoriteUsers,
+    Map<String, int> userPriorities,
   ) {
     if (favoriteItems.isEmpty) {
       return const Center(
@@ -1293,20 +1347,42 @@ class _GalleryPageState extends State<GalleryPage> {
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    // 登録された順序（favoriteUsers の配列・追加順）の逆順（最新登録順）でエントリを構築
+    final favList = favoriteUsers.toList();
+    final Map<String, int> originalIndex = {};
+    for (int i = 0; i < favList.length; i++) {
+      originalIndex[favList[i]] = i;
+    }
+
     final List<MapEntry<String, List<TweetItem>>> entries = [];
-    for (final username in favoriteUsers.toList().reversed) {
+    final Set<String> addedUsers = {};
+
+    for (final username in favList) {
       final userItems = grouped[username];
       if (userItems != null && userItems.isNotEmpty) {
         entries.add(MapEntry(username, userItems));
+        addedUsers.add(username);
       }
     }
     // grouped に存在するが favoriteUsers に含まれない場合のフォールバック
     for (final entry in grouped.entries) {
-      if (!favoriteUsers.contains(entry.key)) {
+      if (!addedUsers.contains(entry.key)) {
         entries.add(entry);
+        addedUsers.add(entry.key);
       }
     }
+
+    // priority_updated_at の降順（新しい順）でソート
+    // priority_updated_at が等しい場合はお気に入り追加順の逆順（最新追加順/LIFO）
+    entries.sort((a, b) {
+      final pA = userPriorities[a.key] ?? 0;
+      final pB = userPriorities[b.key] ?? 0;
+      final cmp = pB.compareTo(pA);
+      if (cmp != 0) return cmp;
+
+      final idxA = originalIndex[a.key] ?? -1;
+      final idxB = originalIndex[b.key] ?? -1;
+      return idxB.compareTo(idxA);
+    });
 
     // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
     final favUsernames = entries.map((e) => e.key).toList();
@@ -1325,7 +1401,14 @@ class _GalleryPageState extends State<GalleryPage> {
         final userItems = entries[index].value;
         final thumbItem = userItems.firstWhere(
           (i) => i.thumbnailUrl.isNotEmpty,
-          orElse: () => userItems.first,
+          orElse: () => userItems.isNotEmpty
+              ? userItems.first
+              : TweetItem(
+                  id: '',
+                  fullText: '',
+                  createdAt: '',
+                  mediaUrls: const [],
+                ),
         );
         return UserCard(
           username: username,
@@ -1609,10 +1692,16 @@ class _GalleryPageState extends State<GalleryPage> {
       // お気に入りなど呼び出し元が既に順序を決めているケース
       sortedUsernames = scope;
     } else {
-      // グリッドと同じ登録逆順（最新登録順）でユーザー一覧を構築
+      // グリッドと同じ優先順位降順（最新操作/登録順）でユーザー一覧を構築
+      final originalKeys = vm.userGists.keys.toList();
+      final Map<String, int> originalIndex = {};
+      for (int i = 0; i < originalKeys.length; i++) {
+        originalIndex[originalKeys[i]] = i;
+      }
+
       final Set<String> registered = {};
       final List<String> list = [];
-      for (final u in vm.userGists.keys.toList().reversed) {
+      for (final u in originalKeys) {
         if (!vm.favoriteUsers.contains(u)) {
           list.add(u);
           registered.add(u);
@@ -1625,6 +1714,18 @@ class _GalleryPageState extends State<GalleryPage> {
           registered.add(key);
         }
       }
+
+      list.sort((a, b) {
+        final pA = vm.userPriorities[a] ?? 0;
+        final pB = vm.userPriorities[b] ?? 0;
+        final cmp = pB.compareTo(pA);
+        if (cmp != 0) return cmp;
+
+        final idxA = originalIndex[a] ?? -1;
+        final idxB = originalIndex[b] ?? -1;
+        return idxB.compareTo(idxA);
+      });
+
       sortedUsernames = list;
     }
 

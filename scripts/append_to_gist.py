@@ -14,6 +14,7 @@ import sys
 import argparse
 import subprocess
 import tempfile
+import time
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
@@ -344,7 +345,19 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             gist_cache[final_id]["data"] = updated_data
             gist_cache[final_id]["is_modified"] = True
 
-        user_gists_map[user] = final_id
+        existing_entry = user_gists_map.get(user)
+        now_ms = int(time.time() * 1000)
+        if isinstance(existing_entry, dict):
+            user_priority = existing_entry.get("priority_updated_at", now_ms)
+        elif existing_entry is not None:
+            user_priority = now_ms
+        else:
+            user_priority = now_ms
+
+        user_gists_map[user] = {
+            "gist_id": final_id,
+            "priority_updated_at": user_priority,
+        }
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         latest = merged[0]
         master_tweets.insert(0, {
@@ -368,7 +381,21 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
                 if os.path.exists(tmp):
                     os.unlink(tmp)
 
-    master_data["user_gists"] = user_gists_map
+    # スキーマ統一: 全ユーザーエントリに priority_updated_at を持たせる（未設定は 0）
+    unified_user_gists = {}
+    for u, entry in user_gists_map.items():
+        if isinstance(entry, dict):
+            unified_user_gists[u] = {
+                "gist_id": entry.get("gist_id", ""),
+                "priority_updated_at": int(entry.get("priority_updated_at", 0) or 0),
+            }
+        else:
+            unified_user_gists[u] = {
+                "gist_id": str(entry),
+                "priority_updated_at": 0,
+            }
+
+    master_data["user_gists"] = unified_user_gists
     master_data["tweets"] = master_tweets
     return master_data
 

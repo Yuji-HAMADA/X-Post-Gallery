@@ -88,6 +88,9 @@ class GalleryViewModel extends ChangeNotifier {
   Map<String, String> _userGists = {};
   Map<String, String> get userGists => _userGists;
 
+  Map<String, int> _userPriorities = {};
+  Map<String, int> get userPriorities => _userPriorities;
+
   Map<String, String> _characterGists = {};
   Map<String, String> get characterGists => _characterGists;
 
@@ -200,6 +203,7 @@ class GalleryViewModel extends ChangeNotifier {
       _items = data.items;
       _userName = data.userName;
       _userGists = data.userGists;
+      _userPriorities = data.userPriorities;
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
@@ -702,12 +706,83 @@ class GalleryViewModel extends ChangeNotifier {
     }
   }
 
+  /// ハート長押し時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
+  Future<bool> bumpUserPriority(String username) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _userPriorities = Map.from(_userPriorities)..[username] = now;
+    notifyListeners();
+
+    final masterGistId = defaultMasterGistId;
+    if (masterGistId.isEmpty) {
+      debugPrint(
+        'bumpUserPriority: defaultMasterGistId is empty, skipping Gist update',
+      );
+      return true;
+    }
+
+    try {
+      final filename = _repository.lastGistFilename ?? 'data.json';
+      final jsonStr = _repository.buildMasterGistJson(
+        _items,
+        userName: _userName,
+        userGists: _userGists,
+        userPriorities: _userPriorities,
+      );
+      final success = await _githubService.updateGistFile(
+        gistId: masterGistId,
+        filename: filename,
+        content: jsonStr,
+      );
+      if (success) {
+        await _repository.clearCache();
+      }
+      return success;
+    } catch (e) {
+      debugPrint('bumpUserPriority error: $e');
+      return false;
+    }
+  }
+
+  /// 新規アカウント登録時: priority_updated_at に現在時刻を設定しマスターGistを更新
+  Future<bool> registerUser(String username, {String gistId = ''}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _userGists = Map.from(_userGists)..[username] = gistId;
+    _userPriorities = Map.from(_userPriorities)..[username] = now;
+    notifyListeners();
+
+    final masterGistId = defaultMasterGistId;
+    if (masterGistId.isEmpty) return true;
+
+    try {
+      final filename = _repository.lastGistFilename ?? 'data.json';
+      final jsonStr = _repository.buildMasterGistJson(
+        _items,
+        userName: _userName,
+        userGists: _userGists,
+        userPriorities: _userPriorities,
+      );
+      final success = await _githubService.updateGistFile(
+        gistId: masterGistId,
+        filename: filename,
+        content: jsonStr,
+      );
+      if (success) {
+        await _repository.clearCache();
+      }
+      return success;
+    } catch (e) {
+      debugPrint('registerUser error: $e');
+      return false;
+    }
+  }
+
   /// 全ポスト削除後にマスターGistからユーザーを除去する
   Future<void> removeUserFromMaster(String username) async {
     final masterGistId = defaultMasterGistId;
     if (masterGistId.isEmpty) return;
 
     _userGists = Map.from(_userGists)..remove(username);
+    _userPriorities = Map.from(_userPriorities)..remove(username);
     _items = _items.where((item) => item.extractedUsername != username).toList();
 
     final filename = _repository.lastGistFilename ?? 'data.json';
@@ -715,6 +790,7 @@ class GalleryViewModel extends ChangeNotifier {
       _items,
       userName: _userName,
       userGists: _userGists,
+      userPriorities: _userPriorities,
     );
     await _githubService.updateGistFile(
       gistId: masterGistId,

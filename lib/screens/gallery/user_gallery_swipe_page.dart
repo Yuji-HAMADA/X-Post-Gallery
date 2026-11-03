@@ -252,6 +252,20 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 )
               else ...[
                 IconButton(
+                  icon: const Icon(Icons.push_pin_outlined),
+                  tooltip: '一番上に移動',
+                  onPressed: () async {
+                    await vm.bumpUserPriority(username);
+                    if (context.mounted) {
+                      showToastNotification(
+                        context,
+                        '@$username を一番上に移動しました',
+                        icon: Icons.push_pin,
+                      );
+                    }
+                  },
+                ),
+                IconButton(
                   icon: Icon(
                     vm.isFavorite(username)
                         ? Icons.favorite

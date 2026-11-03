@@ -43,10 +43,12 @@ class UserCard extends StatelessWidget {
                     child: Icon(Icons.broken_image, color: Colors.grey),
                   ),
           ),
+          // 右上: ハートボタン（短押しでお気に入りトグル）
           Positioned(
             top: 2,
             right: 2,
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: onFavoriteTap,
               child: Container(
                 padding: const EdgeInsets.all(3),

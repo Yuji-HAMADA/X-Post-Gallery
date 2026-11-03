@@ -3,11 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tweet_item.dart';
+import '../models/user_gist_entry.dart';
 
 class GalleryData {
   final String userName;
   final List<TweetItem> items;
   final Map<String, String> userGists; // username -> gist_id
+  final Map<String, int> userPriorities; // username -> priority_updated_at
+  final Map<String, UserGistEntry> userGistEntries; // username -> UserGistEntry
   final Map<String, String> characterGists; // character_name -> gist_id
   final Map<String, String> keywordGists; // keyword -> gist_id
 
@@ -15,6 +18,8 @@ class GalleryData {
     required this.userName,
     required this.items,
     this.userGists = const {},
+    this.userPriorities = const {},
+    this.userGistEntries = const {},
     this.characterGists = const {},
     this.keywordGists = const {},
   });
@@ -97,7 +102,15 @@ class GalleryRepository {
         .where((item) => item.mediaUrls.isNotEmpty)
         .toList();
     final userGistsRaw = data['user_gists'] as Map<String, dynamic>? ?? {};
-    final userGists = userGistsRaw.map((k, v) => MapEntry(k, v as String));
+    final Map<String, String> userGists = {};
+    final Map<String, int> userPriorities = {};
+    final Map<String, UserGistEntry> userGistEntries = {};
+    for (final entry in userGistsRaw.entries) {
+      final userEntry = UserGistEntry.fromDynamic(entry.value);
+      userGists[entry.key] = userEntry.gistId;
+      userPriorities[entry.key] = userEntry.priorityUpdatedAt;
+      userGistEntries[entry.key] = userEntry;
+    }
     final characterGistsRaw =
         data['character_gists'] as Map<String, dynamic>? ?? {};
     final characterGists = characterGistsRaw.map(
@@ -112,6 +125,8 @@ class GalleryRepository {
       userName: data['user_screen_name'] ?? '',
       items: tweets,
       userGists: userGists,
+      userPriorities: userPriorities,
+      userGistEntries: userGistEntries,
       characterGists: characterGists,
       keywordGists: keywordGists,
     );
@@ -195,11 +210,22 @@ class GalleryRepository {
     List<TweetItem> items, {
     String userName = '',
     Map<String, String> userGists = const {},
+    Map<String, int> userPriorities = const {},
     Map<String, String> keywordGists = const {},
   }) {
+    // スキーマ統一: user_gists の各アカウントデータに必ず priority_updated_at を持たせる
+    final Map<String, dynamic> formattedUserGists = {};
+    for (final entry in userGists.entries) {
+      final priority = userPriorities[entry.key] ?? 0;
+      formattedUserGists[entry.key] = UserGistEntry(
+        gistId: entry.value,
+        priorityUpdatedAt: priority,
+      ).toJson();
+    }
+
     return json.encode({
       'user_screen_name': userName,
-      if (userGists.isNotEmpty) 'user_gists': userGists,
+      if (formattedUserGists.isNotEmpty) 'user_gists': formattedUserGists,
       if (keywordGists.isNotEmpty) 'keyword_gists': keywordGists,
       'tweets': items.map((item) => item.toMasterJson()).toList(),
     });
