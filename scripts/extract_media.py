@@ -125,7 +125,10 @@ async def dismiss_modals(page):
     """ログインダイアログ、センシティブ警告、シートダイアログ等を自動解除する"""
     try:
         # 1. センシティブ警告・プロファイル閲覧確認ボタンの自動クリック
-        sensitive_btn_texts = ["プロフィールを表示", "表示する", "表示", "View profile", "Yes, view profile"]
+        sensitive_btn_texts = [
+            "プロフィールを表示", "表示する", "表示",
+            "View profile", "Yes, view profile", "Show profile", "Show", "View"
+        ]
         for txt in sensitive_btn_texts:
             btn = await page.query_selector(f'div[role="button"]:has-text("{txt}"), button:has-text("{txt}")')
             if btn:
@@ -164,6 +167,68 @@ async def dismiss_modals(page):
         }""")
     except Exception:
         pass
+
+async def wait_for_timeline(page, timeout=25):
+    """タイムライン（articleまたは空状態）がDOMに現れるまでモーダル解除や微小スクロールを挟みながら待機"""
+    tweet_selectors = ['article', '[data-testid="tweet"]']
+    empty_selectors = ['[data-testid="emptyState"]', '[data-testid="empty_timeline"]']
+    empty_phrases = [
+        "まだポストはありません",
+        "No posts yet",
+        "ポストはまだありません",
+        "Nothing to see here — yet",
+        "Nothing to see here",
+        "posts aren't available",
+    ]
+
+    start_time = asyncio.get_event_loop().time()
+    scrolled = False
+
+    while asyncio.get_event_loop().time() - start_time < timeout:
+        # 1. 記事要素の確認
+        for sel in tweet_selectors:
+            el = await page.query_selector(sel)
+            if el:
+                return "ready"
+
+        # 2. 空タイムライン要素・文言の確認
+        for sel in empty_selectors:
+            el = await page.query_selector(sel)
+            if el:
+                return "empty"
+
+        try:
+            body_text = await page.inner_text("body")
+            if any(phrase in body_text for phrase in empty_phrases):
+                return "empty"
+        except Exception:
+            body_text = ""
+
+        # 3. モーダル・センシティブバナーの解除
+        await dismiss_modals(page)
+
+        # 4. 数秒経過しても出ない場合、微小スクロールで動的レンダリングを促進
+        elapsed = asyncio.get_event_loop().time() - start_time
+        if elapsed > 4 and not scrolled:
+            try:
+                await page.evaluate("window.scrollBy(0, 150)")
+                await asyncio.sleep(0.3)
+                await page.evaluate("window.scrollBy(0, -150)")
+                scrolled = True
+            except Exception:
+                pass
+
+        await asyncio.sleep(1.0)
+
+    # タイムアウト後の最終チェック
+    for sel in tweet_selectors:
+        if await page.query_selector(sel):
+            return "ready"
+    for sel in empty_selectors:
+        if await page.query_selector(sel):
+            return "empty"
+
+    return "timeout"
 
 async def check_account_status(page):
     """アカウントが存在しない、凍結、非公開、閲覧制限（年齢制限等）、認証エラー、またはサーバ障害かを早期チェック"""
@@ -292,7 +357,15 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
         return "account_dead"
 
     # 5. 投稿なし
-    if any(m in body_text for m in ["まだポストはありません", "No posts yet", "ポストはまだありません"]):
+    empty_phrases = [
+        "まだポストはありません",
+        "No posts yet",
+        "ポストはまだありません",
+        "Nothing to see here — yet",
+        "Nothing to see here",
+        "posts aren't available",
+    ]
+    if any(m in body_text for m in empty_phrases):
         print("  ❌ Cause: User has no posts on this timeline.")
         return "ok"
 
@@ -307,7 +380,13 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
         print("  ❌ Cause: Server error or timeline failed to load on X side.")
         return "server_error"
 
-    # 7. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合）
+    # 7. プロファイル正常表示（実在確認済み）かつエラー文言なしのフォールバック
+    has_user_name = await page.query_selector('[data-testid="UserName"]') is not None
+    if has_user_name:
+        print("  ℹ️ User profile loaded successfully, but no posts available on this timeline.")
+        return "ok"
+
+    # 8. DOM / レンダリング失敗（スクロール全体を通して一度も記事が現れなかった場合）
     body_preview = body_text.replace('\n', ' ')[:200]
     print(f"  ❌ Cause: Timeline articles failed to load into DOM. Body snippet: {repr(body_preview)}")
     return "server_error"
@@ -357,8 +436,6 @@ async def run():
 
         page.on("response", handle_response)
         
-        TWEET_SELECTOR = 'article, [data-testid="tweet"]'
-
         await page.goto(url, wait_until="domcontentloaded")
         await dismiss_modals(page)
 
@@ -376,19 +453,15 @@ async def run():
 
         # タイムラインの初期記事が現れるまで待機
         articles_ready = False
-        try:
-            await page.wait_for_selector(TWEET_SELECTOR, timeout=10000)
+        timeline_empty = False
+        status = await wait_for_timeline(page, timeout=25)
+        if status == "ready":
             articles_ready = True
-        except Exception:
-            await dismiss_modals(page)
-            try:
-                await page.wait_for_selector(TWEET_SELECTOR, timeout=5000)
-                articles_ready = True
-            except Exception:
-                pass
+        elif status == "empty":
+            timeline_empty = True
 
         # 初期タイムアウト時、アカウント状態を再確認
-        if not articles_ready and args.user:
+        if not articles_ready and not timeline_empty and args.user:
             status_check = await check_account_status(page)
             if status_check == "account_dead":
                 print(f"❌ Account @{args.user} is dead/suspended/inaccessible (e.g. age-restricted). Exiting with code 44.")
@@ -400,15 +473,28 @@ async def run():
                 sys.exit(41)
 
         # 初期タイムアウト時、一度リロードして再試行
-        if not articles_ready:
+        if not articles_ready and not timeline_empty:
             print("🔄 Initial load timed out with 0 articles. Attempting page reload...")
             try:
                 await page.reload(wait_until="domcontentloaded")
                 await dismiss_modals(page)
-                await page.wait_for_selector(TWEET_SELECTOR, timeout=8000)
-                articles_ready = True
-            except Exception:
-                print("⚠️ Page reload finished; articles still not detected in DOM.")
+                status = await wait_for_timeline(page, timeout=20)
+                if status == "ready":
+                    articles_ready = True
+                elif status == "empty":
+                    timeline_empty = True
+                else:
+                    print("⚠️ Page reload finished; articles still not detected in DOM.")
+            except Exception as e:
+                print(f"⚠️ Page reload failed or timed out: {e}")
+
+        # 空タイムライン確定時の即時終了
+        if timeline_empty:
+            with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+                f.write("window.YTD.tweets.part0 = []")
+            print("\n✅ Done: 0 tweets saved (empty timeline).")
+            await browser.close()
+            sys.exit(0)
 
         # リロード後も記事が検出されない場合は無駄なスクロールをスキップして即時診断・終了
         if not articles_ready:
