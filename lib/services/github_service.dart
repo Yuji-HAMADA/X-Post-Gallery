@@ -67,31 +67,6 @@ class GitHubService {
     'Accept': 'application/vnd.github.v3+json',
   };
 
-  /// update_mygist.yml をトリガーする
-  Future<bool> triggerUpdateMygistWorkflow({
-    required String gistId,
-    required int count,
-  }) async {
-    if (token.isEmpty) {
-      debugPrint("GitHub Token is empty!");
-    }
-
-    final url = Uri.parse(
-      'https://api.github.com/repos/$owner/$repo/actions/workflows/update_mygist.yml/dispatches',
-    );
-
-    final response = await http.post(
-      url,
-      headers: _headers,
-      body: jsonEncode({
-        'ref': 'main',
-        'inputs': {'gist_id': gistId, 'num_posts': count.toString()},
-      }),
-    );
-
-    return response.statusCode == 204;
-  }
-
   /// Gist のメタデータ（存在確認 + updated_at）を取得する
   Future<Map<String, dynamic>> fetchGistMetadata(String gistId) async {
     final url = Uri.parse('https://api.github.com/gists/$gistId');
@@ -130,11 +105,10 @@ class GitHubService {
     return response.statusCode == 200;
   }
 
-  /// append_gist.yml をトリガーする（user と hashtag は排他）
+  /// append_gist.yml をトリガーする
   Future<bool> triggerAppendGistWorkflow({
     required String gistId,
-    String? user,
-    String? hashtag,
+    required String user,
     required int count,
     required bool stopOnExisting,
   }) async {
@@ -153,8 +127,7 @@ class GitHubService {
         'ref': 'main',
         'inputs': {
           'gist_id': gistId,
-          'user': user ?? '',
-          'hashtag': hashtag ?? '',
+          'user': user,
           'num_posts': count.toString(),
           'stop_on_existing': stopOnExisting ? 'true' : 'false',
         },
@@ -302,84 +275,6 @@ class GitHubService {
       filename: 'fetch_queue.json',
       content: jsonEncode(target.data),
     );
-  }
-
-  /// fetch_queue.json にキーワードを追加する（2スロットリングバッファ対応）
-  Future<bool> addKeywordToFetchQueue(
-    String keyword, {
-    required String gistId,
-    int? count,
-    bool stopOnExisting = true,
-  }) async {
-    final slots = await _loadQueueSlots();
-    if (slots == null) return false;
-
-    if (_isDuplicateInSlots(slots, 'hashtag', keyword)) return true;
-
-    final target = slots.writeTarget(fetchQueueGistId);
-    final newEntry = <String, dynamic>{
-      'hashtag': keyword,
-      'gist_id': gistId,
-      'stop_on_existing': stopOnExisting,
-    };
-    if (count != null) newEntry['count'] = count;
-    target.users.add(newEntry);
-    target.data['users'] = target.users;
-
-    return updateGistFile(
-      gistId: target.gistId,
-      filename: 'fetch_queue.json',
-      content: jsonEncode(target.data),
-    );
-  }
-
-  /// fetch_queue.json に複数ユーザーを一括追加する（API呼び出し最小化）
-  Future<int> addUsersToFetchQueue(
-    Set<String> usernames, {
-    int? count,
-    bool stopOnExisting = true,
-  }) async {
-    final slots = await _loadQueueSlots();
-    if (slots == null) return -1;
-
-    // 両スロットの未処理ユーザー名を集める
-    Set<String> existingUsers = {};
-    for (final u in slots.slot0Users) {
-      if (u['done'] != true) {
-        existingUsers.add((u['user'] as String).toLowerCase());
-      }
-    }
-    if (slots.slot1Users != null) {
-      for (final u in slots.slot1Users!) {
-        if (u['done'] != true) {
-          existingUsers.add((u['user'] as String).toLowerCase());
-        }
-      }
-    }
-
-    final target = slots.writeTarget(fetchQueueGistId);
-
-    int addedCount = 0;
-    for (final username in usernames) {
-      if (existingUsers.contains(username.toLowerCase())) continue;
-      final newEntry = <String, dynamic>{
-        'user': username,
-        'stop_on_existing': stopOnExisting,
-      };
-      if (count != null) newEntry['count'] = count;
-      target.users.add(newEntry);
-      addedCount++;
-    }
-
-    if (addedCount == 0) return 0;
-
-    target.data['users'] = target.users;
-    final success = await updateGistFile(
-      gistId: target.gistId,
-      filename: 'fetch_queue.json',
-      content: jsonEncode(target.data),
-    );
-    return success ? addedCount : -1;
   }
 
   /// scheduled_fetch.yml をトリガーする

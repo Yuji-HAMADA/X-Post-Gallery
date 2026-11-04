@@ -15,21 +15,14 @@ AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=500)
-    parser.add_argument("-u", "--user", type=str, default=None, help="Target user ID (--user または --hashtag のどちらか必須)")
-    parser.add_argument("--hashtag", type=str, default=None, help="Target hashtag (#なし)")
+    parser.add_argument("-u", "--user", type=str, required=True, help="Target user ID")
     parser.add_argument("--mode", type=str, default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
     return parser.parse_args()
 
-def build_url(user, hashtag, mode):
-    if hashtag:
-        # キーワード検索: Latestタブ使用（メディアはコード側でフィルタ）
-        quoted = f'"{hashtag}"'
-        return f"https://x.com/search?q={quote(quoted)}&f=live"
-    else:
-        # ユーザーはPostsタブを使用（article要素あり、画像なし・リポストはコード側でフィルター）
-        return f"https://x.com/{user}"
+def build_url(user):
+    return f"https://x.com/{user}"
 
 async def extract_tweet_data(article):
     """1つのarticle要素からツイート情報を抽出するロジック"""
@@ -393,15 +386,13 @@ async def diagnose_empty_state(page, seen_ids_count, skipped_count, total_articl
 
 async def run():
     args = parse_args()
-    if not args.user and not args.hashtag:
-        print("❌ Error: --user または --hashtag のどちらかが必要です。"); return
     if not os.path.exists(AUTH_PATH):
         print(f"❌ Error: {AUTH_PATH} not found."); return
 
     os.makedirs(DATA_DIR, exist_ok=True)
     mode = "post_only"  # 固定
-    url = build_url(args.user, args.hashtag, mode)
-    target_label = f"#{args.hashtag}" if args.hashtag else f"@{args.user}"
+    url = build_url(args.user)
+    target_label = f"@{args.user}"
     print(f"🚀 Mode: {mode} | Target: {target_label} | URL: {url}")
 
     async with async_playwright() as p:

@@ -167,27 +167,16 @@ process_slot() {
 
   for i in "${!ENTRIES[@]}"; do
     local entry="${ENTRIES[$i]}"
-    local USER HASHTAG ENTRY_GIST_ID COUNT STOP EXIT_CODE=0
+    local USER COUNT STOP EXIT_CODE=0
 
     USER=$(echo "$entry" | jq -r '.user // empty')
-    HASHTAG=$(echo "$entry" | jq -r '.hashtag // empty')
-    ENTRY_GIST_ID=$(echo "$entry" | jq -r '.gist_id // empty')
     COUNT=$(echo "$entry" | jq -r --arg def "$DEFAULT_COUNT" '(.count // ($def | tonumber) | tostring)')
     if [ -z "$COUNT" ] || [ "$COUNT" = "100" ]; then
       COUNT=500
     fi
     STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
 
-    if [ -n "$HASHTAG" ]; then
-      local target_gist="${ENTRY_GIST_ID:-$MASTER_GIST_ID}"
-      echo ""
-      echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: #$HASHTAG (gist=$target_gist, count=$COUNT, stop_on_existing=$STOP)"
-      if [ "$STOP" = "true" ]; then
-        ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || EXIT_CODE=$?
-      else
-        ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || EXIT_CODE=$?
-      fi
-    elif [ -n "$USER" ]; then
+    if [ -n "$USER" ]; then
       echo ""
       echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
       if [ "$STOP" = "true" ]; then
@@ -196,7 +185,7 @@ process_slot() {
         ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
       fi
     else
-      echo "⚠️ Warning: Entry has neither user nor hashtag, skipping: $entry"
+      echo "⚠️ Warning: Entry has no user, skipping: $entry"
       continue
     fi
 
@@ -233,17 +222,12 @@ process_slot() {
         echo "⏩ Skipped inaccessible user @$USER and proceeding to next entry."
 
       elif [ $EXIT_CODE -eq 43 ]; then
-        echo "⚠️ Server-side or timeline DOM error (code 43) for target: ${USER:-#$HASHTAG}"
+        echo "⚠️ Server-side or timeline DOM error (code 43) for target: @$USER"
         local latest_json
         latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
         if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-          if [ -n "$HASHTAG" ]; then
-            latest_json=$(echo "$latest_json" | jq --arg hashtag "$HASHTAG" \
-              '.users = [.users[] | if .hashtag == $hashtag then . + {"done": true} else . end]')
-          else
-            latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
-              '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
-          fi
+          latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+            '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
           local tmp_done
           tmp_done=$(mktemp /tmp/scheduled_fq_done_XXXXXX.json)
           printf '%s' "$latest_json" > "$tmp_done"
@@ -274,13 +258,8 @@ process_slot() {
     local latest_json
     latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
     if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-      if [ -n "$HASHTAG" ]; then
-        latest_json=$(echo "$latest_json" | jq --arg hashtag "$HASHTAG" \
-          '.users = [.users[] | if .hashtag == $hashtag then . + {"done": true} else . end]')
-      else
-        latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
-          '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
-      fi
+      latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+        '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
       local tmp_done
       tmp_done=$(mktemp /tmp/fq_done_XXXXXX.json)
       printf '%s' "$latest_json" > "$tmp_done"

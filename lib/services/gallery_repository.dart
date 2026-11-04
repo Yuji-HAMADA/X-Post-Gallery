@@ -11,8 +11,6 @@ class GalleryData {
   final Map<String, String> userGists; // username -> gist_id
   final Map<String, int> userPriorities; // username -> priority_updated_at
   final Map<String, UserGistEntry> userGistEntries; // username -> UserGistEntry
-  final Map<String, String> characterGists; // character_name -> gist_id
-  final Map<String, String> keywordGists; // keyword -> gist_id
 
   const GalleryData({
     required this.userName,
@@ -20,8 +18,6 @@ class GalleryData {
     this.userGists = const {},
     this.userPriorities = const {},
     this.userGistEntries = const {},
-    this.characterGists = const {},
-    this.keywordGists = const {},
   });
 }
 
@@ -111,24 +107,12 @@ class GalleryRepository {
       userPriorities[entry.key] = userEntry.priorityUpdatedAt;
       userGistEntries[entry.key] = userEntry;
     }
-    final characterGistsRaw =
-        data['character_gists'] as Map<String, dynamic>? ?? {};
-    final characterGists = characterGistsRaw.map(
-      (k, v) => MapEntry(k, v as String),
-    );
-    final keywordGistsRaw =
-        data['keyword_gists'] as Map<String, dynamic>? ?? {};
-    final keywordGists = keywordGistsRaw.map(
-      (k, v) => MapEntry(k, v as String),
-    );
     return GalleryData(
       userName: data['user_screen_name'] ?? '',
       items: tweets,
       userGists: userGists,
       userPriorities: userPriorities,
       userGistEntries: userGistEntries,
-      characterGists: characterGists,
-      keywordGists: keywordGists,
     );
   }
 
@@ -205,13 +189,12 @@ class GalleryRepository {
     return allTweets;
   }
 
-  /// マスター / キーワードマスター Gist 用の JSON 文字列を構築
+  /// マスターGist用のJSON文字列を構築
   String buildMasterGistJson(
     List<TweetItem> items, {
     String userName = '',
     Map<String, String> userGists = const {},
     Map<String, int> userPriorities = const {},
-    Map<String, String> keywordGists = const {},
   }) {
     // スキーマ統一: user_gists の各アカウントデータに必ず priority_updated_at を持たせる
     final Map<String, dynamic> formattedUserGists = {};
@@ -226,7 +209,6 @@ class GalleryRepository {
     return json.encode({
       'user_screen_name': userName,
       if (formattedUserGists.isNotEmpty) 'user_gists': formattedUserGists,
-      if (keywordGists.isNotEmpty) 'keyword_gists': keywordGists,
       'tweets': items.map((item) => item.toMasterJson()).toList(),
     });
   }
@@ -266,54 +248,6 @@ class GalleryRepository {
       existingDeleted.addAll(deletedIds);
       data['deleted_ids'] = existingDeleted.toList();
     }
-
-    return json.encode(data);
-  }
-
-  /// キーワード子Gistから選択したツイートを削除し、deleted_idsに追加したJSONを返す
-  Future<String> buildKeywordChildGistJsonAfterDelete(
-    String gistId,
-    Set<String> deletedIds,
-  ) async {
-    final baseUrl = _gistRawBaseUrl(gistId);
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-    final response = await http.get(
-      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to fetch keyword gist ($gistId)');
-    }
-    final data =
-        json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-
-    // users 内の各ユーザーから対象ツイートを削除
-    final users = (data['users'] as Map<String, dynamic>?) ?? {};
-    final usersToRemove = <String>[];
-    for (final entry in users.entries) {
-      final userData = entry.value as Map<String, dynamic>;
-      final tweets = (userData['tweets'] as List?) ?? [];
-      final remaining = tweets
-          .where(
-            (t) => !deletedIds.contains((t as Map<String, dynamic>)['id_str']),
-          )
-          .toList();
-      if (remaining.isEmpty) {
-        usersToRemove.add(entry.key);
-      } else {
-        userData['tweets'] = remaining;
-      }
-    }
-    for (final u in usersToRemove) {
-      users.remove(u);
-    }
-    data['users'] = users;
-
-    // deleted_ids に追加（重複排除）
-    final existingDeleted = ((data['deleted_ids'] as List?) ?? [])
-        .cast<String>()
-        .toSet();
-    existingDeleted.addAll(deletedIds);
-    data['deleted_ids'] = existingDeleted.toList();
 
     return json.encode(data);
   }

@@ -115,7 +115,7 @@ jobs:
             reset_status "$SLOT1_ID"
           fi
 
-          # --- 1スロットを処理する関数（user / hashtag 両対応） ---
+          # --- 1スロットを処理する関数 ---
           process_slot() {
             local slot_id="$1"
             local slot_num="$2"
@@ -130,7 +130,7 @@ jobs:
               return 1
             fi
 
-            # 未処理エントリを JSON Lines で取得（user / hashtag 両対応）
+            # 未処理エントリを JSON Lines で取得
             mapfile -t ENTRIES < <(echo "$slot_json" | jq -c '.users[] | select(.done != true)')
 
             local entry_count=${#ENTRIES[@]}
@@ -156,27 +156,13 @@ jobs:
 
             for i in "${!ENTRIES[@]}"; do
               local entry="${ENTRIES[$i]}"
-              local USER HASHTAG ENTRY_GIST_ID COUNT STOP EXIT_CODE=0
+              local USER COUNT STOP EXIT_CODE=0
 
               USER=$(echo "$entry" | jq -r '.user // empty')
-              HASHTAG=$(echo "$entry" | jq -r '.hashtag // empty')
-              ENTRY_GIST_ID=$(echo "$entry" | jq -r '.gist_id // empty')
               COUNT=$(echo "$entry" | jq -r --arg def "$DEFAULT_COUNT" '(.count // ($def | tonumber) | tostring)')
               STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
 
-              if [ -n "$HASHTAG" ]; then
-                # キーワードエントリ
-                local target_gist="${ENTRY_GIST_ID:-$MASTER_GIST_ID}"
-                echo "=========================================="
-                echo "Slot $slot_num [$((i+1))/$entry_count]: #$HASHTAG (gist=$target_gist, count=$COUNT, stop_on_existing=$STOP)"
-                echo "=========================================="
-
-                if [ "$STOP" = "true" ]; then
-                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" -s || EXIT_CODE=$?
-                else
-                  ./append_gist.sh -g "$target_gist" -t "$HASHTAG" -n "$COUNT" || EXIT_CODE=$?
-                fi
-              elif [ -n "$USER" ]; then
+              if [ -n "$USER" ]; then
                 # ユーザーエントリ
                 echo "=========================================="
                 echo "Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
@@ -188,7 +174,7 @@ jobs:
                   ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
                 fi
               else
-                echo "Warning: entry has neither user nor hashtag, skipping: $entry"
+                echo "Warning: entry has no user, skipping: $entry"
                 continue
               fi
 
@@ -224,13 +210,8 @@ jobs:
                 echo "Warning: fetch_queue.json read failed for done-marking, skipping"
                 continue
               fi
-              if [ -n "$HASHTAG" ]; then
-                LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg hashtag "$HASHTAG" \
-                  '.users = [.users[] | if .hashtag == $hashtag then . + {"done": true} else . end]')
-              else
-                LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
-                  '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
-              fi
+              LATEST_JSON=$(echo "$LATEST_JSON" | jq --arg user "$USER" \
+                '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
               if [ -z "$LATEST_JSON" ] || [ "$LATEST_JSON" = "null" ]; then
                 echo "Warning: jq produced empty output for done-marking, skipping"
                 continue

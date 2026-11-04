@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
@@ -9,9 +8,7 @@ import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
 import 'components/user_id_input_dialog.dart';
-import 'keyword_gallery_swipe_page.dart';
 import 'user_gallery_swipe_page.dart';
-import 'vector_gallery_page.dart';
 import 'random_gallery_swipe_page.dart';
 
 class GalleryPage extends StatefulWidget {
@@ -24,16 +21,12 @@ class GalleryPage extends StatefulWidget {
   /// ユーザーGistから開いた場合のユーザー名（Append/Delete時に使用）
   final String? userGistUsername;
 
-  /// キーワード子Gistから開いた場合のGist ID（削除時に使用）
-  final String? keywordChildGistId;
-
   const GalleryPage({
     super.key,
     this.initialItems,
     this.title,
     this.userGistId,
     this.userGistUsername,
-    this.keywordChildGistId,
   });
 
   @override
@@ -42,13 +35,10 @@ class GalleryPage extends StatefulWidget {
 
 class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
-  final ScrollController _keywordGridController = ScrollController();
   final ScrollController _favGridController = ScrollController();
-  final ScrollController _charGridController = ScrollController();
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
-  bool _aiFilterEnabled = false; // AI（顔認識）で抽出した画像のみ表示するフィルター
   bool _isFavRandomChecked = false;
   bool _isUserRandomChecked = false;
 
@@ -65,9 +55,7 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   void dispose() {
     _pageController.dispose();
-    _keywordGridController.dispose();
     _favGridController.dispose();
-    _charGridController.dispose();
     super.dispose();
   }
 
@@ -91,9 +79,6 @@ class _GalleryPageState extends State<GalleryPage> {
     const pageMap = {
       'favorite': 0,
       'user': 1,
-      'keyword': 2,
-      'character': 3,
-      'vector': 4,
     };
     final page = pageMap[t.toLowerCase()];
     if (page == null) return;
@@ -172,18 +157,6 @@ class _GalleryPageState extends State<GalleryPage> {
       if (mounted) _showPasswordDialog(canCancel: true);
     } else {
       _restoreScrollPosition();
-    }
-  }
-
-  Future<void> _handleRefresh() async {
-    final vm = context.read<GalleryViewModel>();
-    if (await vm.isAdminAuthenticated()) {
-      final count = await _showCountDialog();
-      if (count != null) {
-        await _executeRefreshWithDialog(count);
-      }
-    } else {
-      await _showRefreshAuthDialog();
     }
   }
 
@@ -302,65 +275,9 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  Future<void> _showRefreshAuthDialog() async {
-    final vm = context.read<GalleryViewModel>();
-
-    if (!await vm.isAdminAuthenticated()) {
-      _showErrorSnackBar('マスターGist IDでログインしてください');
-      return;
-    }
-
-    final success = await vm.refreshMasterGallery();
-    if (!success) {
-      _showErrorSnackBar(vm.errorMessage);
-      return;
-    }
-
-    final count = await _showCountDialog();
-    if (count != null) {
-      await _executeRefreshWithDialog(count);
-    }
-  }
-
-  Future<int?> _showCountDialog() async {
-    final countController = TextEditingController(
-      text: '${GalleryViewModel.defaultRefreshCount}',
-    );
-
-    return showDialog<int>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('更新設定'),
-        content: TextField(
-          controller: countController,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: const InputDecoration(
-            labelText: '取得画像数',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(
-              context,
-              int.tryParse(countController.text) ??
-                  GalleryViewModel.defaultRefreshCount,
-            ),
-            child: const Text('実行'),
-          ),
-        ],
-      ),
-    );
-  }
-
   // --- Append 関連 ---
 
-  Future<void> _handleAppend({String? user, String? hashtag}) async {
+  Future<void> _handleAppend({String? user}) async {
     final username = user ?? '';
     if (username.isEmpty) return;
 
@@ -390,54 +307,6 @@ class _GalleryPageState extends State<GalleryPage> {
         ),
       );
     }
-  }
-
-  Future<void> _executeRefreshWithDialog(int count) async {
-    // 処理中ダイアログを表示
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 20),
-              const Text(
-                'ギャラリーを更新中...',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$count 件取得中',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const Text(
-                '数分かかる場合があります',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final vm = context.read<GalleryViewModel>();
-    await vm.executeRefresh(count);
-
-    if (mounted) Navigator.pop(context); // ダイアログを閉じる
-
-    if (vm.refreshStatus == RefreshStatus.completed) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('更新完了'), backgroundColor: Colors.green),
-        );
-      }
-    } else if (vm.refreshStatus == RefreshStatus.failed) {
-      _showErrorSnackBar(vm.errorMessage);
-    }
-    vm.clearRefreshStatus();
   }
 
   Future<void> _showDeleteConfirmDialog() async {
@@ -487,13 +356,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final deletedIds = Set<String>.from(vm.selectedIds); // 削除前にキャプチャ
 
     int? remainingCount;
-    if (widget.keywordChildGistId != null) {
-      // キーワードGist削除（deleted_idsに追加）
-      remainingCount = await vm.deleteSelectedFromKeywordGist(
-        widget.keywordChildGistId!,
-        currentItems,
-      );
-    } else {
+    if (widget.userGistId != null && widget.userGistUsername != null) {
       // ユーザーGist削除
       remainingCount = await vm.deleteSelectedFromUserGist(
         widget.userGistId!,
@@ -505,9 +368,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) Navigator.pop(context); // 処理中ダイアログを閉じる
 
     if (remainingCount != null) {
-      if (remainingCount == 0 &&
-          widget.userGistUsername != null &&
-          widget.keywordChildGistId == null) {
+      if (remainingCount == 0 && widget.userGistUsername != null) {
         // ポストがなくなったユーザーをマスターGistから削除して画面を閉じる
         await vm.removeUserFromMaster(widget.userGistUsername!);
         if (mounted) Navigator.pop(context);
@@ -582,12 +443,6 @@ class _GalleryPageState extends State<GalleryPage> {
     successMessage: '@$username を削除しました',
   );
 
-  Future<void> _confirmDeleteKeyword(String keyword) => _confirmDelete(
-    title: 'キーワード $keyword を削除しますか？',
-    onDelete: () => context.read<GalleryViewModel>().deleteKeyword(keyword),
-    successMessage: '$keyword を削除しました',
-  );
-
   Future<void> _handleSearchUser() async {
     final userIdInput = await showDialog<String>(
       context: context,
@@ -603,86 +458,38 @@ class _GalleryPageState extends State<GalleryPage> {
       inputTrimmed = inputTrimmed.substring(1).trim();
     }
     final inputLower = inputTrimmed.toLowerCase();
-    // スペースを含む入力は X ユーザー名になれないのでキーワード専用扱い
-    final isKeywordInput = inputTrimmed.contains(' ');
 
-    if (!isKeywordInput) {
-      // 1. userGists から検索 (case-insensitive)
-      String? matchedUsername;
-      for (final username in vm.userGists.keys) {
+    // 1. userGists から検索 (case-insensitive)
+    String? matchedUsername;
+    for (final username in vm.userGists.keys) {
+      if (username.toLowerCase() == inputLower) {
+        matchedUsername = username;
+        break;
+      }
+    }
+
+    if (matchedUsername != null) {
+      _openUserGallery(matchedUsername);
+      return;
+    }
+
+    // 2. マスターアイテムから検索 (case-insensitive)
+    for (final item in vm.items) {
+      final username = item.extractedUsername;
+      if (username != null) {
         if (username.toLowerCase() == inputLower) {
           matchedUsername = username;
           break;
         }
       }
-
-      if (matchedUsername != null) {
-        _openUserGallery(matchedUsername);
-        return;
-      }
-
-      // 2. マスターアイテムから検索 (case-insensitive)
-      for (final item in vm.items) {
-        final username = item.extractedUsername;
-        if (username != null) {
-          if (username.toLowerCase() == inputLower) {
-            matchedUsername = username;
-            break;
-          }
-        }
-      }
-
-      if (matchedUsername != null) {
-        _openUserGallery(matchedUsername);
-        return;
-      }
     }
 
-    // 3. keywordGists から検索 (case-insensitive)
-    for (final keyword in vm.keywordGists.keys) {
-      if (keyword.toLowerCase() == inputLower) {
-        _openKeywordGallery(keyword);
-        return;
-      }
-    }
-
-    // 4. キーワード入力の場合はユーザー検索に進まず新規キーワード追加へ
-    if (isKeywordInput) {
-      await _handleAddNewKeyword(inputTrimmed);
+    if (matchedUsername != null) {
+      _openUserGallery(matchedUsername);
       return;
     }
 
-    // 5. どこにも見つからない → ユーザーかキーワードか選択ダイアログを表示
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('「$inputTrimmed」が見つかりません'),
-        content: const Text('ユーザーとして追加しますか？キーワードとして追加しますか？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, 'user'),
-            child: const Text('ユーザー'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, 'keyword'),
-            child: const Text('キーワード'),
-          ),
-        ],
-      ),
-    );
-
-    if (choice == null || !mounted) return;
-
-    if (choice == 'keyword') {
-      await _handleAddNewKeyword(inputTrimmed);
-      return;
-    }
-
-    // ユーザーとして追加: Xで存在確認
+    // 3. 見つからない場合 → Xで存在確認して新規追加
     final username = inputTrimmed;
     if (mounted) {
       showDialog(
@@ -748,97 +555,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  /// キーワードGistに未登録の新規キーワードを追加する
-  Future<void> _handleAddNewKeyword(String keyword) async {
-    final result = await AppendConfigDialog.show(context);
-    if (result == null || !mounted) return;
-
-    final vm = context.read<GalleryViewModel>();
-    if (!await vm.isAdminAuthenticated()) {
-      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
-      return;
-    }
-
-    final success = await vm.queueKeywordForFetch(
-      keyword,
-      count: result.count,
-      stopOnExisting: result.stopOnExisting,
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? 'キューに追加しました: $keyword' : 'キューへの追加に失敗しました'),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
-  }
-
-  // --- お気に入り一括取得 ---
-
-  Future<void> _handleFetchAllFavorites() async {
-    final vm = context.read<GalleryViewModel>();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('お気に入り一括取得'),
-        content: const Text('お気に入りユーザー全員のポストをキューに追加しますか？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('実行'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('お気に入りをキューに追加中...'),
-          ],
-        ),
-      ),
-    );
-
-    int count;
-    try {
-      count = await vm.queueAllFavorites();
-    } catch (e) {
-      count = -1;
-    }
-    if (mounted) Navigator.pop(context);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            count >= 0 ? '$count 件のユーザーをキューに追加しました' : 'お気に入りの読み込みに失敗しました',
-          ),
-          backgroundColor: count >= 0 ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
-  }
-
   // --- 外部連携 ---
-  Future<void> _launchXHashtag(String keyword) async => _openUrl(
-    Uri.parse(
-      'https://x.com/search?q=${Uri.encodeComponent('#$keyword')}&src=typed_query&f=media',
-    ),
-  );
   Future<void> _launchX(String twitterId) async =>
       _openUrl(Uri.parse('https://x.com/$twitterId'));
   Future<void> _openUrl(Uri url) async {
@@ -858,11 +575,8 @@ class _GalleryPageState extends State<GalleryPage> {
     // フィルタ済みサブギャラリー：アイテムは静的リスト（Append後は _localItems）
     if (widget.initialItems != null) {
       final baseItems = _localItems ?? widget.initialItems!;
-      final displayItems = _aiFilterEnabled
-          ? baseItems.where((item) => item.matchSource == 'face').toList()
-          : baseItems;
       return _buildScaffold(
-        items: displayItems,
+        items: baseItems,
         userName: '',
         isAuthenticated: true,
         isSelectionMode: vm.isSelectionMode,
@@ -878,13 +592,12 @@ class _GalleryPageState extends State<GalleryPage> {
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
     final isFavPage = _currentPage == 0;
     final isUserPage = _currentPage == 1;
-    final isCharPage = _currentPage == 3;
     final favoriteItems = vm.items.where((item) {
       final key = item.extractedUsername;
       return key != null && vm.isFavorite(key);
     }).toList();
 
-    final pageTitles = ['Favorite', 'User', 'Keyword', 'Character', 'Vector'];
+    final pageTitles = ['Favorite', 'User'];
     final currentTitle = vm.isSelectionMode
         ? '${vm.selectedIds.length}件選択中'
         : pageTitles[_currentPage];
@@ -901,16 +614,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: () =>
                       context.read<GalleryViewModel>().clearSelection(),
                 )
-              : _currentPage == 4 // Vector tab
-                  ? IconButton(
-                      icon: const Icon(Icons.home),
-                      onPressed: () {
-                        // Favoriteタブに遷移
-                        _pageController.jumpToPage(0);
-                        setState(() => _currentPage = 0);
-                      },
-                    )
-                  : null,
+              : null,
           title: Text(currentTitle),
           actions: [
             if (!vm.isSelectionMode) ...[
@@ -926,14 +630,13 @@ class _GalleryPageState extends State<GalleryPage> {
                   onPressed: _loadFavoritesFromGist,
                 ),
               ],
-              if (isFavPage || isUserPage || isCharPage)
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: '再読み込み',
-                  onPressed: vm.status == GalleryStatus.loading
-                      ? null
-                      : () => context.read<GalleryViewModel>().reloadGallery(),
-                ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: '再読み込み',
+                onPressed: vm.status == GalleryStatus.loading
+                    ? null
+                    : () => context.read<GalleryViewModel>().reloadGallery(),
+              ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.menu),
                 onSelected: (value) {
@@ -941,14 +644,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'key':
                       _showPasswordDialog(canCancel: true);
                       break;
-                    case 'refresh':
-                      _handleRefresh();
-                      break;
                     case 'search_user':
                       _handleSearchUser();
-                      break;
-                    case 'fetch_favorites':
-                      _handleFetchAllFavorites();
                       break;
                     case 'random_fav':
                       _toggleFavRandomMode();
@@ -975,15 +672,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     value: 'search_user',
                     child: ListTile(
                       leading: const Icon(Icons.person_search),
-                      title: const Text('キーワード検索'),
-                      dense: true,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'fetch_favorites',
-                    child: ListTile(
-                      leading: const Icon(Icons.favorite),
-                      title: const Text('お気に入り一括取得'),
+                      title: const Text('ユーザー検索'),
                       dense: true,
                     ),
                   ),
@@ -992,14 +681,6 @@ class _GalleryPageState extends State<GalleryPage> {
                     child: ListTile(
                       leading: const Icon(Icons.vpn_key_outlined),
                       title: const Text('Gist ID'),
-                      dense: true,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'refresh',
-                    child: ListTile(
-                      leading: const Icon(Icons.auto_awesome),
-                      title: const Text('ForYou'),
                       dense: true,
                     ),
                   ),
@@ -1014,10 +695,6 @@ class _GalleryPageState extends State<GalleryPage> {
             ? const Center(child: CircularProgressIndicator())
             : PageView(
                 controller: _pageController,
-                // Vector タブではスワイプを無効化（InteractiveViewer と競合するため）
-                physics: _currentPage == 4
-                    ? const NeverScrollableScrollPhysics()
-                    : null,
                 onPageChanged: (page) {
                   setState(() => _currentPage = page);
                 },
@@ -1034,9 +711,6 @@ class _GalleryPageState extends State<GalleryPage> {
                     vm.favoriteUsers,
                     vm.userPriorities,
                   ),
-                  _buildKeywordGrid(vm),
-                  _buildCharacterGrid(vm),
-                  const VectorGalleryPage(),
                 ],
               ),
       ),
@@ -1052,14 +726,8 @@ class _GalleryPageState extends State<GalleryPage> {
   }) {
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
-    final bool isHashtagFilter = currentTitle.startsWith('#');
 
-    String displayTitle = 'PostGallery';
-    if (isHashtagFilter) {
-      displayTitle = currentTitle;
-    } else if (widget.title != null) {
-      displayTitle = widget.title!;
-    }
+    String displayTitle = widget.title ?? 'PostGallery';
 
     String twitterId = displayTitle.startsWith('@')
         ? displayTitle.replaceFirst('@', '')
@@ -1070,10 +738,7 @@ class _GalleryPageState extends State<GalleryPage> {
               : '');
 
     final bool showLinkButton =
-        isUserFilter || isHashtagFilter || displayTitle.startsWith('@');
-    String hashtagKeyword = isHashtagFilter
-        ? currentTitle.replaceFirst('#', '')
-        : '';
+        isUserFilter || displayTitle.startsWith('@');
 
     return Scaffold(
       appBar: AppBar(
@@ -1088,9 +753,7 @@ class _GalleryPageState extends State<GalleryPage> {
             ? Text('${selectedIds.length}件選択中')
             : (showLinkButton
                   ? GestureDetector(
-                      onTap: () => isHashtagFilter
-                          ? _launchXHashtag(hashtagKeyword)
-                          : _launchX(twitterId),
+                      onTap: () => _launchX(twitterId),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1111,15 +774,13 @@ class _GalleryPageState extends State<GalleryPage> {
                     )
                   : Text(displayTitle)),
         actions: [
-          if (isSelectionMode &&
-              (widget.userGistId != null || widget.keywordChildGistId != null))
+          if (isSelectionMode && widget.userGistId != null)
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.redAccent),
               onPressed: _showDeleteConfirmDialog,
             )
-          else if (isUserFilter || isHashtagFilter) ...[
-            // ユーザー／ハッシュタグフィルター画面: 一番上に移動 ＋ ハート（ユーザーのみ）＋ 追加ボタン
-            if (isUserFilter && widget.userGistUsername != null) ...[
+          else if (isUserFilter) ...[
+            if (widget.userGistUsername != null) ...[
               IconButton(
                 icon: const Icon(Icons.push_pin_outlined),
                 tooltip: '一番上に移動',
@@ -1143,73 +804,8 @@ class _GalleryPageState extends State<GalleryPage> {
               icon: const Icon(Icons.add),
               tooltip: '追加',
               onPressed: () => _handleAppend(
-                user: isUserFilter ? twitterId : null,
-                hashtag: isHashtagFilter ? hashtagKeyword : null,
+                user: twitterId,
               ),
-            ),
-          ] else ...[
-            // キャラクターギャラリー: AIフィルター切り替え + ハンバーガーメニュー
-            IconButton(
-              icon: Icon(
-                Icons.face_retouching_natural,
-                color: _aiFilterEnabled ? Colors.orange : Colors.grey,
-              ),
-              tooltip: _aiFilterEnabled ? 'AIのみ表示中（タップで解除）' : 'AIで抽出した画像のみ表示',
-              onPressed: () =>
-                  setState(() => _aiFilterEnabled = !_aiFilterEnabled),
-            ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.menu),
-              onSelected: (value) {
-                switch (value) {
-                  case 'key':
-                    _showPasswordDialog(canCancel: true);
-                    break;
-                  case 'refresh':
-                    _handleRefresh();
-                    break;
-                  case 'search_user':
-                    _handleSearchUser();
-                    break;
-                  case 'fetch_favorites':
-                    _handleFetchAllFavorites();
-                    break;
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'search_user',
-                  child: ListTile(
-                    leading: const Icon(Icons.person_search),
-                    title: const Text('キーワード検索'),
-                    dense: true,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'fetch_favorites',
-                  child: ListTile(
-                    leading: const Icon(Icons.favorite),
-                    title: const Text('お気に入り一括取得'),
-                    dense: true,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'key',
-                  child: ListTile(
-                    leading: const Icon(Icons.vpn_key_outlined),
-                    title: const Text('Gist ID'),
-                    dense: true,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'refresh',
-                  child: ListTile(
-                    leading: const Icon(Icons.auto_awesome),
-                    title: const Text('ForYou'),
-                    dense: true,
-                  ),
-                ),
-              ],
             ),
           ],
         ],
@@ -1405,196 +1001,6 @@ class _GalleryPageState extends State<GalleryPage> {
           onLongPress: () => _confirmDeleteUser(username),
         );
       },
-    );
-  }
-
-  /// キーワードギャラリー（キーワード タブ）— グリッド表示
-  Widget _buildKeywordGrid(GalleryViewModel vm) {
-    final keywordEntries = vm.keywordGists.entries.toList();
-
-    if (keywordEntries.isEmpty) {
-      return const Center(
-        child: Text(
-          'キーワードデータがありません',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    // 代表ツイートからサムネイルをキーワード名でマッチ
-    final Map<String, TweetItem> thumbMap = {};
-    for (final item in vm.keywordItems) {
-      if (item.keyword != null && item.mediaUrls.isNotEmpty) {
-        thumbMap.putIfAbsent(item.keyword!, () => item);
-      }
-    }
-
-    return GridView.builder(
-      controller: _keywordGridController,
-      padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: keywordEntries.length,
-      itemBuilder: (context, index) {
-        final keyword = keywordEntries[index].key;
-        final thumbItem = thumbMap[keyword];
-        return _buildLabeledCard(
-          label: keyword,
-          thumbItem: thumbItem,
-          onTap: () => _openKeywordGallery(keyword),
-          onLongPress: () => _confirmDeleteKeyword(keyword),
-        );
-      },
-    );
-  }
-
-  /// キーワードタップ → スワイプ対応ギャラリーを表示
-  void _openKeywordGallery(String keyword) {
-    final vm = context.read<GalleryViewModel>();
-    final keywords = vm.keywordGists.keys.toList();
-    final gistIds = keywords.map((k) => vm.keywordGists[k]!).toList();
-    final initialIndex = keywords.indexOf(keyword);
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => KeywordGallerySwipePage(
-          keywords: keywords,
-          childGistIds: gistIds,
-          initialIndex: initialIndex < 0 ? 0 : initialIndex,
-        ),
-      ),
-    );
-  }
-
-  /// キャラクターリスト（Characters タブ）— グリッド表示
-  Widget _buildCharacterGrid(GalleryViewModel vm) {
-    final entries = vm.characterGists.entries.toList();
-    if (entries.isEmpty) {
-      return const Center(
-        child: Text(
-          'キャラクターデータがありません\nretrieve_character.py を実行してください',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    // 代表ツイートからサムネイルをキャラクター名でマッチ
-    final Map<String, TweetItem> thumbMap = {};
-    for (final item in vm.characterItems) {
-      if (item.character != null && item.mediaUrls.isNotEmpty) {
-        thumbMap.putIfAbsent(item.character!, () => item);
-      }
-    }
-
-    return GridView.builder(
-      controller: _charGridController,
-      padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final charName = entries[index].key;
-        final thumbItem = thumbMap[charName];
-        return _buildLabeledCard(
-          label: charName,
-          thumbItem: thumbItem,
-          onTap: () => _openCharacterGallery(charName),
-        );
-      },
-    );
-  }
-
-  /// キャラクター名タップ → Gistからポストを取得して表示
-  Future<void> _openCharacterGallery(String charName) async {
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('読み込み中...'),
-          ],
-        ),
-      ),
-    );
-
-    try {
-      final vm = context.read<GalleryViewModel>();
-      final items = await vm.fetchCharacterItems(charName);
-      if (mounted) Navigator.pop(context);
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GalleryPage(initialItems: items, title: charName),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) Navigator.pop(context);
-      if (mounted) _showErrorSnackBar('読み込みに失敗しました');
-    }
-  }
-
-  /// ラベル付きサムネイルカード（キーワード・キャラクター共通）
-  Widget _buildLabeledCard({
-    required String label,
-    required TweetItem? thumbItem,
-    required VoidCallback onTap,
-    VoidCallback? onLongPress,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            color: Colors.grey[900],
-            child: thumbItem != null && thumbItem.thumbnailUrl.isNotEmpty
-                ? Image.network(
-                    thumbItem.thumbnailUrl,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                    errorBuilder: (c, e, s) => const Center(
-                      child: Icon(Icons.broken_image, color: Colors.grey),
-                    ),
-                  )
-                : const Center(
-                    child: Icon(Icons.search, color: Colors.grey, size: 40),
-                  ),
-          ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              color: Colors.black54,
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 10, color: Colors.white),
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

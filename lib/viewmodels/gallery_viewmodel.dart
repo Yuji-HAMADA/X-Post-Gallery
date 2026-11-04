@@ -1,51 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import '../models/tweet_item.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
 import '../utils/env_helper.dart';
 
-/// Vector Gallery 用の画像データ
-class VectorImage {
-  final String url;
-  final String postUrl;
-  final int w;
-  final int h;
-
-  const VectorImage({
-    required this.url,
-    required this.postUrl,
-    required this.w,
-    required this.h,
-  });
-
-  factory VectorImage.fromJson(Map<String, dynamic> json) => VectorImage(
-    url: json['url'] as String? ?? '',
-    postUrl: json['post_url'] as String? ?? '',
-    w: (json['w'] as num?)?.toInt() ?? 0,
-    h: (json['h'] as num?)?.toInt() ?? 0,
-  );
-}
-
-/// Vector Gallery 用のユーザーデータ
-class VectorUser {
-  final String username;
-  final List<VectorImage> images;
-
-  const VectorUser({required this.username, required this.images});
-
-  factory VectorUser.fromJson(Map<String, dynamic> json) => VectorUser(
-    username: json['username'] as String? ?? '',
-    images: (json['images'] as List? ?? [])
-        .map((e) => VectorImage.fromJson(e as Map<String, dynamic>))
-        .toList(),
-  );
-}
-
 enum GalleryStatus { initial, loading, authenticated, error }
-
-enum RefreshStatus { idle, running, completed, failed }
 
 enum AppendStatus { idle, running, completed, failed }
 
@@ -53,11 +13,6 @@ const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 const String _externalFavoriteGistId = String.fromEnvironment(
   'FAVORITE_GIST_ID',
 );
-const String _externalKeywordGistId = String.fromEnvironment('KEYWORD_GIST_ID');
-const String _externalCharacterGistId = String.fromEnvironment(
-  'CHARACTER_GIST_ID',
-);
-const String _externalVectorGistId = String.fromEnvironment('VECTOR_GIST_ID');
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -72,9 +27,6 @@ class GalleryViewModel extends ChangeNotifier {
   // --- 状態 ---
   GalleryStatus _status = GalleryStatus.initial;
   GalleryStatus get status => _status;
-
-  RefreshStatus _refreshStatus = RefreshStatus.idle;
-  RefreshStatus get refreshStatus => _refreshStatus;
 
   AppendStatus _appendStatus = AppendStatus.idle;
   AppendStatus get appendStatus => _appendStatus;
@@ -91,24 +43,6 @@ class GalleryViewModel extends ChangeNotifier {
   Map<String, int> _userPriorities = {};
   Map<String, int> get userPriorities => _userPriorities;
 
-  Map<String, String> _characterGists = {};
-  Map<String, String> get characterGists => _characterGists;
-
-  Map<String, String> _keywordGists = {};
-  Map<String, String> get keywordGists => _keywordGists;
-
-  List<TweetItem> _keywordItems = [];
-  List<TweetItem> get keywordItems => _keywordItems;
-
-  List<TweetItem> _characterItems = [];
-  List<TweetItem> get characterItems => _characterItems;
-
-  // --- Vector Gallery ---
-  List<VectorUser> _vectorUsers = [];
-  List<VectorUser> get vectorUsers => _vectorUsers;
-  bool _vectorLoading = false;
-  bool get vectorLoading => _vectorLoading;
-
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
 
@@ -123,19 +57,11 @@ class GalleryViewModel extends ChangeNotifier {
   bool get isSelectionMode => _selectedIds.isNotEmpty;
   int get selectedCount => _selectedIds.length;
 
-  static const int defaultRefreshCount = 18;
-
   // --- Helper ---
   String get defaultMasterGistId =>
       resolveEnv(_externalMasterGistId, 'MASTER_GIST_ID');
   String get favoriteGistId =>
       resolveEnv(_externalFavoriteGistId, 'FAVORITE_GIST_ID');
-  String get keywordGistId =>
-      resolveEnv(_externalKeywordGistId, 'KEYWORD_GIST_ID');
-  String get characterGistId =>
-      resolveEnv(_externalCharacterGistId, 'CHARACTER_GIST_ID');
-  String get vectorGistId =>
-      resolveEnv(_externalVectorGistId, 'VECTOR_GIST_ID');
 
   void _setError(String message) {
     _errorMessage = message;
@@ -207,10 +133,6 @@ class GalleryViewModel extends ChangeNotifier {
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
-
-      // キーワード・キャラクターギャラリーの読み込み（それぞれ独立Gistから取得）
-      await _loadKeywordGallery();
-      await _loadCharacterGallery();
     } catch (e) {
       debugPrint("Load error: $e");
       _errorMessage = 'Network error or invalid ID';
@@ -233,68 +155,7 @@ class GalleryViewModel extends ChangeNotifier {
     }).toList();
   }
 
-  /// キャラクターGistからポストを取得
-  Future<List<TweetItem>> fetchCharacterItems(String charName) async {
-    final gistId = _characterGists[charName];
-    if (gistId == null) return [];
-    return await _repository.fetchUserGist(gistId, charName);
-  }
-
-  /// キーワードギャラリーのロード（KEYWORD_GIST_IDから独立して取得）
-  Future<void> _loadKeywordGallery() async {
-    final kwGistId = keywordGistId;
-    if (kwGistId.isEmpty) return;
-
-    try {
-      final data = await _repository.fetchGalleryData(kwGistId);
-      _keywordGists = data.keywordGists;
-      _keywordItems = data.items;
-    } catch (e) {
-      debugPrint('loadKeywordGallery error: $e');
-    }
-  }
-
-  /// キャラクターギャラリーのロード（CHARACTER_GIST_IDから独立して取得）
-  Future<void> _loadCharacterGallery() async {
-    final charGistId = characterGistId;
-    if (charGistId.isEmpty) return;
-
-    try {
-      final data = await _repository.fetchGalleryData(charGistId);
-      _characterGists = data.characterGists;
-      _characterItems = data.items;
-    } catch (e) {
-      debugPrint('loadCharacterGallery error: $e');
-    }
-  }
-
-  /// キーワードのGistからアイテムを取得（Gist内の全ツイートを返す）
-  Future<List<TweetItem>> fetchKeywordItems(String keyword) async {
-    final gistId = _keywordGists[keyword];
-    if (gistId == null) return [];
-    return await _repository.fetchAllGistTweets(gistId);
-  }
-
-  /// マスターギャラリーをリフレッシュ（認証済み前提）
-  Future<bool> refreshMasterGallery() async {
-    final gistId = defaultMasterGistId;
-    if (gistId.isEmpty) {
-      _setError('マスターGist IDが設定されていません');
-      return false;
-    }
-
-    final gistExists = await _githubService.validateGistExists(gistId);
-    if (!gistExists) {
-      _setError('指定されたGist IDが見つかりません');
-      return false;
-    }
-
-    await _repository.saveGistId(gistId);
-    await loadGallery(gistId);
-    return true;
-  }
-
-  /// 管理者認証済みかどうか（Refresh / Append 共通）
+  /// 管理者認証済みかどうか（Append 共通）
   Future<bool> isAdminAuthenticated() {
     return _repository.isAdminAuthenticated();
   }
@@ -341,53 +202,6 @@ class GalleryViewModel extends ChangeNotifier {
     return false;
   }
 
-  /// ワークフローをトリガーしてポーリング
-  Future<void> executeRefresh(int count) async {
-    final masterGistId = defaultMasterGistId;
-    if (masterGistId.isEmpty) {
-      _setError('マスターGist ID (MASTER_GIST_ID) が設定されていません');
-      return;
-    }
-
-    _refreshStatus = RefreshStatus.running;
-    notifyListeners();
-
-    final dispatchedAt = DateTime.now().toUtc();
-    final triggered = await _githubService.triggerUpdateMygistWorkflow(
-      gistId: masterGistId,
-      count: count,
-    );
-
-    if (!triggered) {
-      _errorMessage = 'ワークフローの起動に失敗しました';
-      _refreshStatus = RefreshStatus.failed;
-      notifyListeners();
-      return;
-    }
-
-    final completed = await _pollWorkflowCompletion(
-      'update_mygist.yml',
-      dispatchedAt,
-    );
-    if (completed) {
-      final currentGistId = await _repository.getSavedGistId();
-      if (currentGistId != null && currentGistId == masterGistId) {
-        await loadGallery(currentGistId);
-      }
-      _refreshStatus = RefreshStatus.completed;
-    } else {
-      _errorMessage = '更新がタイムアウトまたは失敗しました';
-      _refreshStatus = RefreshStatus.failed;
-    }
-    notifyListeners();
-  }
-
-  /// RefreshStatusをリセット（SnackBar表示後など）
-  void clearRefreshStatus() {
-    _refreshStatus = RefreshStatus.idle;
-    _errorMessage = '';
-  }
-
   // --- Append アクション ---
 
   /// ユーザーをキューに追加して scheduled_fetch.yml をトリガーする
@@ -405,47 +219,17 @@ class GalleryViewModel extends ChangeNotifier {
     return _githubService.triggerScheduledFetchWorkflow();
   }
 
-  /// キーワードをキューに追加して scheduled_fetch.yml をトリガーする
-  Future<bool> queueKeywordForFetch(
-    String keyword, {
-    required int count,
-    required bool stopOnExisting,
-  }) async {
-    final kwGistId = keywordGistId;
-    if (kwGistId.isEmpty) {
-      _setError('キーワードGist ID (KEYWORD_GIST_ID) が設定されていません');
-      return false;
-    }
-    final added = await _githubService.addKeywordToFetchQueue(
-      keyword,
-      gistId: kwGistId,
-      count: count,
-      stopOnExisting: stopOnExisting,
-    );
-    if (!added) return false;
-    return _githubService.triggerScheduledFetchWorkflow();
-  }
-
-  /// append_gist.yml をトリガーしてポーリング（user と hashtag は排他）
+  /// append_gist.yml をトリガーしてポーリング
   /// isUserGist: true の場合はマスターリロードをスキップ（呼び出し側が処理）
   Future<void> executeAppend({
-    String? user,
-    String? hashtag,
+    required String user,
     required int count,
     required bool stopOnExisting,
     bool isUserGist = false,
   }) async {
-    final isKeyword = hashtag != null && hashtag.isNotEmpty;
-    // キーワード追加は KEYWORD_GIST_ID、ユーザー追加は MASTER_GIST_ID を使用
-    final targetGistId = isKeyword && keywordGistId.isNotEmpty
-        ? keywordGistId
-        : defaultMasterGistId;
+    final targetGistId = defaultMasterGistId;
     if (targetGistId.isEmpty) {
-      _setError(
-        isKeyword
-            ? 'キーワードGist ID (KEYWORD_GIST_ID) が設定されていません'
-            : 'マスターGist ID (MASTER_GIST_ID) が設定されていません',
-      );
+      _setError('マスターGist ID (MASTER_GIST_ID) が設定されていません');
       return;
     }
 
@@ -456,7 +240,6 @@ class GalleryViewModel extends ChangeNotifier {
     final triggered = await _githubService.triggerAppendGistWorkflow(
       gistId: targetGistId,
       user: user,
-      hashtag: hashtag,
       count: count,
       stopOnExisting: stopOnExisting,
     );
@@ -473,14 +256,9 @@ class GalleryViewModel extends ChangeNotifier {
       dispatchedAt,
     );
     if (completed) {
-      if (isKeyword) {
-        // キーワード追加後はキーワードギャラリーのみ再読み込み
-        await _loadKeywordGallery();
-      } else {
-        // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
-        // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
-        await loadGallery(targetGistId);
-      }
+      // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
+      // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
+      await loadGallery(targetGistId);
       _appendStatus = AppendStatus.completed;
     } else {
       _errorMessage = '追加がタイムアウトまたは失敗しました';
@@ -630,61 +408,6 @@ class GalleryViewModel extends ChangeNotifier {
     );
   }
 
-  /// キーワード子Gistから選択中アイテムを削除して更新
-  Future<int?> deleteSelectedFromKeywordGist(
-    String gistId,
-    List<TweetItem> currentItems,
-  ) {
-    return _deleteSelectedFromGist(
-      gistId: gistId,
-      currentItems: currentItems,
-      buildJson: () => _repository.buildKeywordChildGistJsonAfterDelete(
-        gistId,
-        _selectedIds,
-      ),
-    );
-  }
-
-  /// キーワードを完全に削除する（子Gistクリア + キーワードマスターから除去）
-  Future<bool> deleteKeyword(String keyword) async {
-    try {
-      final childGistId = _keywordGists[keyword];
-      if (childGistId != null) {
-        // 子Gistを空にする（deleted_idsは破棄）
-        final emptyJson = jsonEncode({'users': {}});
-        await _githubService.updateGistFile(
-          gistId: childGistId,
-          filename: 'data.json',
-          content: emptyJson,
-        );
-      }
-
-      // キーワードマスターGistから除去
-      final kwGistId = keywordGistId;
-      if (kwGistId.isEmpty) return false;
-
-      _keywordGists = Map.from(_keywordGists)..remove(keyword);
-      _keywordItems = _keywordItems.where((item) {
-        return item.keyword != keyword;
-      }).toList();
-
-      final jsonStr = _repository.buildMasterGistJson(
-        _keywordItems,
-        keywordGists: _keywordGists,
-      );
-      await _githubService.updateGistFile(
-        gistId: kwGistId,
-        filename: 'data.json',
-        content: jsonStr,
-      );
-      notifyListeners();
-      return true;
-    } catch (e) {
-      debugPrint('deleteKeyword error: $e');
-      return false;
-    }
-  }
-
   /// ユーザーを完全に削除する（子Gistクリア + マスターから除去）
   Future<bool> deleteUser(String username) async {
     try {
@@ -763,74 +486,7 @@ class GalleryViewModel extends ChangeNotifier {
     await _saveMasterGist();
   }
 
-  // --- お気に入り一括取得 ---
-
-  /// お気に入りユーザー全員をキューに追加し、ワークフローをトリガーする
-  /// 追加した件数を返す（失敗時は -1）
-  Future<int> queueAllFavorites() async {
-    try {
-      final favGistId = favoriteGistId;
-      if (favGistId.isEmpty) return -1;
-      final loaded = await loadFavoritesFromGist(favGistId);
-      if (!loaded || _favoriteUsers.isEmpty) return -1;
-
-      final addedCount = await _githubService.addUsersToFetchQueue(
-        _favoriteUsers,
-        count: 500,
-        stopOnExisting: true,
-      );
-
-      if (addedCount > 0) {
-        await _githubService.triggerScheduledFetchWorkflow();
-      }
-
-      return addedCount;
-    } catch (e) {
-      debugPrint('queueAllFavorites error: $e');
-      return -1;
-    }
-  }
-
   /// スクロール位置の保存・復元
   Future<int?> getSavedScrollIndex() => _repository.getSavedScrollIndex();
   Future<void> saveScrollIndex(int index) => _repository.saveScrollIndex(index);
-
-  // --- Vector Gallery ---
-
-  /// Vector Gallery Gist から画像データを取得・パース
-  Future<void> loadVectorGallery() async {
-    final gistId = vectorGistId;
-    if (gistId.isEmpty) {
-      debugPrint('VECTOR_GIST_ID is not set');
-      return;
-    }
-
-    _vectorLoading = true;
-    notifyListeners();
-
-    try {
-      final t = DateTime.now().millisecondsSinceEpoch;
-      final url =
-          'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/?t=$t';
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode != 200) {
-        debugPrint('Vector Gist fetch failed: ${response.statusCode}');
-        _vectorLoading = false;
-        notifyListeners();
-        return;
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      _vectorUsers = (data['users'] as List? ?? [])
-          .map((e) => VectorUser.fromJson(e as Map<String, dynamic>))
-          .toList();
-
-      debugPrint('Vector Gallery loaded: ${_vectorUsers.length} users');
-    } catch (e) {
-      debugPrint('loadVectorGallery error: $e');
-    }
-
-    _vectorLoading = false;
-    notifyListeners();
-  }
 }
