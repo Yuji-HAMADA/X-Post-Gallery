@@ -18,8 +18,23 @@ import time
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
+RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
 GIST_MAX_TWEETS = 2000  # 移動先Gistの上限
 USER_PATTERN = re.compile(r"^@([^:]+):")
+
+def write_fetch_result(user, tweets_saved, status="ok"):
+    """クローラーの取得結果（保存ツイート数など）をメタデータファイルに書き出す"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(RESULT_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "user": user,
+                "tweets_saved": tweets_saved,
+                "status": status,
+                "timestamp": int(time.time()),
+            }, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to write fetch result: {e}", file=sys.stderr)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -418,6 +433,7 @@ def main():
     new_tweets = parse_tweets_js()
     if not new_tweets:
         print("✅ No new tweets.")
+        write_fetch_result(args.user, 0, status="no_new_tweets")
         sys.exit(0)
 
     final_output = process_multi_user_append(full_data, new_tweets, args.promote_gist_id)
@@ -426,6 +442,7 @@ def main():
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(final_output, f, ensure_ascii=False, indent=2)
     subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
+    write_fetch_result(args.user, len(new_tweets), status="success")
     print(f"✅ Master Gist updated!")
 
 if __name__ == "__main__":

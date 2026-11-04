@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 import argparse
 from urllib.parse import quote
 from playwright.async_api import async_playwright
@@ -11,6 +12,21 @@ from playwright.async_api import async_playwright
 DATA_DIR = "data"
 OUTPUT_FILE = os.path.join(DATA_DIR, "tweets.js")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
+RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
+
+def write_crawl_result(user, tweets_saved, status="ok"):
+    """クローラーの取得結果（保存ツイート数など）をメタデータファイルに書き出す"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(RESULT_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "user": user,
+                "tweets_saved": tweets_saved,
+                "status": status,
+                "timestamp": int(time.time()),
+            }, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to write crawl result: {e}", file=sys.stderr)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -483,6 +499,7 @@ async def run():
         if timeline_empty:
             with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
                 f.write("window.YTD.tweets.part0 = []")
+            write_crawl_result(args.user, 0, status="empty")
             print("\n✅ Done: 0 tweets saved (empty timeline).")
             await browser.close()
             sys.exit(0)
@@ -512,6 +529,7 @@ async def run():
                 # 投稿なしなど正常な0件
                 with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
                     f.write("window.YTD.tweets.part0 = []")
+                write_crawl_result(args.user, 0, status="empty")
                 print("\n✅ Done: 0 tweets saved (empty timeline).")
                 await browser.close()
                 sys.exit(0)
@@ -668,6 +686,7 @@ async def run():
             f.write("window.YTD.tweets.part0 = ")
             # 空リスト [] でも書き込むことで、Flutter側のエラーを防ぐ
             json.dump(new_tweets if new_tweets else [], f, ensure_ascii=False, indent=2)
+        write_crawl_result(args.user, len(new_tweets), status="ok")
         print(f"\n✅ Done: {len(new_tweets)} tweets saved.")
 
         await browser.close()

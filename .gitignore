@@ -51,6 +51,8 @@ data/debug_screen.png
 data/known_ids.txt
 data/tweets.js
 data/cleanup_dead_links_state.json
+data/adaptive_skip_state.json
+data/.last_fetch_result.json
 assets/data/data.json
 
 scripts/split_gist_by_user.py

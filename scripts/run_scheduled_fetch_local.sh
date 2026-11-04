@@ -151,6 +151,19 @@ process_slot() {
   echo "📋 Unprocessed entries in slot $slot_num: $entry_count"
 
   if [ "$entry_count" -eq 0 ]; then
+    # 全エントリが処理済みの場合、アダプティブ・スキップカウンタを維持したまま done フラグをリセットして次周回に備える
+    local total_users
+    total_users=$(echo "$slot_json" | jq -r '(.users | length) // 0')
+    if [ "$total_users" -gt 0 ]; then
+      echo "🔄 [Adaptive Skip] All $total_users entries done in slot $slot_num. Resetting cycle (done=false) while keeping skip counters..."
+      slot_json=$(echo "$slot_json" | jq '.users = [.users[] | .done = false]')
+      local tmp_cycle
+      tmp_cycle=$(mktemp /tmp/fq_cycle_reset_XXXXXX.json)
+      printf '%s' "$slot_json" > "$tmp_cycle"
+      gh gist edit "$slot_id" -f fetch_queue.json "$tmp_cycle"
+      rm -f "$tmp_cycle"
+      echo "✅ Slot $slot_num cycle reset complete."
+    fi
     return 1 # 未処理なし
   fi
 
@@ -176,17 +189,54 @@ process_slot() {
     fi
     STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
 
-    if [ -n "$USER" ]; then
-      echo ""
-      echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
-      if [ "$STOP" = "true" ]; then
-        ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
-      else
-        ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
-      fi
-    else
+    if [ -z "$USER" ]; then
       echo "⚠️ Warning: Entry has no user, skipping: $entry"
       continue
+    fi
+
+    # --- アダプティブ・スキップ（バックオフ）判定 ---
+    local SKIP_COUNT SKIP_REMAINING
+    SKIP_COUNT=$(echo "$entry" | jq -r '.skip_count // empty')
+    SKIP_REMAINING=$(echo "$entry" | jq -r '.skip_remaining // empty')
+
+    local SHOULD_SKIP_ARGS=(should-skip -u "$USER")
+    [ -n "$SKIP_COUNT" ] && SHOULD_SKIP_ARGS+=(--queue-count "$SKIP_COUNT")
+    [ -n "$SKIP_REMAINING" ] && SHOULD_SKIP_ARGS+=(--queue-remaining "$SKIP_REMAINING")
+
+    local SKIP_CHECK_OUTPUT
+    if SKIP_CHECK_OUTPUT=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" "${SHOULD_SKIP_ARGS[@]}" 2>/dev/null); then
+      # exit code 0: スキップ対象（スキップ残り回数を1消費）
+      local rem cnt
+      rem=$(echo "$SKIP_CHECK_OUTPUT" | jq -r '.skip_remaining // 0')
+      cnt=$(echo "$SKIP_CHECK_OUTPUT" | jq -r '.skip_count // 0')
+      echo ""
+      echo "⏩ [Adaptive Skip] Slot $slot_num [$((i+1))/$entry_count]: Skipping @$USER ($rem cycles remaining, backoff level $cnt)"
+
+      # fetch_queue.json を更新 (skip_remaining デクリメント、done: true)
+      local latest_json
+      latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+      if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
+        latest_json=$(echo "$latest_json" | jq --arg user "$USER" --argjson sc "$cnt" --argjson sr "$rem" \
+          '.users = [.users[] | if .user == $user then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr} else . end]')
+        local tmp_skip
+        tmp_skip=$(mktemp /tmp/fq_skip_XXXXXX.json)
+        printf '%s' "$latest_json" > "$tmp_skip"
+        gh gist edit "$slot_id" -f fetch_queue.json "$tmp_skip"
+        rm -f "$tmp_skip"
+      fi
+
+      continue
+    fi
+
+    # --- クロール実行 ---
+    echo ""
+    echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
+    rm -f "$PROJECT_DIR/data/.last_fetch_result.json"
+
+    if [ "$STOP" = "true" ]; then
+      ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
+    else
+      ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
     fi
 
     # レートリミット (42) 検知
@@ -254,12 +304,37 @@ process_slot() {
     # 成功時はエラーカウントをリセット
     CONSECUTIVE_ERRORS=0
 
-    # done: true を Gist に反映
+    # 保存されたツイート数の取得
+    local SAVED_COUNT=0
+    local RESULT_FILE="$PROJECT_DIR/data/.last_fetch_result.json"
+    if [ -f "$RESULT_FILE" ]; then
+      SAVED_COUNT=$(jq -r '.tweets_saved // 0' "$RESULT_FILE" 2>/dev/null || echo 0)
+    fi
+
+    # アダプティブ・スキップ結果の記録・更新
+    local RECORD_ARGS=(record -u "$USER" -s "$SAVED_COUNT")
+    [ -n "$SKIP_COUNT" ] && RECORD_ARGS+=(--queue-count "$SKIP_COUNT")
+
+    local RECORD_OUTPUT
+    RECORD_OUTPUT=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" "${RECORD_ARGS[@]}" 2>/dev/null || echo "")
+    local NEW_SKIP_COUNT=0 NEW_SKIP_REMAINING=0
+    if [ -n "$RECORD_OUTPUT" ]; then
+      NEW_SKIP_COUNT=$(echo "$RECORD_OUTPUT" | jq -r '.skip_count // 0')
+      NEW_SKIP_REMAINING=$(echo "$RECORD_OUTPUT" | jq -r '.skip_remaining // 0')
+    fi
+
+    if [ "$SAVED_COUNT" -eq 0 ]; then
+      echo "💤 [Adaptive Skip] 0 tweets saved for @$USER. Increased backoff: level $NEW_SKIP_COUNT (will skip next $NEW_SKIP_REMAINING cycles)."
+    else
+      echo "✨ [Adaptive Skip] $SAVED_COUNT new tweets saved for @$USER! Backoff reset to 0."
+    fi
+
+    # done: true と skip_count, skip_remaining を Gist に反映
     local latest_json
     latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
     if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-      latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
-        '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+      latest_json=$(echo "$latest_json" | jq --arg user "$USER" --argjson sc "$NEW_SKIP_COUNT" --argjson sr "$NEW_SKIP_REMAINING" --argjson scnt "$SAVED_COUNT" \
+        '.users = [.users[] | if .user == $user then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr, "last_saved_count": $scnt} else . end]')
       local tmp_done
       tmp_done=$(mktemp /tmp/fq_done_XXXXXX.json)
       printf '%s' "$latest_json" > "$tmp_done"

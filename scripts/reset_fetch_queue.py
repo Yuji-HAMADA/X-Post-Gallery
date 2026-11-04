@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import subprocess
@@ -23,6 +24,14 @@ def load_env():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Reset or refresh fetch queue in Gist")
+    parser.add_argument(
+        "--cycle",
+        action="store_true",
+        help="Reset 'done' flags only for a new crawl cycle while preserving adaptive skip counters",
+    )
+    args = parser.parse_args()
+
     load_env()
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if gh_token:
@@ -49,9 +58,18 @@ def main():
         print(f"❌ Error parsing JSON: {e}")
         sys.exit(1)
 
-    old_users_count = len(data.get("users", []))
-    data["users"] = []
-    data["default_count"] = 500
+    users = data.get("users", [])
+    if args.cycle:
+        # サイクルリセット: done フラグのみを false にし、skip_count は保持
+        for u in users:
+            u["done"] = False
+        action_msg = f"Reset cycle for {len(users)} users (preserved adaptive skip counters)."
+    else:
+        # キュー全クリア
+        old_users_count = len(users)
+        data["users"] = []
+        data["default_count"] = 500
+        action_msg = f"Queue reset successful (cleared {old_users_count} users)."
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -70,8 +88,8 @@ def main():
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-    print(f"✅ Queue reset successful (cleared {old_users_count} users).")
-    print("   Next run of scripts/run_fetch_favorites_local.sh will reload all favorites from scratch.")
+    print(f"✅ {action_msg}")
+    print("   Next run of scripts/run_fetch_favorites_local.sh will crawl users with adaptive backoff.")
 
 
 if __name__ == "__main__":
