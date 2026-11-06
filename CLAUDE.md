@@ -13,13 +13,12 @@ PostViewer (package name: `x_post_gallery`) is a Flutter gallery app that displa
 flutter run                      # Run on default device
 flutter analyze                  # Run Dart static analysis (uses flutter_lints)
 flutter test                     # Run widget tests
-
+```bash
 # Python scraping pipeline (requires data/auth.json with X session cookies)
-python3 scripts/extract_media.py -u <username> --mode all -n 100
-python3 scripts/update_data.py
+python3 scripts/extract_media.py -u <username> -n 100
 ```
-# Full pipeline via shell script (requires gh CLI authenticated)
-./gh_upload_gist.sh -u <username> -m all -n 100
+# Append via shell script (requires gh CLI authenticated)
+./append_gist.sh -g <master_gist_id> -u <username> -n 100 -s
 ```
 
 ## Architecture
@@ -38,8 +37,7 @@ State management uses plain `StatefulWidget` + `SharedPreferences` for persisten
 ### Data Pipeline (`scripts/`)
 
 - **`extract_media.py`** — Playwright-based scraper. Loads X session from `data/auth.json`, searches for user's image posts, scrolls and collects tweet data. Outputs `data/tweets.js` in Twitter archive format.
-- **`update_data.py`** — Converts `data/tweets.js` → `assets/data/data.json`. Extracts media URLs, detects username, produces `{user_screen_name, tweets[]}` structure.
-- **`gh_upload_gist.sh`** — Orchestrates the full pipeline: scrape → convert → upload `data.json` as public Gist via `gh` CLI.
+- **`append_to_gist.py`** — Appends scraped tweets to child Gists and updates the master Gist. Called via `append_gist.sh`.
 
 ### Local Crawler Pipeline (`scripts/`)
 
