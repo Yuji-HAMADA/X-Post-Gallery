@@ -41,9 +41,11 @@ State management uses plain `StatefulWidget` + `SharedPreferences` for persisten
 - **`update_data.py`** — Converts `data/tweets.js` → `assets/data/data.json`. Extracts media URLs, detects username, produces `{user_screen_name, tweets[]}` structure.
 - **`gh_upload_gist.sh`** — Orchestrates the full pipeline: scrape → convert → upload `data.json` as public Gist via `gh` CLI.
 
-### CI/CD (`.github/workflows/run.yml`)
+### Local Crawler Pipeline (`scripts/`)
 
-GitHub Actions workflow triggered via `workflow_dispatch` (called from the Flutter app's UI). Inputs: `target_user`, `mode` (all/post_only), `num_posts`. Requires secrets: `AUTH_JSON` (X session cookies), `GIST_TOKEN`.
+- **`run_master_local.sh`** — Master controller script alternating between `run_fetch_favorites_local.sh` and `run_scheduled_fetch_local.sh` continuously.
+- **`run_scheduled_fetch_local.sh`** — Local scheduled fetch runner processing users in fetch queues with adaptive skip.
+- **`run_fetch_favorites_local.sh`** — Local favorites crawl runner.
 
 ## Key Conventions
 

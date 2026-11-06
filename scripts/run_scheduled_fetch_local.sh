@@ -60,9 +60,7 @@ echo "=========================================="
 echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Local Scheduled Fetch Started"
 echo "=========================================="
 
-START_TIME=$(date +%s)
 CONSECUTIVE_ERRORS=0
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-18000}" # デフォルト5時間
 
 # --- 4. スロット設定の取得 ---
 SLOT0_ID="$FETCH_QUEUE_GIST_ID"
@@ -340,16 +338,6 @@ process_slot() {
       printf '%s' "$latest_json" > "$tmp_done"
       gh gist edit "$slot_id" -f fetch_queue.json "$tmp_done"
       rm -f "$tmp_done"
-    fi
-
-    # タイムアウト判定
-    local current_time elapsed
-    current_time=$(date +%s)
-    elapsed=$((current_time - START_TIME))
-    if [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; then
-      echo "⏱️ [$(date '+%Y-%m-%d %H:%M:%S')] Time limit reached ($elapsed seconds). Preserving status and exiting."
-      reset_all_slots
-      exit 0
     fi
 
     # レート制限緩和のための待機
