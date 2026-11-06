@@ -192,6 +192,20 @@ process_slot() {
       continue
     fi
 
+    # --- 防御策: クロール実行直前のキュー存在確認 ---
+    # クローラー周回中にアプリからユーザーが削除された場合、即座にスキップしてゾンビ復活を防ぐ
+    local fresh_queue_json
+    fresh_queue_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+    if echo "$fresh_queue_json" | jq -e '.users' > /dev/null 2>&1; then
+      local user_in_queue
+      user_in_queue=$(echo "$fresh_queue_json" | jq -r --arg user "$USER" '[.users[] | select((.user | ascii_downcase) == ($user | ascii_downcase))] | length')
+      if [ "$user_in_queue" -eq 0 ]; then
+        echo ""
+        echo "⚠️ [User Deleted] @$USER was removed from queue during crawl loop. Skipping."
+        continue
+      fi
+    fi
+
     # --- アダプティブ・スキップ（バックオフ）判定 ---
     local SKIP_COUNT SKIP_REMAINING
     SKIP_COUNT=$(echo "$entry" | jq -r '.skip_count // empty')
@@ -304,9 +318,17 @@ process_slot() {
 
     # 保存されたツイート数の取得
     local SAVED_COUNT=0
+    local FETCH_STATUS=""
     local RESULT_FILE="$PROJECT_DIR/data/.last_fetch_result.json"
     if [ -f "$RESULT_FILE" ]; then
       SAVED_COUNT=$(jq -r '.tweets_saved // 0' "$RESULT_FILE" 2>/dev/null || echo 0)
+      FETCH_STATUS=$(jq -r '.status // empty' "$RESULT_FILE" 2>/dev/null || echo "")
+    fi
+
+    # 削除検知により追記キャンセルされた場合はキュー更新を行わず次へ進む
+    if [ "$FETCH_STATUS" = "cancelled_user_deleted" ]; then
+      echo "⚠️ [User Deleted] Crawl append was aborted because @$USER was deleted. Skipping queue update."
+      continue
     fi
 
     # アダプティブ・スキップ結果の記録・更新

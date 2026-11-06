@@ -406,33 +406,67 @@ class GalleryViewModel extends ChangeNotifier {
     );
   }
 
-  /// ユーザーを完全に削除する（子Gistクリア + マスターから除去）
+  /// ユーザーを完全に削除する（子Gistから除外 + キューから除外 + お気に入り解除 + マスターから除去）
   Future<bool> deleteUser(String username) async {
     try {
-      final gistId = _userGists[username];
-      if (gistId != null) {
-        // 子Gistを空にする（deleted_idsは破棄）
-        final emptyJson = jsonEncode({'users': {}});
-        await _githubService.updateGistFile(
-          gistId: gistId,
-          filename: 'data.json',
-          content: emptyJson,
-        );
+      final gistId = _userGists[username] ??
+          _userGists.entries
+              .firstWhere(
+                (e) => e.key.toLowerCase() == username.toLowerCase(),
+                orElse: () => const MapEntry('', ''),
+              )
+              .value;
+
+      if (gistId.isNotEmpty) {
+        try {
+          // 子Gist（マルチユーザー形式）から対象ユーザーのみを安全に除外
+          final updatedBatchJson = await _repository.buildUserBatchGistJson(
+            gistId,
+            username,
+            const [], // remainingItems が空のとき users.remove(username) が実行される
+          );
+          await _githubService.updateGistFile(
+            gistId: gistId,
+            filename: 'data.json',
+            content: updatedBatchJson,
+          );
+        } catch (e) {
+          debugPrint('deleteUser child gist update error: $e');
+        }
       }
-      await removeUserFromMaster(username);
-      return true;
+
+      // キュー（fetch_queue.json）からも削除してクローラーによる自動復活を防止
+      try {
+        await _githubService.removeUserFromFetchQueue(username);
+      } catch (e) {
+        debugPrint('deleteUser removeUserFromFetchQueue error: $e');
+      }
+
+      // お気に入りに入っていれば解除
+      if (isFavorite(username)) {
+        await toggleFavorite(username);
+      }
+
+      // マスターGistから除去して保存
+      final success = await removeUserFromMaster(username);
+      return success;
     } catch (e) {
       debugPrint('deleteUser error: $e');
+      _errorMessage = e.toString();
       return false;
     }
   }
 
   /// マスターGistの最新状態をGitHubに保存してキャッシュをクリアする
   Future<bool> _saveMasterGist() async {
-    final masterGistId = defaultMasterGistId;
+    String masterGistId = defaultMasterGistId;
     if (masterGistId.isEmpty) {
-      debugPrint('_saveMasterGist: defaultMasterGistId is empty, skipping update');
-      return true;
+      masterGistId = await _repository.getSavedGistId() ?? '';
+    }
+    if (masterGistId.isEmpty) {
+      debugPrint('_saveMasterGist: masterGistId is empty, skipping update');
+      _errorMessage = 'マスターGist IDが設定されていません';
+      return false;
     }
 
     try {
@@ -450,10 +484,13 @@ class GalleryViewModel extends ChangeNotifier {
       );
       if (success) {
         await _repository.clearCache();
+      } else {
+        _errorMessage = 'マスターGistの更新に失敗しました';
       }
       return success;
     } catch (e) {
       debugPrint('_saveMasterGist error: $e');
+      _errorMessage = e.toString();
       return false;
     }
   }
@@ -476,12 +513,20 @@ class GalleryViewModel extends ChangeNotifier {
   }
 
   /// 全ポスト削除後にマスターGistからユーザーを除去する
-  Future<void> removeUserFromMaster(String username) async {
-    _userGists = Map.from(_userGists)..remove(username);
-    _userPriorities = Map.from(_userPriorities)..remove(username);
-    _items = _items.where((item) => item.extractedUsername != username).toList();
+  Future<bool> removeUserFromMaster(String username) async {
+    final lower = username.toLowerCase();
+    _userGists = Map.fromEntries(
+      _userGists.entries.where((e) => e.key.toLowerCase() != lower),
+    );
+    _userPriorities = Map.fromEntries(
+      _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
+    );
+    _items = _items.where((item) {
+      final u = item.extractedUsername?.toLowerCase();
+      return u != lower;
+    }).toList();
     notifyListeners();
-    await _saveMasterGist();
+    return await _saveMasterGist();
   }
 
   /// スクロール位置の保存・復元

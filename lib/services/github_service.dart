@@ -277,6 +277,54 @@ class GitHubService {
     );
   }
 
+  /// fetch_queue.json からユーザーを削除する（2スロットリングバッファ対応）
+  Future<bool> removeUserFromFetchQueue(String username) async {
+    debugPrint('GitHubService: removeUserFromFetchQueue username=$username');
+    final slots = await _loadQueueSlots();
+    if (slots == null) {
+      debugPrint('GitHubService: removeUserFromFetchQueue FAILED to load slots');
+      return false;
+    }
+
+    final targetLower = username.toLowerCase();
+
+    // slot 0 から削除
+    final initialCount0 = slots.slot0Users.length;
+    slots.slot0Users.removeWhere((u) {
+      final uName = (u['user'] as String?)?.toLowerCase();
+      return uName == targetLower;
+    });
+    if (slots.slot0Users.length != initialCount0) {
+      slots.slot0Data['users'] = slots.slot0Users;
+      await updateGistFile(
+        gistId: fetchQueueGistId,
+        filename: 'fetch_queue.json',
+        content: jsonEncode(slots.slot0Data),
+      );
+    }
+
+    // slot 1 から削除
+    if (slots.slot1Users != null &&
+        slots.siblingGistId != null &&
+        slots.siblingGistId!.isNotEmpty) {
+      final initialCount1 = slots.slot1Users!.length;
+      slots.slot1Users!.removeWhere((u) {
+        final uName = (u['user'] as String?)?.toLowerCase();
+        return uName == targetLower;
+      });
+      if (slots.slot1Users!.length != initialCount1) {
+        slots.slot1Data!['users'] = slots.slot1Users;
+        await updateGistFile(
+          gistId: slots.siblingGistId!,
+          filename: 'fetch_queue.json',
+          content: jsonEncode(slots.slot1Data!),
+        );
+      }
+    }
+
+    return true;
+  }
+
   /// scheduled_fetch.yml をトリガーする
   Future<bool> triggerScheduledFetchWorkflow() async {
     final url = Uri.parse(

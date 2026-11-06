@@ -71,7 +71,8 @@ echo "--- テスト前のキュー状態 ---"
 jq '.users[] | {user, done, skip_count, skip_remaining}' "$QUEUE_FILE"
 
 # 1. skip_user に対するスキップ判定のテスト
-SKIP_CHECK=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" should-skip -u "skip_user" --queue-remaining 1 --queue-count 2)
+TEST_STATE="$TMP_DIR/adaptive_skip_state.json"
+SKIP_CHECK=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" --state-file "$TEST_STATE" should-skip -u "skip_user" --queue-remaining 1 --queue-count 2)
 IS_SKIP=$?
 if [ $IS_SKIP -ne 0 ]; then
   echo "❌ Error: skip_user should be skipped"
@@ -80,7 +81,7 @@ fi
 echo "✅ skip_user correctly identified as skip target: $SKIP_CHECK"
 
 # 2. zero_user のクロール結果記録テスト (0件)
-RECORD_ZERO=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" record -u "zero_user" -s 0 --queue-count 0)
+RECORD_ZERO=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" --state-file "$TEST_STATE" record -u "zero_user" -s 0 --queue-count 0)
 SC_ZERO=$(echo "$RECORD_ZERO" | jq -r '.skip_count')
 SR_ZERO=$(echo "$RECORD_ZERO" | jq -r '.skip_remaining')
 if [ "$SC_ZERO" -ne 1 ] || [ "$SR_ZERO" -ne 1 ]; then
@@ -90,7 +91,7 @@ fi
 echo "✅ zero_user correctly backed off to level 1: $RECORD_ZERO"
 
 # 3. active_user のクロール結果記録テスト (>0件)
-RECORD_ACTIVE=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" record -u "active_user" -s 5 --queue-count 3)
+RECORD_ACTIVE=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" --state-file "$TEST_STATE" record -u "active_user" -s 5 --queue-count 3)
 SC_ACTIVE=$(echo "$RECORD_ACTIVE" | jq -r '.skip_count')
 SR_ACTIVE=$(echo "$RECORD_ACTIVE" | jq -r '.skip_remaining')
 if [ "$SC_ACTIVE" -ne 0 ] || [ "$SR_ACTIVE" -ne 0 ]; then

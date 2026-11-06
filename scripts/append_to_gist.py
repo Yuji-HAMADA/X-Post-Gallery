@@ -436,7 +436,37 @@ def main():
         write_fetch_result(args.user, 0, status="no_new_tweets")
         sys.exit(0)
 
-    final_output = process_multi_user_append(full_data, new_tweets, args.promote_gist_id)
+    # --- 防御策: 保存直前の最新マスターGist再フェッチと削除検知 ---
+    # クロール中に他ユーザーの追加・削除があった場合の上書き競合を防ぐため最新マスターGistを取得
+    gist_filename, fresh_master_data = fetch_gist_data(args.gist_id)
+    if not is_master_gist_format(fresh_master_data):
+        print(f"❌ Error: {args.gist_id} is not a Master Gist.")
+        sys.exit(1)
+
+    if args.user:
+        user_lower = args.user.lower()
+        # 1. 抽出前にマスターGistにいたが、抽出完了時に削除されていたケースの検知
+        initial_had_user = any(k.lower() == user_lower for k in full_data.get("user_gists", {}).keys())
+        fresh_has_user = any(k.lower() == user_lower for k in fresh_master_data.get("user_gists", {}).keys())
+        if initial_had_user and not fresh_has_user:
+            print(f"⚠️ User @{args.user} was removed from Master Gist during crawl. Aborting append to prevent zombie resurrection.")
+            write_fetch_result(args.user, 0, status="cancelled_user_deleted")
+            sys.exit(0)
+
+        # 2. キューGistからの削除検知
+        queue_gist_id = os.environ.get("FETCH_QUEUE_GIST_ID")
+        if queue_gist_id:
+            try:
+                _, q_data = fetch_gist_data(queue_gist_id)
+                q_users = [u.get("user", "").lower() for u in q_data.get("users", [])]
+                if user_lower not in q_users:
+                    print(f"⚠️ User @{args.user} was removed from Fetch Queue during crawl. Aborting append to prevent zombie resurrection.")
+                    write_fetch_result(args.user, 0, status="cancelled_user_deleted")
+                    sys.exit(0)
+            except Exception as e:
+                print(f"⚠️ Warning: Could not verify queue gist: {e}", file=sys.stderr)
+
+    final_output = process_multi_user_append(fresh_master_data, new_tweets, args.promote_gist_id)
     output_file = "assets/data/data.json"
     os.makedirs("assets/data", exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
