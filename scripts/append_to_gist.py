@@ -143,6 +143,20 @@ def fetch_gist_data(gist_id):
     print("❌ No valid data found in Gist.")
     sys.exit(1)
 
+def fetch_queue_users(queue_gist_id):
+    """fetch_queue.json から登録ユーザー名リスト（小文字）を安全に取得する"""
+    try:
+        res = subprocess.run(
+            ["gh", "gist", "view", queue_gist_id, "-f", "fetch_queue.json"],
+            capture_output=True, text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            q_data = json.loads(res.stdout)
+            return [u.get("user", "").lower() for u in q_data.get("users", []) if u.get("user")]
+    except Exception as e:
+        print(f"⚠️ Warning: Could not verify queue gist: {e}", file=sys.stderr)
+    return None
+
 def select_promote_gist_from_master(full_data):
     """user_gists に登録されているGistのうち最後に追加されたIDを返す"""
     user_gists = full_data.get("user_gists", {})
@@ -456,15 +470,11 @@ def main():
         # 2. キューGistからの削除検知
         queue_gist_id = os.environ.get("FETCH_QUEUE_GIST_ID")
         if queue_gist_id:
-            try:
-                _, q_data = fetch_gist_data(queue_gist_id)
-                q_users = [u.get("user", "").lower() for u in q_data.get("users", [])]
-                if user_lower not in q_users:
-                    print(f"⚠️ User @{args.user} was removed from Fetch Queue during crawl. Aborting append to prevent zombie resurrection.")
-                    write_fetch_result(args.user, 0, status="cancelled_user_deleted")
-                    sys.exit(0)
-            except Exception as e:
-                print(f"⚠️ Warning: Could not verify queue gist: {e}", file=sys.stderr)
+            q_users = fetch_queue_users(queue_gist_id)
+            if q_users is not None and user_lower not in q_users:
+                print(f"⚠️ User @{args.user} was removed from Fetch Queue during crawl. Aborting append to prevent zombie resurrection.")
+                write_fetch_result(args.user, 0, status="cancelled_user_deleted")
+                sys.exit(0)
 
     final_output = process_multi_user_append(fresh_master_data, new_tweets, args.promote_gist_id)
     output_file = "assets/data/data.json"
