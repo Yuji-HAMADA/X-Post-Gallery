@@ -17,7 +17,6 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
-MASTER_GIST_ID = "8c6c667667a8e1c442e4fdb3939f40de"
 GITHUB_API = "https://api.github.com"
 
 # ---------------------------------------------------------------------------
@@ -33,6 +32,19 @@ def load_token():
         m = re.search(r"^GITHUB_TOKEN=(.+)$", text, re.MULTILINE)
         if m:
             return m.group(1).strip()
+    return ""
+
+def load_master_gist_id():
+    gist_id = os.environ.get("MASTER_GIST_ID", "")
+    if gist_id:
+        return gist_id
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        text = env_path.read_text()
+        m = re.search(r"^MASTER_GIST_ID=(.+)$", text, re.MULTILINE)
+        if m:
+            return m.group(1).strip().strip("'\"")
+    return ""
     raise RuntimeError("GITHUB_TOKEN not found in environment or .env file")
 
 def make_headers(token):
@@ -206,10 +218,19 @@ def main():
     parser = argparse.ArgumentParser(description="Gist構成の不整合を検証し、必要に応じて修復する")
     parser.add_argument("--repair", action="store_true", help="実際にマスターGistの不要マッピングと不整合ツイートを削除")
     parser.add_argument("--threads", type=int, default=15, help="並列検証のスレッド数 (デフォルト: 15)")
+    parser.add_argument("-g", "--master-gist-id", default=None, help="マスターGist ID (省略時は環境変数または.envから取得)")
     args = parser.parse_args()
 
     token = load_token()
+    if not token:
+        print("❌ GITHUB_TOKEN が設定されていません")
+        sys.exit(1)
     headers = make_headers(token)
+
+    master_gist_id = args.master_gist_id or load_master_gist_id()
+    if not master_gist_id:
+        print("❌ MASTER_GIST_ID が指定されておらず、環境変数または.envにも見つかりません")
+        sys.exit(1)
     
     limit, remaining, reset = get_ratelimit_info(headers)
     print("=== GitHub API Rate Limit ===")
@@ -220,8 +241,8 @@ def main():
     print("=============================\n")
 
     # 1. マスターGistをダウンロード
-    print(f"マスターGist ({MASTER_GIST_ID}) をダウンロード中...")
-    status, master_data, msg = download_gist_content(MASTER_GIST_ID, headers)
+    print(f"マスターGist ({master_gist_id}) をダウンロード中...")
+    status, master_data, msg = download_gist_content(master_gist_id, headers)
     if status != 200 or not master_data:
         print(f"❌ マスターGistのダウンロードに失敗: {msg}")
         sys.exit(1)
@@ -330,7 +351,7 @@ def main():
             # 安全確認: ファイル名を取得
             master_fname = "data.json"
             # 念のため元のマスターGistファイル名を確認
-            meta_status, master_meta = fetch_gist_meta_with_retry(MASTER_GIST_ID, headers)
+            meta_status, master_meta = fetch_gist_meta_with_retry(master_gist_id, headers)
             if meta_status == 200 and master_meta:
                 files = master_meta.get("files", {})
                 for fname in ["data.json", "gallary_data.json"]:
@@ -346,8 +367,8 @@ def main():
                 }
             }
             
-            print(f"3. マスターGist ({MASTER_GIST_ID}) を更新中 ({master_fname})...")
-            r = requests.patch(f"{GITHUB_API}/gists/{MASTER_GIST_ID}", headers=headers, json=payload)
+            print(f"3. マスターGist ({master_gist_id}) を更新中 ({master_fname})...")
+            r = requests.patch(f"{GITHUB_API}/gists/{master_gist_id}", headers=headers, json=payload)
             if r.status_code == 200:
                 print("✅ マスターGistの修復が正常に完了しました！")
                 print(f"   登録ユーザー数: {len(user_gists)} -> {len(new_user_gists)}")

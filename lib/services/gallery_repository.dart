@@ -4,6 +4,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
+import '../utils/env_helper.dart';
+
+const String _externalGithubUsername = String.fromEnvironment('GITHUB_USERNAME');
 
 class GalleryData {
   final String userName;
@@ -33,8 +36,14 @@ class GalleryRepository {
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
 
-  String _gistRawBaseUrl(String gistId) =>
-      'https://gist.githubusercontent.com/Yuji-HAMADA/$gistId/raw/';
+  String get owner => resolveEnv(_externalGithubUsername, 'GITHUB_USERNAME');
+
+  String _gistRawBaseUrl(String gistId) {
+    if (owner.isNotEmpty) {
+      return 'https://gist.githubusercontent.com/$owner/$gistId/raw/';
+    }
+    return 'https://gist.githubusercontent.com/raw/$gistId/';
+  }
 
   /// data.json → gallary_data.json フォールバック付きで Gist raw を取得
   Future<http.Response> _fetchGistRaw(String gistId) async {

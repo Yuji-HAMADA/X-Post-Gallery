@@ -7,8 +7,6 @@ import '../utils/env_helper.dart';
 
 enum GalleryStatus { initial, loading, authenticated, error }
 
-enum AppendStatus { idle, running, completed, failed }
-
 const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 const String _externalFavoriteGistId = String.fromEnvironment(
   'FAVORITE_GIST_ID',
@@ -27,9 +25,6 @@ class GalleryViewModel extends ChangeNotifier {
   // --- 状態 ---
   GalleryStatus _status = GalleryStatus.initial;
   GalleryStatus get status => _status;
-
-  AppendStatus _appendStatus = AppendStatus.idle;
-  AppendStatus get appendStatus => _appendStatus;
 
   List<TweetItem> _items = [];
   List<TweetItem> get items => _items;
@@ -160,48 +155,6 @@ class GalleryViewModel extends ChangeNotifier {
     return _repository.isAdminAuthenticated();
   }
 
-  /// ワークフロー完了をポーリング（10秒間隔、最大120回 = 20分）
-  /// [workflowFile]: 'append_gist.yml' など
-  /// [dispatchedAt]: ディスパッチ直前の時刻。それ以降のランのみを対象にする
-  Future<bool> _pollWorkflowCompletion(
-    String workflowFile,
-    DateTime dispatchedAt,
-  ) async {
-    // ディスパッチ時刻より少し前まで許容（時計ズレ対策: 30秒）
-    final cutoff = dispatchedAt.subtract(const Duration(seconds: 30));
-    int retryCount = 0;
-
-    while (retryCount < 120) {
-      await Future.delayed(const Duration(seconds: 10));
-      try {
-        final info = await _githubService.getWorkflowRunInfo(workflowFile);
-        final status = info['status'] ?? '';
-        final conclusion = info['conclusion'] ?? '';
-        final createdAt = DateTime.tryParse(info['createdAt'] ?? '');
-
-        debugPrint(
-          '$workflowFile polling... status=$status conclusion=$conclusion '
-          'createdAt=$createdAt (Try $retryCount)',
-        );
-
-        // ディスパッチ前の古いランは無視
-        if (createdAt == null || createdAt.isBefore(cutoff)) {
-          debugPrint('  → 古いランを無視、新しいランを待機中');
-          retryCount++;
-          continue;
-        }
-
-        if (status == 'completed') {
-          return conclusion == 'success';
-        }
-      } catch (e) {
-        debugPrint('$workflowFile poll error: $e');
-      }
-      retryCount++;
-    }
-    return false;
-  }
-
   // --- Append アクション ---
 
   /// ユーザーをキューに追加する（ローカルクローラーが定期巡回して取得）
@@ -215,60 +168,6 @@ class GalleryViewModel extends ChangeNotifier {
       count: count,
       stopOnExisting: stopOnExisting,
     );
-  }
-
-  /// append_gist.yml をトリガーしてポーリング
-  /// isUserGist: true の場合はマスターリロードをスキップ（呼び出し側が処理）
-  Future<void> executeAppend({
-    required String user,
-    required int count,
-    required bool stopOnExisting,
-    bool isUserGist = false,
-  }) async {
-    final targetGistId = defaultMasterGistId;
-    if (targetGistId.isEmpty) {
-      _setError('マスターGist ID (MASTER_GIST_ID) が設定されていません');
-      return;
-    }
-
-    _appendStatus = AppendStatus.running;
-    notifyListeners();
-
-    final dispatchedAt = DateTime.now().toUtc();
-    final triggered = await _githubService.triggerAppendGistWorkflow(
-      gistId: targetGistId,
-      user: user,
-      count: count,
-      stopOnExisting: stopOnExisting,
-    );
-
-    if (!triggered) {
-      _errorMessage = 'ワークフローの起動に失敗しました';
-      _appendStatus = AppendStatus.failed;
-      notifyListeners();
-      return;
-    }
-
-    final completed = await _pollWorkflowCompletion(
-      'append_gist.yml',
-      dispatchedAt,
-    );
-    if (completed) {
-      // isUserGist の場合でもリロード: 1000件超過時に新Gistが作成され
-      // マスターGistの user_gists マッピングが更新されるため、常に再取得が必要
-      await loadGallery(targetGistId);
-      _appendStatus = AppendStatus.completed;
-    } else {
-      _errorMessage = '追加がタイムアウトまたは失敗しました';
-      _appendStatus = AppendStatus.failed;
-    }
-    notifyListeners();
-  }
-
-  /// AppendStatusをリセット
-  void clearAppendStatus() {
-    _appendStatus = AppendStatus.idle;
-    _errorMessage = '';
   }
 
   // --- 選択・削除アクション ---

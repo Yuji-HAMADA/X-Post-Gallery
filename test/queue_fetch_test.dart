@@ -8,7 +8,6 @@ class MockGitHubService extends GitHubService {
   String? lastQueuedUser;
   int? lastCount;
   bool? lastStopOnExisting;
-  bool triggerScheduledFetchWorkflowCalled = false;
 
   @override
   Future<bool> addUserToFetchQueue(
@@ -21,12 +20,6 @@ class MockGitHubService extends GitHubService {
     lastStopOnExisting = stopOnExisting;
     return addUserToFetchQueueResult;
   }
-
-  @override
-  Future<bool> triggerScheduledFetchWorkflow() async {
-    triggerScheduledFetchWorkflowCalled = true;
-    return false;
-  }
 }
 
 void main() {
@@ -35,7 +28,7 @@ void main() {
   });
 
   group('GalleryViewModel queueUserForFetch Tests', () {
-    test('returns true when addUserToFetchQueue succeeds without calling workflow', () async {
+    test('returns true when addUserToFetchQueue succeeds', () async {
       final mockGithub = MockGitHubService()..addUserToFetchQueueResult = true;
       final vm = GalleryViewModel(githubService: mockGithub);
 
@@ -45,8 +38,6 @@ void main() {
       expect(mockGithub.lastQueuedUser, 'test_user');
       expect(mockGithub.lastCount, 100);
       expect(mockGithub.lastStopOnExisting, isTrue);
-      // GitHub Actions ワークフローは廃止されたためトリガーされないこと
-      expect(mockGithub.triggerScheduledFetchWorkflowCalled, isFalse);
     });
 
     test('returns false when addUserToFetchQueue fails', () async {
@@ -57,7 +48,6 @@ void main() {
 
       expect(result, isFalse);
       expect(mockGithub.lastQueuedUser, 'failed_user');
-      expect(mockGithub.triggerScheduledFetchWorkflowCalled, isFalse);
     });
   });
 }

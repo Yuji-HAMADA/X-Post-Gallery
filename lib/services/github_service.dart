@@ -47,13 +47,7 @@ class _QueueSlots {
 class GitHubService {
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
   final String token = resolveEnv(_externalToken, 'GITHUB_TOKEN');
-  final String owner = resolveEnv(
-    _externalGithubUsername,
-    'GITHUB_USERNAME',
-    'Yuji-HAMADA',
-  );
-  final String repo = 'x-post-gallery';
-  final String workflowId = 'run.yml';
+  final String owner = resolveEnv(_externalGithubUsername, 'GITHUB_USERNAME');
 
   /// キューGist ID
   final String fetchQueueGistId = resolveEnv(
@@ -103,38 +97,6 @@ class GitHubService {
     );
     debugPrint('GitHubService: updateGistFile response status=${response.statusCode}');
     return response.statusCode == 200;
-  }
-
-  /// append_gist.yml をトリガーする
-  Future<bool> triggerAppendGistWorkflow({
-    required String gistId,
-    required String user,
-    required int count,
-    required bool stopOnExisting,
-  }) async {
-    if (token.isEmpty) {
-      debugPrint("GitHub Token is empty!");
-    }
-
-    final url = Uri.parse(
-      'https://api.github.com/repos/$owner/$repo/actions/workflows/append_gist.yml/dispatches',
-    );
-
-    final response = await http.post(
-      url,
-      headers: _headers,
-      body: jsonEncode({
-        'ref': 'main',
-        'inputs': {
-          'gist_id': gistId,
-          'user': user,
-          'num_posts': count.toString(),
-          'stop_on_existing': stopOnExisting ? 'true' : 'false',
-        },
-      }),
-    );
-
-    return response.statusCode == 204;
   }
 
   /// お気に入り用の新規 Gist を作成してIDを返す（secret）
@@ -323,38 +285,5 @@ class GitHubService {
     }
 
     return true;
-  }
-
-  /// scheduled_fetch.yml をトリガーする
-  Future<bool> triggerScheduledFetchWorkflow() async {
-    final url = Uri.parse(
-      'https://api.github.com/repos/$owner/$repo/actions/workflows/scheduled_fetch.yml/dispatches',
-    );
-    final response = await http.post(
-      url,
-      headers: _headers,
-      body: jsonEncode({'ref': 'main'}),
-    );
-    return response.statusCode == 204;
-  }
-
-  /// 指定ワークフローの最新ランの status / conclusion / created_at を返す
-  Future<Map<String, String>> getWorkflowRunInfo(String workflowFile) async {
-    final url = Uri.parse(
-      'https://api.github.com/repos/$owner/$repo/actions/workflows/$workflowFile/runs?per_page=1',
-    );
-    final response = await http.get(url, headers: _headers);
-    if (response.statusCode == 200) {
-      final runs = (jsonDecode(response.body)['workflow_runs'] as List?) ?? [];
-      if (runs.isNotEmpty) {
-        final run = runs[0] as Map<String, dynamic>;
-        return {
-          'status': run['status'] as String? ?? '',
-          'conclusion': run['conclusion'] as String? ?? '',
-          'createdAt': run['created_at'] as String? ?? '',
-        };
-      }
-    }
-    return {};
   }
 }
