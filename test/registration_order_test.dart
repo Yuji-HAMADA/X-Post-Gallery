@@ -182,6 +182,21 @@ void main() {
 
       // 操作された user1 が最先頭になり、未操作のものは登録逆順を維持
       expect(updatedList, ['user1', 'user3', 'user2']);
+
+      // ピン留め解除（priority を 0 にリセット）された場合、元のデフォルト位置に戻ること
+      userPriorities['user1'] = 0;
+      final unpinnedList = List<String>.from(originalKeys);
+      unpinnedList.sort((a, b) {
+        final pA = userPriorities[a] ?? 0;
+        final pB = userPriorities[b] ?? 0;
+        final cmp = pB.compareTo(pA);
+        if (cmp != 0) return cmp;
+
+        final idxA = originalIndex[a] ?? -1;
+        final idxB = originalIndex[b] ?? -1;
+        return idxB.compareTo(idxA);
+      });
+      expect(unpinnedList, ['user3', 'user2', 'user1']);
     });
 
     test('User gallery grouped entries sort correctly with tweet items', () {

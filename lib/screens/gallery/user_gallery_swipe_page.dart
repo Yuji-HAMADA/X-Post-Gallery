@@ -252,9 +252,14 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 )
               else ...[
                 IconButton(
-                  icon: const Icon(Icons.push_pin_outlined),
-                  tooltip: '一番上に移動',
-                  onPressed: () => pinAccountToTop(context, vm, username),
+                  icon: Icon(
+                    vm.isPinned(username)
+                        ? Icons.push_pin
+                        : Icons.push_pin_outlined,
+                    color: vm.isPinned(username) ? Colors.amber : null,
+                  ),
+                  tooltip: vm.isPinned(username) ? 'ピン留めを解除' : '一番上に移動',
+                  onPressed: () => togglePinAccount(context, vm, username),
                 ),
                 IconButton(
                   icon: Icon(

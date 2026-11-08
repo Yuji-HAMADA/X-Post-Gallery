@@ -97,18 +97,35 @@ void showToastNotification(
   );
 }
 
-/// アカウントの優先順位を最上位に更新し、スライドイントースト通知を表示する共通アクション
-Future<void> pinAccountToTop(
+/// アカウントのピン留め状態をトグルし、スライドイントースト通知を表示する共通アクション
+Future<void> togglePinAccount(
   BuildContext context,
   GalleryViewModel vm,
   String username,
 ) async {
-  await vm.bumpUserPriority(username);
+  final wasPinned = vm.isPinned(username);
+  await vm.togglePin(username);
   if (context.mounted) {
-    showToastNotification(
-      context,
-      '@$username を一番上に移動しました',
-      icon: Icons.push_pin,
-    );
+    if (wasPinned) {
+      showToastNotification(
+        context,
+        '@$username のピン留めを解除しました',
+        icon: Icons.push_pin_outlined,
+      );
+    } else {
+      showToastNotification(
+        context,
+        '@$username を一番上に移動しました',
+        icon: Icons.push_pin,
+      );
+    }
   }
 }
+
+/// 後方互換用: アカウントのピン留めアクション
+Future<void> pinAccountToTop(
+  BuildContext context,
+  GalleryViewModel vm,
+  String username,
+) =>
+    togglePinAccount(context, vm, username);

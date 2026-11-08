@@ -394,6 +394,20 @@ class GalleryViewModel extends ChangeNotifier {
     }
   }
 
+  /// アカウントがピン留め（トップ固定）されているかを判定
+  bool isPinned(String username) {
+    return (_userPriorities[username] ?? 0) > 0;
+  }
+
+  /// ピン留めのトグル処理: ピン留め中なら解除（0にリセット）、未ピン留めなら最上位に固定
+  Future<bool> togglePin(String username) async {
+    final isCurrentlyPinned = isPinned(username);
+    final newPriority = isCurrentlyPinned ? 0 : DateTime.now().millisecondsSinceEpoch;
+    _userPriorities = Map.from(_userPriorities)..[username] = newPriority;
+    notifyListeners();
+    return await _saveMasterGist();
+  }
+
   /// ピン留め（最上位移動）時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
   Future<bool> bumpUserPriority(String username) async {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -402,11 +416,10 @@ class GalleryViewModel extends ChangeNotifier {
     return await _saveMasterGist();
   }
 
-  /// 新規アカウント登録時: priority_updated_at に現在時刻を設定しマスターGistを更新
+  /// 新規アカウント登録時: priority_updated_at は未操作（0）としてマスターGistを更新
   Future<bool> registerUser(String username, {String gistId = ''}) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
     _userGists = Map.from(_userGists)..[username] = gistId;
-    _userPriorities = Map.from(_userPriorities)..[username] = now;
+    _userPriorities = Map.from(_userPriorities)..[username] = 0;
     notifyListeners();
     return await _saveMasterGist();
   }

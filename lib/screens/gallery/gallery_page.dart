@@ -781,23 +781,33 @@ class _GalleryPageState extends State<GalleryPage> {
             )
           else if (isUserFilter) ...[
             if (widget.userGistUsername != null) ...[
-              IconButton(
-                icon: const Icon(Icons.push_pin_outlined),
-                tooltip: '一番上に移動',
-                onPressed: () => _handlePriorityTap(widget.userGistUsername!),
-              ),
               Consumer<GalleryViewModel>(
-                builder: (context, vm, _) => IconButton(
-                  icon: Icon(
-                    vm.isFavorite(widget.userGistUsername!)
-                        ? Icons.favorite
-                        : Icons.favorite_border,
-                    color: vm.isFavorite(widget.userGistUsername!)
-                        ? Colors.redAccent
-                        : null,
-                  ),
-                  onPressed: () => vm.toggleFavorite(widget.userGistUsername!),
-                ),
+                builder: (context, vm, _) {
+                  final isPinned = vm.isPinned(widget.userGistUsername!);
+                  final isFav = vm.isFavorite(widget.userGistUsername!);
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                          color: isPinned ? Colors.amber : null,
+                        ),
+                        tooltip: isPinned ? 'ピン留めを解除' : '一番上に移動',
+                        onPressed: () =>
+                            _handlePriorityTap(widget.userGistUsername!),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          isFav ? Icons.favorite : Icons.favorite_border,
+                          color: isFav ? Colors.redAccent : null,
+                        ),
+                        onPressed: () =>
+                            vm.toggleFavorite(widget.userGistUsername!),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
             IconButton(
