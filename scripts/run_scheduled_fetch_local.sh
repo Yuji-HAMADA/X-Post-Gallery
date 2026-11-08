@@ -78,7 +78,7 @@ fi
 MASTER_GIST_ID=$(echo "$SLOT0_JSON" | jq -r '.master_gist_id // empty')
 MASTER_GIST_ID="${MASTER_GIST_ID:-$SLOT0_ID}"
 DEFAULT_COUNT=$(echo "$SLOT0_JSON" | jq -r '.default_count // 500')
-if [ "$DEFAULT_COUNT" = "100" ] || [ -z "$DEFAULT_COUNT" ]; then
+if [ -z "$DEFAULT_COUNT" ]; then
   DEFAULT_COUNT=500
 fi
 
@@ -176,34 +176,49 @@ process_slot() {
     rm -f "$tmp_file"
   fi
 
+  local BATCH_SKIPS_FILE
+  BATCH_SKIPS_FILE=$(mktemp /tmp/fq_pending_skips_XXXXXX.json)
+
+  flush_pending_skips() {
+    if [ ! -s "$BATCH_SKIPS_FILE" ]; then
+      return 0
+    fi
+
+    local pending_count
+    pending_count=$(wc -l < "$BATCH_SKIPS_FILE")
+    echo "💾 [Batch Update] Flushing $pending_count skipped user updates to Gist..."
+
+    local latest_json
+    latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+    if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
+      latest_json=$(echo "$latest_json" | jq --slurpfile updates "$BATCH_SKIPS_FILE" '
+        reduce $updates[] as $u (.;
+          .users = [.users[] | if (.user | ascii_downcase) == ($u.user | ascii_downcase) then . + {"done": true, "skip_count": $u.skip_count, "skip_remaining": $u.skip_remaining} else . end]
+        )
+      ')
+      local tmp_batch
+      tmp_batch=$(mktemp /tmp/fq_batch_XXXXXX.json)
+      printf '%s' "$latest_json" > "$tmp_batch"
+      gh gist edit "$slot_id" -f fetch_queue.json "$tmp_batch"
+      rm -f "$tmp_batch"
+    fi
+    : > "$BATCH_SKIPS_FILE"
+  }
+
   for i in "${!ENTRIES[@]}"; do
     local entry="${ENTRIES[$i]}"
     local USER COUNT STOP EXIT_CODE=0
 
     USER=$(echo "$entry" | jq -r '.user // empty')
     COUNT=$(echo "$entry" | jq -r --arg def "$DEFAULT_COUNT" '(.count // ($def | tonumber) | tostring)')
-    if [ -z "$COUNT" ] || [ "$COUNT" = "100" ]; then
-      COUNT=500
+    if [ -z "$COUNT" ]; then
+      COUNT="$DEFAULT_COUNT"
     fi
     STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
 
     if [ -z "$USER" ]; then
       echo "⚠️ Warning: Entry has no user, skipping: $entry"
       continue
-    fi
-
-    # --- 防御策: クロール実行直前のキュー存在確認 ---
-    # クローラー周回中にアプリからユーザーが削除された場合、即座にスキップしてゾンビ復活を防ぐ
-    local fresh_queue_json
-    fresh_queue_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
-    if echo "$fresh_queue_json" | jq -e '.users' > /dev/null 2>&1; then
-      local user_in_queue
-      user_in_queue=$(echo "$fresh_queue_json" | jq -r --arg user "$USER" '[.users[] | select((.user | ascii_downcase) == ($user | ascii_downcase))] | length')
-      if [ "$user_in_queue" -eq 0 ]; then
-        echo ""
-        echo "⚠️ [User Deleted] @$USER was removed from queue during crawl loop. Skipping."
-        continue
-      fi
     fi
 
     # --- アダプティブ・スキップ（バックオフ）判定 ---
@@ -224,20 +239,32 @@ process_slot() {
       echo ""
       echo "⏩ [Adaptive Skip] Slot $slot_num [$((i+1))/$entry_count]: Skipping @$USER ($rem cycles remaining, backoff level $cnt)"
 
-      # fetch_queue.json を更新 (skip_remaining デクリメント、done: true)
-      local latest_json
-      latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
-      if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-        latest_json=$(echo "$latest_json" | jq --arg user "$USER" --argjson sc "$cnt" --argjson sr "$rem" \
-          '.users = [.users[] | if .user == $user then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr} else . end]')
-        local tmp_skip
-        tmp_skip=$(mktemp /tmp/fq_skip_XXXXXX.json)
-        printf '%s' "$latest_json" > "$tmp_skip"
-        gh gist edit "$slot_id" -f fetch_queue.json "$tmp_skip"
-        rm -f "$tmp_skip"
+      # バッチ更新用に一時ファイルへ蓄積（Gist通信をスキップして高速化）
+      printf '{"user":"%s","skip_count":%s,"skip_remaining":%s}\n' "$USER" "$cnt" "$rem" >> "$BATCH_SKIPS_FILE"
+
+      # 25件蓄積されたら定期フラッシュ
+      if [ "$(wc -l < "$BATCH_SKIPS_FILE")" -ge 25 ]; then
+        flush_pending_skips
       fi
 
       continue
+    fi
+
+    # クロール対象の場合、保留中のスキップがあればフラッシュ
+    flush_pending_skips
+
+    # --- 防御策: クロール実行直前のキュー存在確認 ---
+    # クローラー周回中にアプリからユーザーが削除された場合、即座にスキップしてゾンビ復活を防ぐ
+    local fresh_queue_json
+    fresh_queue_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
+    if echo "$fresh_queue_json" | jq -e '.users' > /dev/null 2>&1; then
+      local user_in_queue
+      user_in_queue=$(echo "$fresh_queue_json" | jq -r --arg user "$USER" '[.users[] | select((.user | ascii_downcase) == ($user | ascii_downcase))] | length')
+      if [ "$user_in_queue" -eq 0 ]; then
+        echo ""
+        echo "⚠️ [User Deleted] @$USER was removed from queue during crawl loop. Skipping."
+        continue
+      fi
     fi
 
     # --- クロール実行 ---
@@ -254,6 +281,8 @@ process_slot() {
     # レートリミット (42) 検知
     if [ $EXIT_CODE -eq 42 ]; then
       echo "🚨 [$(date '+%Y-%m-%d %H:%M:%S')] Rate limit detected (exit code 42). Pausing execution."
+      flush_pending_skips
+      rm -f "$BATCH_SKIPS_FILE"
       reset_all_slots
       exit 42
     fi
@@ -261,6 +290,8 @@ process_slot() {
     # セッション切れ (41) 検知
     if [ $EXIT_CODE -eq 41 ]; then
       echo "🚨 [$(date '+%Y-%m-%d %H:%M:%S')] Session expired or login required (exit code 41). Pausing execution."
+      flush_pending_skips
+      rm -f "$BATCH_SKIPS_FILE"
       reset_all_slots
       exit 41
     fi
@@ -305,6 +336,8 @@ process_slot() {
 
         if [ $CONSECUTIVE_ERRORS -ge 3 ]; then
           echo "🚨 3 consecutive crawl errors encountered. Aborting to protect accounts and prevent stack."
+          flush_pending_skips
+          rm -f "$BATCH_SKIPS_FILE"
           reset_all_slots
           exit 1
         fi
@@ -365,6 +398,10 @@ process_slot() {
     # レート制限緩和のための待機
     sleep 5
   done
+
+  # スロット走査終了時に未フラッシュの保留スキップを一括反映
+  flush_pending_skips
+  rm -f "$BATCH_SKIPS_FILE"
 
   # スロット終了時に status を idle に戻す
   local final_json
