@@ -556,7 +556,7 @@ async def run():
             gist_id_index = {tid: i for i, tid in enumerate(ordered_ids)}
             print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
 
-        CONSECUTIVE_STOP = 5  # 連続一致でストップする閾値
+        CONSECUTIVE_STOP = 2  # 連続一致でストップする閾値
         MIN_SCROLLS_FOR_STOP = 3  # 通常ツイートを十分に確認するため停止判定前に最低限必要なスクロール回数
         new_tweets, seen_ids = [], set()
         stall_count = 0
