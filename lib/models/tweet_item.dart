@@ -5,6 +5,7 @@ class TweetItem {
   final List<String> mediaUrls;
   final String? postUrl;
   final String? username; // マスターGistスリム形式用
+  final String? videoUrl;
 
   const TweetItem({
     required this.id,
@@ -13,7 +14,10 @@ class TweetItem {
     required this.mediaUrls,
     this.postUrl,
     this.username,
+    this.videoUrl,
   });
+
+  bool get isVideo => videoUrl != null && videoUrl!.isNotEmpty;
 
   /// 新旧2形式のJSONを吸収する
   factory TweetItem.fromJson(Map<String, dynamic> json) {
@@ -37,7 +41,37 @@ class TweetItem {
       if (media != null && media.isNotEmpty) {
         final expandedUrl = media[0]['expanded_url']?.toString() ?? '';
         if (expandedUrl.contains('/status/')) {
-          postUrl = expandedUrl.replaceAll(RegExp(r'/photo/\d+$'), '');
+          postUrl = expandedUrl.replaceAll(RegExp(r'/(photo|video)/\d+$'), '');
+        }
+      }
+    }
+
+    // video_url
+    String? videoUrl = json['video_url'] as String?;
+    if (videoUrl == null || videoUrl.isEmpty) {
+      final media = (json['tweet']?['extended_entities']?['media'] ??
+          json['tweet']?['entities']?['media']) as List?;
+      if (media != null) {
+        for (final m in media) {
+          if (m is Map && m['type'] == 'video') {
+            final variants = (m['video_info']?['variants'] as List?) ?? [];
+            final mp4Variants = variants
+                .where((v) =>
+                    v is Map &&
+                    (v['content_type'] == 'video/mp4' ||
+                        v['type'] == 'video/mp4'))
+                .toList();
+            if (mp4Variants.isNotEmpty) {
+              mp4Variants.sort((a, b) {
+                final bitA = (a['bitrate'] as num?)?.toInt() ?? 0;
+                final bitB = (b['bitrate'] as num?)?.toInt() ?? 0;
+                return bitB.compareTo(bitA);
+              });
+              videoUrl = mp4Variants.first['url']?.toString() ??
+                  mp4Variants.first['src']?.toString();
+              break;
+            }
+          }
         }
       }
     }
@@ -51,6 +85,7 @@ class TweetItem {
       mediaUrls: mediaUrls,
       postUrl: (postUrl != null && postUrl.isNotEmpty) ? postUrl : null,
       username: json['username'] as String?,
+      videoUrl: (videoUrl != null && videoUrl.isNotEmpty) ? videoUrl : null,
     );
   }
 
@@ -83,6 +118,7 @@ class TweetItem {
     'media_urls': mediaUrls,
     'id_str': id,
     if (postUrl != null) 'post_url': postUrl,
+    if (videoUrl != null) 'video_url': videoUrl,
   };
 
   /// マスターGist代表ツイート用（スリム形式: username + 先頭1枚のみ）
@@ -90,5 +126,6 @@ class TweetItem {
     'id_str': id,
     if (username != null) 'username': username,
     'media_urls': mediaUrls.isNotEmpty ? [mediaUrls.first] : [],
+    if (videoUrl != null) 'video_url': videoUrl,
   };
 }

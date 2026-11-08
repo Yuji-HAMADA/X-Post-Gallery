@@ -42,7 +42,7 @@ def parse_args():
 def build_url(user):
     return f"https://x.com/{user}"
 
-async def extract_tweet_data(article):
+async def extract_tweet_data(page, article):
     """1つのarticle要素からツイート情報を抽出するロジック"""
     # ステータスIDとユーザー名の取得（投稿自身のタイムスタンプリンクを最優先）
     origin_user, origin_status_id = "unknown", ""
@@ -95,7 +95,7 @@ async def extract_tweet_data(article):
     raw_text = await tweet_text_el.inner_text() if tweet_text_el else ""
     full_text = f"@{origin_user}: {raw_text}"
 
-    # メディア抽出
+    # メディア抽出 (画像)
     images = await article.query_selector_all('[data-testid="tweetPhoto"] img')
     media_urls = []
     for img in images:
@@ -114,6 +114,42 @@ async def extract_tweet_data(article):
             "type": "photo",
             "expanded_url": f"https://x.com/{origin_user}/status/{origin_status_id}/photo/1"
         })
+
+    # メディア抽出 (動画)
+    video_elements = await article.query_selector_all('[data-testid="videoPlayer"], [data-testid="videoComponent"]')
+    has_video = False
+    for vid in video_elements:
+        is_excluded = await vid.evaluate("""(node) => {
+            return !!node.closest('[data-testid="quotedTweet"]') || 
+                   !!node.closest('[data-testid="placementTracking"]');
+        }""")
+        if not is_excluded:
+            has_video = True
+            break
+
+    if has_video and origin_status_id:
+        try:
+            # トークンをブラウザJS環境で安全に生成
+            token = await page.evaluate(f"({origin_status_id} / 1e15 * Math.PI).toString(36).replace(/(0+|\\.)/g, '')")
+            resp = await page.context.request.get(f"https://cdn.syndication.twimg.com/tweet-result?id={origin_status_id}&token={token}")
+            if resp.ok:
+                data = await resp.json()
+                if 'video' in data:
+                    poster = data['video'].get('poster', '')
+                    variants = data['video'].get('variants', [])
+                    mp4_variants = [v for v in variants if v.get('type') == 'video/mp4']
+                    if mp4_variants:
+                        best_mp4 = max(mp4_variants, key=lambda x: int(x.get('bitrate', 0) if x.get('bitrate') is not None else 0))
+                        media_urls.append({
+                            "media_url_https": poster,
+                            "type": "video",
+                            "video_info": {
+                                "variants": [{"url": best_mp4['src'], "content_type": "video/mp4"}]
+                            },
+                            "expanded_url": f"https://x.com/{origin_user}/status/{origin_status_id}/video/1"
+                        })
+        except Exception as e:
+            print(f"⚠️ Failed to fetch video info for {origin_status_id}: {e}")
 
     if not media_urls: return None
 
@@ -581,7 +617,7 @@ async def run():
                 total_articles_detected += len(articles)
             prev_seen = len(seen_ids)
             for article in articles:
-                data = await extract_tweet_data(article)
+                data = await extract_tweet_data(page, article)
                 if not data: continue
 
                 tid = data["tweet"]["id_str"]

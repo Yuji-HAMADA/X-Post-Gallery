@@ -73,6 +73,10 @@ class UserCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               child: Row(
                 children: [
+                  if (thumbItem.isVideo) ...[
+                    const Icon(Icons.play_arrow, size: 12, color: Colors.white70),
+                    const SizedBox(width: 2),
+                  ],
                   Expanded(
                     child: Text(
                       '@$username',

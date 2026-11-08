@@ -6,6 +6,7 @@ import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:linkify/linkify.dart' as linkify_pkg;
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
+import 'video_player_item.dart';
 
 class DetailImageItem extends StatefulWidget {
   final TweetItem item;
@@ -90,6 +91,23 @@ class _DetailImageItemState extends State<DetailImageItem>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.item.isVideo && widget.item.videoUrl != null) {
+      return SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            VideoPlayerItem(
+              videoUrl: widget.item.videoUrl!,
+              thumbnailUrl: widget.item.thumbnailUrl,
+            ),
+            _buildTextDetail(),
+          ],
+        ),
+      );
+    }
+
     final List<String> imageUrls = widget.item.origUrls;
 
     return SingleChildScrollView(

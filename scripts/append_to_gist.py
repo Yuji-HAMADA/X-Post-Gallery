@@ -231,18 +231,27 @@ def parse_tweets_js():
         if not media_urls:
             continue
         post_url = ''
+        video_url = None
         for m in media_list:
             eu = m.get('expanded_url', '')
-            if '/status/' in eu:
-                post_url = re.sub(r'/photo/\d+$', '', eu)
-                break
-        converted.append({
+            if '/status/' in eu and not post_url:
+                post_url = re.sub(r'/(photo|video)/\d+$', '', eu)
+            if m.get('type') == 'video' and not video_url:
+                variants = m.get('video_info', {}).get('variants', [])
+                mp4_variants = [v for v in variants if v.get('content_type') == 'video/mp4' or v.get('type') == 'video/mp4']
+                if mp4_variants:
+                    best = max(mp4_variants, key=lambda x: int(x.get('bitrate', 0) if x.get('bitrate') is not None else 0))
+                    video_url = best.get('url') or best.get('src')
+        tweet_obj = {
             'full_text': tweet.get('full_text', ''),
             'created_at': tweet.get('created_at', ''),
             'media_urls': media_urls,
             'id_str': tweet.get('id_str', ''),
             'post_url': post_url,
-        })
+        }
+        if video_url:
+            tweet_obj['video_url'] = video_url
+        converted.append(tweet_obj)
     return converted
 
 def append_tweets(existing_tweets, new_tweets):
@@ -384,11 +393,14 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
         }
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         latest = merged[0]
-        master_tweets.insert(0, {
+        master_entry = {
             "id_str": latest.get("id_str", ""),
             "username": user,
             "media_urls": latest.get("media_urls", [])[:1],
-        })
+        }
+        if latest.get("video_url"):
+            master_entry["video_url"] = latest["video_url"]
+        master_tweets.insert(0, master_entry)
 
     print(f"📊 Total migrated to user Gists: {migrated_count} tweets")
 

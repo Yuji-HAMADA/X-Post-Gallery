@@ -87,6 +87,23 @@ class TweetGridItem extends StatelessWidget {
                     child: Icon(Icons.broken_image, color: Colors.grey),
                   ),
           ),
+          if (item.isVideo)
+            Positioned(
+              right: 6,
+              bottom: 6,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Icon(
+                  Icons.play_arrow,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ),
+            ),
           if (isSelected)
             Container(
               color: Colors.blue.withValues(alpha: 0.4),

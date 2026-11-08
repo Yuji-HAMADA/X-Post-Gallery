@@ -42,6 +42,7 @@ dependencies:
   linkify: ^5.0.0
   url_launcher: ^6.3.2
   provider: ^6.1.0
+  video_player: ^2.9.2
 
 dev_dependencies:
   flutter_test:
