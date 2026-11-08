@@ -35,9 +35,8 @@ def parse_args():
     parser.add_argument("--mode", type=str, default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("--skip-ids-file", type=str, default=None, help="File with IDs to skip (one per line)")
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
-    parser.add_argument("--max-scrolls", type=int, default=150, help="Safety guard: maximum total scrolls (default: 150)")
     parser.add_argument("--max-no-new-scrolls", type=int, default=40, help="Safety guard: maximum consecutive scrolls without new media (default: 40)")
-    parser.add_argument("--max-runtime", type=int, default=600, help="Safety guard: maximum execution runtime in seconds (default: 600)")
+    parser.add_argument("--max-runtime", type=int, default=7200, help="Safety guard: maximum execution runtime in seconds (default: 7200)")
     return parser.parse_args()
 
 def build_url(user):
@@ -642,12 +641,7 @@ async def run():
                 print(f"\n🛡️ Safety Guard: No new media found for {no_new_scrolls} consecutive scrolls (limit: {args.max_no_new_scrolls}). Stopping.")
                 break
 
-            # 2. 最大スクロール回数上限
-            if scroll_count + 1 > args.max_scrolls:
-                print(f"\n🛡️ Safety Guard: Reached max scrolls limit ({scroll_count}/{args.max_scrolls}). Stopping.")
-                break
-
-            # 3. 最大実行時間上限
+            # 2. 最大実行時間上限
             elapsed_time = time.time() - start_time
             if elapsed_time >= args.max_runtime:
                 print(f"\n🛡️ Safety Guard: Reached max runtime limit ({int(elapsed_time)}s / {args.max_runtime}s). Stopping.")

@@ -46,7 +46,6 @@ def parse_args():
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
                         help="移動先Gist IDを手動指定")
-    parser.add_argument("--max-scrolls", type=int, default=None, help="最大スクロール回数（未指定時はextract_media.py既定値）")
     parser.add_argument("--max-no-new-scrolls", type=int, default=None, help="新規未検出連続スクロール上限（未指定時はextract_media.py既定値）")
     parser.add_argument("--max-runtime", type=int, default=None, help="最大実行秒数（未指定時はextract_media.py既定値）")
     args = parser.parse_args()
@@ -202,8 +201,6 @@ def run_extraction(args, skip_ids_file):
         cmd.extend(["-u", args.user])
     if args.stop_on_existing:
         cmd.append("--stop-on-existing")
-    if getattr(args, "max_scrolls", None) is not None:
-        cmd.extend(["--max-scrolls", str(args.max_scrolls)])
     if getattr(args, "max_no_new_scrolls", None) is not None:
         cmd.extend(["--max-no-new-scrolls", str(args.max_no_new_scrolls)])
     if getattr(args, "max_runtime", None) is not None:
