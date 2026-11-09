@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
 import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
 
-/// 複数ユーザーギャラリーを左右スワイプで切り替えるページ
+/// [JA] 単一ユーザーまたは全ユーザーのスワイプ表示画面
+/// [EN] Swipeable gallery screen for a single user or all users
 class UserGallerySwipePage extends StatefulWidget {
   final List<String> usernames;
   final List<String?> userGistIds;
@@ -82,15 +84,16 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     if (index - 1 >= 0) _loadPage(index - 1);
   }
 
-  // --- ダイアログ系 ---
+  // --- ダイアログ系 [JA: ダイアログ系 / EN: Dialogs] ---
 
   Future<void> _handleAppend(String username) async {
     final result = await AppendConfigDialog.show(context);
     if (result == null || !mounted) return;
 
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
-      if (mounted) showErrorSnackBar(context, 'マスターGist IDでログインしてください');
+      if (mounted) showErrorSnackBar(context, l10n.pleaseLoginWithMasterGist);
       return;
     }
 
@@ -101,14 +104,15 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     );
     if (mounted) {
       if (success) {
-        showSuccessSnackBar(context, 'キューに追加しました: @$username');
+        showSuccessSnackBar(context, l10n.addedToQueue(username));
       } else {
-        showErrorSnackBar(context, 'キューへの追加に失敗しました');
+        showErrorSnackBar(context, l10n.failedToAddToQueue);
       }
     }
   }
 
   Future<void> _showDeleteConfirmDialog(String username) async {
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final count = vm.selectedCount;
 
@@ -139,27 +143,28 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
               .toList();
         });
       }
-      if (mounted) showSuccessSnackBar(context, '$count 件を削除しました');
+      if (mounted) showSuccessSnackBar(context, l10n.deletedCount(count));
     } else {
       if (mounted) showErrorSnackBar(context, vm.errorMessage);
     }
   }
 
   Future<void> _confirmDeleteUser(String username) async {
+    final l10n = AppLocalizations.of(context);
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('ユーザー削除'),
-        content: Text('ユーザー @$username と、そのすべてのポストをマスターGistおよびローカルキャッシュから完全に削除しますか？\n(Gist自体の削除ではなく、インデックスからの除外です)'),
+        title: Text(l10n.deleteUserTitle),
+        content: Text(l10n.deleteUserConfirmMessage(username)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
+            child: Text(l10n.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('削除'),
+            child: Text(l10n.delete),
           ),
         ],
       ),
@@ -171,7 +176,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
       if (mounted) {
-        showErrorSnackBar(context, 'マスターGist IDでログインしてください');
+        showErrorSnackBar(context, l10n.pleaseLoginWithMasterGist);
       }
       return;
     }
@@ -185,10 +190,10 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     if (mounted) {
       Navigator.pop(context); // Close progress dialog
       if (success) {
-        showSuccessSnackBar(context, '@$username を削除しました');
+        showSuccessSnackBar(context, l10n.deletedUserSuccess(username));
         Navigator.pop(context); // Go back to previous screen
       } else {
-        showErrorSnackBar(context, '削除失敗: ${vm.errorMessage}');
+        showErrorSnackBar(context, l10n.deleteFailed(vm.errorMessage));
       }
     }
   }
@@ -213,6 +218,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
         final username = _currentUsername;
         final gistId = _currentGistId;
         final isSelectionMode = vm.isSelectionMode;
+        final l10n = AppLocalizations.of(context);
 
         return Scaffold(
           appBar: AppBar(
@@ -223,7 +229,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                   )
                 : null,
             title: isSelectionMode
-                ? Text('${vm.selectedCount}件選択中')
+                ? Text(l10n.selectedCount(vm.selectedCount))
                 : GestureDetector(
                     onTap: () => _launchX(username),
                     child: Row(
@@ -258,7 +264,9 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                         : Icons.push_pin_outlined,
                     color: vm.isPinned(username) ? Colors.amber : null,
                   ),
-                  tooltip: vm.isPinned(username) ? 'ピン留めを解除' : '一番上に移動',
+                  tooltip: vm.isPinned(username)
+                      ? l10n.tooltipUnpin
+                      : l10n.tooltipPinToTop,
                   onPressed: () => togglePinAccount(context, vm, username),
                 ),
                 IconButton(
@@ -272,12 +280,12 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.add),
-                  tooltip: '追加',
+                  tooltip: l10n.add,
                   onPressed: () => _handleAppend(username),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.redAccent),
-                  tooltip: 'ユーザーを削除',
+                  tooltip: l10n.tooltipDeleteUser,
                   onPressed: () => _confirmDeleteUser(username),
                 ),
               ],
@@ -296,7 +304,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (items.isEmpty) {
-                return const Center(child: Text('ポストが見つかりませんでした'));
+                return Center(child: Text(l10n.noPostsFound));
               }
               return TweetGridView(
                 items: items,

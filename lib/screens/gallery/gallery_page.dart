@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
@@ -11,6 +12,8 @@ import 'components/user_id_input_dialog.dart';
 import 'user_gallery_swipe_page.dart';
 import 'random_gallery_swipe_page.dart';
 
+/// [JA] メインギャラリー画面（お気に入り・ユーザー一覧・Gist連携）
+/// [EN] Main gallery screen (Favorites, Users list, Gist synchronization)
 class GalleryPage extends StatefulWidget {
   final List<TweetItem>? initialItems;
   final String? title;
@@ -590,6 +593,7 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
+    final l10n = AppLocalizations.of(context);
     final isFavPage = _currentPage == 0;
     final isUserPage = _currentPage == 1;
     final favoriteItems = vm.items.where((item) {
@@ -597,9 +601,9 @@ class _GalleryPageState extends State<GalleryPage> {
       return key != null && vm.isFavorite(key);
     }).toList();
 
-    final pageTitles = ['Favorite', 'User'];
+    final pageTitles = [l10n.tabFavorites, l10n.tabUsers];
     final currentTitle = vm.isSelectionMode
-        ? '${vm.selectedIds.length}件選択中'
+        ? l10n.selectedCount(vm.selectedIds.length)
         : pageTitles[_currentPage];
 
     // モバイルブラウザのスワイプbackでアプリが終了しないよう、
@@ -621,18 +625,18 @@ class _GalleryPageState extends State<GalleryPage> {
               if (isFavPage) ...[
                 IconButton(
                   icon: const Icon(Icons.cloud_upload),
-                  tooltip: 'Gistに保存',
+                  tooltip: l10n.tooltipSaveToGist,
                   onPressed: _saveFavoritesToGist,
                 ),
                 IconButton(
                   icon: const Icon(Icons.cloud_download),
-                  tooltip: 'Gistから読込',
+                  tooltip: l10n.tooltipLoadFromGist,
                   onPressed: _loadFavoritesFromGist,
                 ),
               ],
               IconButton(
                 icon: const Icon(Icons.refresh),
-                tooltip: '再読み込み',
+                tooltip: l10n.reload,
                 onPressed: vm.status == GalleryStatus.loading
                     ? null
                     : () => context.read<GalleryViewModel>().reloadGallery(),
@@ -660,27 +664,27 @@ class _GalleryPageState extends State<GalleryPage> {
                     CheckedPopupMenuItem<String>(
                       value: 'random_fav',
                       checked: _isFavRandomChecked,
-                      child: const Text('ランダム選択'),
+                      child: Text(l10n.randomSelection),
                     ),
                   if (isUserPage)
                     CheckedPopupMenuItem<String>(
                       value: 'random_user',
                       checked: _isUserRandomChecked,
-                      child: const Text('ランダム選択'),
+                      child: Text(l10n.randomSelection),
                     ),
                   PopupMenuItem(
                     value: 'search_user',
                     child: ListTile(
                       leading: const Icon(Icons.person_search),
-                      title: const Text('ユーザー検索'),
+                      title: Text(l10n.userSearch),
                       dense: true,
                     ),
                   ),
                   PopupMenuItem(
                     value: 'key',
-                    child: ListTile(
-                      leading: const Icon(Icons.vpn_key_outlined),
-                      title: const Text('Gist ID'),
+                    child: const ListTile(
+                      leading: Icon(Icons.vpn_key_outlined),
+                      title: Text('Gist ID'),
                       dense: true,
                     ),
                   ),
@@ -724,6 +728,7 @@ class _GalleryPageState extends State<GalleryPage> {
     required bool isSelectionMode,
     required Set<String> selectedIds,
   }) {
+    final l10n = AppLocalizations.of(context);
     final String currentTitle = widget.title ?? '';
     final bool isUserFilter = currentTitle.contains('@');
 
@@ -750,7 +755,7 @@ class _GalleryPageState extends State<GalleryPage> {
               )
             : null,
         title: isSelectionMode
-            ? Text('${selectedIds.length}件選択中')
+            ? Text(l10n.selectedCount(selectedIds.length))
             : (showLinkButton
                   ? GestureDetector(
                       onTap: () => _launchX(twitterId),
@@ -793,7 +798,9 @@ class _GalleryPageState extends State<GalleryPage> {
                           isPinned ? Icons.push_pin : Icons.push_pin_outlined,
                           color: isPinned ? Colors.amber : null,
                         ),
-                        tooltip: isPinned ? 'ピン留めを解除' : '一番上に移動',
+                        tooltip: isPinned
+                            ? l10n.tooltipUnpin
+                            : l10n.tooltipPinToTop,
                         onPressed: () =>
                             _handlePriorityTap(widget.userGistUsername!),
                       ),
@@ -812,7 +819,7 @@ class _GalleryPageState extends State<GalleryPage> {
             ],
             IconButton(
               icon: const Icon(Icons.add),
-              tooltip: '追加',
+              tooltip: l10n.add,
               onPressed: () => _handleAppend(
                 user: twitterId,
               ),
@@ -943,11 +950,12 @@ class _GalleryPageState extends State<GalleryPage> {
     Map<String, int> userPriorities,
   ) {
     if (favoriteItems.isEmpty) {
-      return const Center(
+      final l10n = AppLocalizations.of(context);
+      return Center(
         child: Text(
-          'お気に入りはまだありません\nユーザーカードのハートをタップして追加',
+          l10n.noFavoritesYet,
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey),
+          style: const TextStyle(color: Colors.grey),
         ),
       );
     }
@@ -1026,12 +1034,13 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _toggleFavRandomMode() async {
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final usernames = vm.favoriteUsers.toList();
     if (usernames.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('お気に入りユーザーが登録されていません')),
+          SnackBar(content: Text(l10n.noFavoriteUsersRegistered)),
         );
       }
       return;
@@ -1044,7 +1053,7 @@ class _GalleryPageState extends State<GalleryPage> {
       MaterialPageRoute(
         builder: (_) => RandomGallerySwipePage(
           usernames: usernames,
-          title: 'ランダム表示 (お気に入り)',
+          title: '${l10n.randomSelection} (${l10n.tabFavorites})',
         ),
       ),
     );
@@ -1055,6 +1064,7 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _toggleUserRandomMode() async {
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final usernames = _getAllUsernames(vm.items)
         .where((username) => !vm.favoriteUsers.contains(username))
@@ -1062,7 +1072,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (usernames.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ユーザーが見つかりません')),
+          SnackBar(content: Text(l10n.userNotFound)),
         );
       }
       return;
@@ -1075,7 +1085,7 @@ class _GalleryPageState extends State<GalleryPage> {
       MaterialPageRoute(
         builder: (_) => RandomGallerySwipePage(
           usernames: usernames,
-          title: 'ランダム表示 (ユーザー)',
+          title: '${l10n.randomSelection} (${l10n.tabUsers})',
         ),
       ),
     );

@@ -1,4 +1,5 @@
-/// user_gists の各アカウントデータモデル（新旧フォーマット両対応）
+/// [JA] user_gists の各アカウントデータモデル（新旧フォーマット両対応）
+/// [EN] Account data model for user_gists (supports both legacy and structured formats)
 class UserGistEntry {
   final String gistId;
   final int priorityUpdatedAt;

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../viewmodels/gallery_viewmodel.dart';
 
-/// 進捗表示ダイアログを表示する
-void showProgressDialog(BuildContext context, {String message = '削除中...'}) {
+/// [JA] 進捗表示ダイアログを表示する
+/// [EN] Displays a progress dialog with a message
+void showProgressDialog(BuildContext context, {String? message}) {
+  final l10n = AppLocalizations.of(context);
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -12,29 +15,31 @@ void showProgressDialog(BuildContext context, {String message = '削除中...'})
         children: [
           const CircularProgressIndicator(),
           const SizedBox(height: 16),
-          Text(message),
+          Text(message ?? l10n.deletingProgress),
         ],
       ),
     ),
   );
 }
 
-/// 削除確認ダイアログを表示する（true = 確認、false/null = キャンセル）
+/// [JA] 削除確認ダイアログを表示する（true = 確認、false/null = キャンセル）
+/// [EN] Displays a delete confirmation dialog (true = confirmed, false/null = cancelled)
 Future<bool> showDeleteConfirmDialog(BuildContext context, int count) async {
+  final l10n = AppLocalizations.of(context);
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('削除確認'),
-      content: Text('$count 件の画像を削除しますか？'),
+      title: Text(l10n.deleteConfirmTitle),
+      content: Text(l10n.deleteImagesConfirmMessage(count)),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('キャンセル'),
+          child: Text(l10n.cancel),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('削除'),
+          child: Text(l10n.delete),
         ),
       ],
     ),
@@ -42,21 +47,24 @@ Future<bool> showDeleteConfirmDialog(BuildContext context, int count) async {
   return confirmed == true;
 }
 
-/// エラー SnackBar を表示する
+/// [JA] エラー SnackBar を表示する
+/// [EN] Displays an error SnackBar
 void showErrorSnackBar(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
   );
 }
 
-/// 成功 SnackBar を表示する
+/// [JA] 成功 SnackBar を表示する
+/// [EN] Displays a success SnackBar
 void showSuccessSnackBar(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(content: Text(message), backgroundColor: Colors.green),
   );
 }
 
-/// 画面下部からスッとせり出すトースト通知を表示する（2〜3秒で自動消去）
+/// [JA] 画面下部からスッとせり出すトースト通知を表示する（2〜3秒で自動消去）
+/// [EN] Displays a slide-in toast notification from the bottom (auto-dismissed in 2-3s)
 void showToastNotification(
   BuildContext context,
   String message, {
@@ -89,7 +97,7 @@ void showToastNotification(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
       ),
-      backgroundColor: const Color(0xE6212121), // 90% 不透明なダークグレー
+      backgroundColor: const Color(0xE6212121), // 90% 不透明なダークグレー / 90% opaque dark grey
       elevation: 6,
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       duration: duration,
@@ -97,32 +105,35 @@ void showToastNotification(
   );
 }
 
-/// アカウントのピン留め状態をトグルし、スライドイントースト通知を表示する共通アクション
+/// [JA] アカウントのピン留め状態をトグルし、スライドイントースト通知を表示する共通アクション
+/// [EN] Common action to toggle account pin state and show a toast notification
 Future<void> togglePinAccount(
   BuildContext context,
   GalleryViewModel vm,
   String username,
 ) async {
+  final l10n = AppLocalizations.of(context);
   final wasPinned = vm.isPinned(username);
   await vm.togglePin(username);
   if (context.mounted) {
     if (wasPinned) {
       showToastNotification(
         context,
-        '@$username のピン留めを解除しました',
+        l10n.unpinnedFromTop(username),
         icon: Icons.push_pin_outlined,
       );
     } else {
       showToastNotification(
         context,
-        '@$username を一番上に移動しました',
+        l10n.pinnedToTop(username),
         icon: Icons.push_pin,
       );
     }
   }
 }
 
-/// 後方互換用: アカウントのピン留めアクション
+/// [JA] 後方互換用: アカウントのピン留めアクション
+/// [EN] Backward compatibility: Pin account action
 Future<void> pinAccountToTop(
   BuildContext context,
   GalleryViewModel vm,

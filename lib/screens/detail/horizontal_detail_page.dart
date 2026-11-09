@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
 
-/// 複数画像の横方向連続表示画面（白背景・テキスト非表示・自由スクロール・左寄せ）
+/// [JA] 複数画像の横方向連続表示画面（白背景・テキスト非表示・自由スクロール・左寄せ）
+/// [EN] Full-screen horizontal continuous viewer for multiple images (white background, no text, free scrolling, left-aligned)
 class HorizontalDetailPage extends StatefulWidget {
   final TweetItem item;
 
@@ -35,6 +37,8 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
     super.dispose();
   }
 
+  /// [JA] ネットワーク画像の固有アスペクト比を解決して保持
+  /// [EN] Resolves and caches the intrinsic aspect ratio of a network image
   void _resolveImageSize(int index, String url) {
     if (_resolvedRatios.containsKey(index)) return;
     final ImageProvider provider = NetworkImage(url);
@@ -53,6 +57,7 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final List<String> imageUrls = widget.item.origUrls;
     final double screenHeight = MediaQuery.of(context).size.height;
 
@@ -72,7 +77,7 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
             icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
             onPressed: () => Navigator.pop(context),
             padding: EdgeInsets.zero,
-            tooltip: '戻る',
+            tooltip: l10n.back,
           ),
         ),
         title: null,

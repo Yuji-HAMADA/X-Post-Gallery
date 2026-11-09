@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
 import 'detail_image_item.dart';
 import 'horizontal_detail_page.dart';
 
+/// [JA] ポスト詳細スワイプ表示画面（縦並び画像・テキスト・ズーム対応）
+/// [EN] Post detail swipe page (vertical images, text, and zoom support)
 class DetailPage extends StatefulWidget {
   final List<TweetItem> items;
   final int initialIndex;
@@ -32,6 +35,8 @@ class _DetailPageState extends State<DetailPage> {
     });
   }
 
+  /// [JA] 前後のアイテムの画像を事前キャッシュ
+  /// [EN] Pre-caches images for adjacent items
   void _preloadAdjacent(int index) {
     for (final offset in [-1, 1]) {
       final i = index + offset;
@@ -54,6 +59,8 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
+  /// [JA] 現在のポストが複数画像を持つかどうかを判定
+  /// [EN] Determines whether the current post contains multiple images
   bool get _hasMultipleImages {
     if (_currentIndex < 0 || _currentIndex >= widget.items.length) return false;
     return widget.items[_currentIndex].origUrls.length > 1;
@@ -61,6 +68,8 @@ class _DetailPageState extends State<DetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
@@ -73,7 +82,7 @@ class _DetailPageState extends State<DetailPage> {
           if (_hasMultipleImages)
             IconButton(
               icon: const Icon(Icons.view_carousel_outlined),
-              tooltip: '横方向レイアウトに切り替え',
+              tooltip: l10n.tooltipSwitchToHorizontal,
               onPressed: () {
                 final currentItem = widget.items[_currentIndex];
                 Navigator.push(

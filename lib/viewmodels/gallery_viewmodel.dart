@@ -394,12 +394,14 @@ class GalleryViewModel extends ChangeNotifier {
     }
   }
 
-  /// アカウントがピン留め（トップ固定）されているかを判定
+  /// [JA] アカウントがピン留め（トップ固定）されているかを判定
+  /// [EN] Checks whether the account is pinned to the top
   bool isPinned(String username) {
     return (_userPriorities[username] ?? 0) > 0;
   }
 
-  /// ピン留めのトグル処理: ピン留め中なら解除（0にリセット）、未ピン留めなら最上位に固定
+  /// [JA] ピン留めのトグル処理: ピン留め中なら解除（0にリセット）、未ピン留めなら最上位に固定
+  /// [EN] Toggles pin state: resets to 0 if already pinned, or updates timestamp to now if unpinned
   Future<bool> togglePin(String username) async {
     final isCurrentlyPinned = isPinned(username);
     final newPriority = isCurrentlyPinned ? 0 : DateTime.now().millisecondsSinceEpoch;
@@ -408,7 +410,8 @@ class GalleryViewModel extends ChangeNotifier {
     return await _saveMasterGist();
   }
 
-  /// ピン留め（最上位移動）時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
+  /// [JA] ピン留め（最上位移動）時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
+  /// [EN] Bumps user priority to now, saves to master Gist, and updates the list
   Future<bool> bumpUserPriority(String username) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     _userPriorities = Map.from(_userPriorities)..[username] = now;
@@ -416,7 +419,8 @@ class GalleryViewModel extends ChangeNotifier {
     return await _saveMasterGist();
   }
 
-  /// 新規アカウント登録時: priority_updated_at は未操作（0）としてマスターGistを更新
+  /// [JA] 新規アカウント登録時: priority_updated_at は未操作（0）としてマスターGistを更新
+  /// [EN] Registers a new user with priority_updated_at defaulting to 0 (unpinned)
   Future<bool> registerUser(String username, {String gistId = ''}) async {
     _userGists = Map.from(_userGists)..[username] = gistId;
     _userPriorities = Map.from(_userPriorities)..[username] = 0;
@@ -424,7 +428,8 @@ class GalleryViewModel extends ChangeNotifier {
     return await _saveMasterGist();
   }
 
-  /// 全ポスト削除後にマスターGistからユーザーを除去する
+  /// [JA] 全ポスト削除後にマスターGistからユーザーを除去する
+  /// [EN] Completely removes a user and their items from master Gist after all posts are deleted
   Future<bool> removeUserFromMaster(String username) async {
     final lower = username.toLowerCase();
     _userGists = Map.fromEntries(
@@ -441,7 +446,8 @@ class GalleryViewModel extends ChangeNotifier {
     return await _saveMasterGist();
   }
 
-  /// スクロール位置の保存・復元
+  /// [JA] スクロール位置の保存・復元
+  /// [EN] Saves and restores scroll index position
   Future<int?> getSavedScrollIndex() => _repository.getSavedScrollIndex();
   Future<void> saveScrollIndex(int index) => _repository.saveScrollIndex(index);
 }

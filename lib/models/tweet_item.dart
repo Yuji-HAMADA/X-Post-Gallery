@@ -1,10 +1,12 @@
+/// [JA] 単一ポスト（画像・動画・本文・メタデータ）のデータモデル
+/// [EN] Data model for a single post (images, videos, text, and metadata)
 class TweetItem {
   final String id;
   final String fullText;
   final String createdAt;
   final List<String> mediaUrls;
   final String? postUrl;
-  final String? username; // マスターGistスリム形式用
+  final String? username; // [JA: マスターGistスリム形式用 / EN: For master Gist slim format]
   final String? videoUrl;
 
   const TweetItem({
@@ -19,7 +21,8 @@ class TweetItem {
 
   bool get isVideo => videoUrl != null && videoUrl!.isNotEmpty;
 
-  /// 新旧2形式のJSONを吸収する
+  /// [JA] 新旧2形式のJSONを吸収してデシリアライズ
+  /// [EN] Deserializes JSON supporting both legacy and structured schemas
   factory TweetItem.fromJson(Map<String, dynamic> json) {
     // media_urls (新形式) or tweet.extended_entities (旧形式)
     List<String> mediaUrls;
@@ -89,21 +92,25 @@ class TweetItem {
     );
   }
 
-  /// Twitterメディアに name= パラメータを付与する
+  /// [JA] Twitterメディアに name= パラメータを付与する
+  /// [EN] Appends the name= size parameter to Twitter media URLs
   static String _withImageSize(String url, String size) {
     if (url.isEmpty) return '';
     return url.contains('?') ? '$url&name=$size' : '$url?name=$size';
   }
 
-  /// Grid表示用サムネイル（低解像度: name=small）
+  /// [JA] Grid表示用サムネイル（低解像度: name=small）
+  /// [EN] Thumbnail for grid display (low-resolution: name=small)
   String get thumbnailUrl =>
       _withImageSize(mediaUrls.isNotEmpty ? mediaUrls.first : '', 'small');
 
-  /// 詳細表示用URL一覧（高解像度: name=orig）
+  /// [JA] 詳細表示用URL一覧（高解像度: name=orig）
+  /// [EN] Full URLs for detail viewer (high-resolution: name=orig)
   List<String> get origUrls =>
       mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
 
-  /// ツイート本文の先頭にある "@username:" からスクリーンネームを抽出する（username フィールドがある場合はそれを優先する）
+  /// [JA] ツイート本文の先頭にある "@username:" からスクリーンネームを抽出する（username フィールドがある場合はそれを優先する）
+  /// [EN] Extracts username from the leading '@username:' text, prioritizing the dedicated username field
   String? get extractedUsername {
     if (username != null && username!.isNotEmpty) {
       return username;
@@ -121,7 +128,8 @@ class TweetItem {
     if (videoUrl != null) 'video_url': videoUrl,
   };
 
-  /// マスターGist代表ツイート用（スリム形式: username + 先頭1枚のみ）
+  /// [JA] マスターGist代表ツイート用（スリム形式: username + 先頭1枚のみ）
+  /// [EN] Serializer for master Gist representative post (slim format: username + primary thumbnail)
   Map<String, dynamic> toMasterJson() => {
     'id_str': id,
     if (username != null) 'username': username,
