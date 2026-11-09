@@ -49,6 +49,12 @@ if [ -n "$PROMOTE_GIST_ID" ]; then
   PROMOTE_FLAG="--promote-gist-id $PROMOTE_GIST_ID"
 fi
 
+# --- 仮想環境の有効化 ---
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "$PROJECT_DIR/venv" ]; then
+  source "$PROJECT_DIR/venv/bin/activate"
+fi
+
 python3 scripts/append_to_gist.py \
   -g "$GIST_ID" \
   -u "$USER" \

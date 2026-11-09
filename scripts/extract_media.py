@@ -42,6 +42,64 @@ def parse_args():
 def build_url(user):
     return f"https://x.com/{user}"
 
+def parse_syndication_video(data, origin_user, origin_status_id):
+    """Syndication API のレスポンス (data) から動画メディアオブジェクトのリストを抽出する"""
+    extracted = []
+    
+    # 1. mediaDetails (公式API同等の詳細構造: bitrate情報付き) を優先
+    media_details = data.get('mediaDetails', []) if isinstance(data, dict) else []
+    for md in media_details:
+        if md.get('type') == 'video':
+            vinfo = md.get('video_info', {})
+            variants = vinfo.get('variants', [])
+            mp4_variants = [v for v in variants if v.get('content_type') == 'video/mp4' or v.get('type') == 'video/mp4']
+            if mp4_variants:
+                best_mp4 = max(mp4_variants, key=lambda x: int(x.get('bitrate', 0) if x.get('bitrate') is not None else 0))
+                best_url = best_mp4.get('url') or best_mp4.get('src')
+                if best_url:
+                    extracted.append({
+                        "media_url_https": md.get('media_url_https', ''),
+                        "type": "video",
+                        "video_info": {
+                            "variants": [{"url": best_url, "content_type": "video/mp4", "bitrate": best_mp4.get('bitrate', 0)}]
+                        },
+                        "expanded_url": md.get('expanded_url') or f"https://x.com/{origin_user}/status/{origin_status_id}/video/1"
+                    })
+
+    if extracted:
+        return extracted
+
+    # 2. フォールバック: data['video'] から抽出
+    if isinstance(data, dict) and 'video' in data:
+        video_obj = data['video']
+        poster = video_obj.get('poster', '')
+        variants = video_obj.get('variants', [])
+        mp4_variants = [v for v in variants if v.get('type') == 'video/mp4' or v.get('content_type') == 'video/mp4']
+        if mp4_variants:
+            def _quality_score(v):
+                bitrate = v.get('bitrate')
+                if bitrate is not None:
+                    return int(bitrate)
+                url_str = v.get('src', '') or v.get('url', '')
+                m = re.search(r'/(\d+)x(\d+)/', url_str)
+                if m:
+                    return int(m.group(1)) * int(m.group(2))
+                return 0
+
+            best_mp4 = max(mp4_variants, key=_quality_score)
+            best_url = best_mp4.get('src') or best_mp4.get('url')
+            if best_url:
+                extracted.append({
+                    "media_url_https": poster,
+                    "type": "video",
+                    "video_info": {
+                        "variants": [{"url": best_url, "content_type": "video/mp4"}]
+                    },
+                    "expanded_url": f"https://x.com/{origin_user}/status/{origin_status_id}/video/1"
+                })
+
+    return extracted
+
 async def extract_tweet_data(page, article):
     """1つのarticle要素からツイート情報を抽出するロジック"""
     # ステータスIDとユーザー名の取得（投稿自身のタイムスタンプリンクを最優先）
@@ -120,8 +178,7 @@ async def extract_tweet_data(page, article):
     has_video = False
     for vid in video_elements:
         is_excluded = await vid.evaluate("""(node) => {
-            return !!node.closest('[data-testid="quotedTweet"]') || 
-                   !!node.closest('[data-testid="placementTracking"]');
+            return !!node.closest('[data-testid="quotedTweet"]');
         }""")
         if not is_excluded:
             has_video = True
@@ -134,20 +191,8 @@ async def extract_tweet_data(page, article):
             resp = await page.context.request.get(f"https://cdn.syndication.twimg.com/tweet-result?id={origin_status_id}&token={token}")
             if resp.ok:
                 data = await resp.json()
-                if 'video' in data:
-                    poster = data['video'].get('poster', '')
-                    variants = data['video'].get('variants', [])
-                    mp4_variants = [v for v in variants if v.get('type') == 'video/mp4']
-                    if mp4_variants:
-                        best_mp4 = max(mp4_variants, key=lambda x: int(x.get('bitrate', 0) if x.get('bitrate') is not None else 0))
-                        media_urls.append({
-                            "media_url_https": poster,
-                            "type": "video",
-                            "video_info": {
-                                "variants": [{"url": best_mp4['src'], "content_type": "video/mp4"}]
-                            },
-                            "expanded_url": f"https://x.com/{origin_user}/status/{origin_status_id}/video/1"
-                        })
+                video_items = parse_syndication_video(data, origin_user, origin_status_id)
+                media_urls.extend(video_items)
         except Exception as e:
             print(f"⚠️ Failed to fetch video info for {origin_status_id}: {e}")
 
