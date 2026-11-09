@@ -20,7 +20,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   late VideoPlayerController _controller;
   bool _isInitialized = false;
   bool _hasError = false;
-  bool _isMuted = false;
+  bool _isMuted = true;
 
   @override
   void initState() {
@@ -32,6 +32,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     try {
       _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
       await _controller.initialize();
+      await _controller.setVolume(0.0);
       await _controller.setLooping(true);
       await _controller.play();
       if (mounted) {
@@ -165,15 +166,15 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
                   color: Colors.white,
                 ),
               ),
-            // 右上: 音声ミュートトグル
+            // 右上: 音声ミュートトグル（ステータスバー下の「戻る」ボタンと同じ高さに配置）
             Positioned(
-              top: 8,
-              right: 8,
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 12,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _toggleMute,
                 child: Container(
-                  padding: const EdgeInsets.all(6),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.6),
                     shape: BoxShape.circle,
