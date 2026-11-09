@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:x_post_gallery/models/tweet_item.dart';
 import 'package:x_post_gallery/screens/detail/detail_page.dart';
 import 'package:x_post_gallery/screens/detail/horizontal_detail_page.dart';
+import 'package:x_post_gallery/screens/detail/video_player_item.dart';
 
 const _transparentImage = <int>[
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
@@ -270,6 +271,59 @@ void main() {
       expect(find.byType(HorizontalDetailPage), findsNothing);
       expect(find.textContaining('次の投稿テキスト'), findsOneWidget);
       expect(find.textContaining('最初の投稿テキスト'), findsNothing);
+    });
+
+    testWidgets('動画と静止画の混在投稿では動画プレイヤーと静止画の両方が表示される', (tester) async {
+      final mixedItem = TweetItem(
+        id: 'mixed_1',
+        fullText: '混在投稿テキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: ['https://example.com/photo1.jpg'],
+        videoUrls: ['https://example.com/video1.mp4'],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DetailPage(
+            items: [mixedItem],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 本文が表示されていること
+      expect(find.textContaining('混在投稿テキスト'), findsOneWidget);
+
+      // 動画プレイヤーと画像ウィジェットの両方が存在すること
+      expect(find.byType(VideoPlayerItem), findsOneWidget);
+      expect(find.byType(Image), findsWidgets);
+    });
+
+    testWidgets('複数動画投稿ではすべての動画プレイヤーが表示される', (tester) async {
+      final multiVideoItem = TweetItem(
+        id: 'multi_vid',
+        fullText: '複数動画投稿テキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: const [],
+        videoUrls: [
+          'https://example.com/vid1.mp4',
+          'https://example.com/vid2.mp4',
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DetailPage(
+            items: [multiVideoItem],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('複数動画投稿テキスト'), findsOneWidget);
+      expect(find.byType(VideoPlayerItem), findsNWidgets(2));
     });
   });
 }

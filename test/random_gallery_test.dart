@@ -142,5 +142,45 @@ void main() {
       expect(item.videoUrl, 'https://video.twimg.com/high.mp4');
       expect(item.postUrl, 'https://x.com/user/status/55555');
     });
+
+    test('TweetItem should correctly parse multiple videos', () {
+      final json = {
+        'id_str': '777',
+        'full_text': '@creator: Multi video post',
+        'video_urls': [
+          'https://video.twimg.com/vid1.mp4',
+          'https://video.twimg.com/vid2.mp4',
+        ],
+      };
+
+      final item = TweetItem.fromJson(json);
+
+      expect(item.isVideo, isTrue);
+      expect(item.hasVideo, isTrue);
+      expect(item.videoUrls.length, 2);
+      expect(item.videoUrl, 'https://video.twimg.com/vid1.mp4');
+      expect(item.videoUrls[1], 'https://video.twimg.com/vid2.mp4');
+    });
+
+    test('TweetItem should correctly parse mixed media (images and videos)', () {
+      final json = {
+        'id_str': '888',
+        'full_text': '@creator: Mixed media post',
+        'media_urls': [
+          'https://pbs.twimg.com/media/photo1.jpg',
+          'https://pbs.twimg.com/media/photo2.jpg',
+        ],
+        'video_urls': [
+          'https://video.twimg.com/vid1.mp4',
+        ],
+      };
+
+      final item = TweetItem.fromJson(json);
+
+      expect(item.isVideo, isTrue);
+      expect(item.videoUrls.length, 1);
+      expect(item.mediaUrls.length, 2);
+      expect(item.origUrls.length, 2);
+    });
   });
 }

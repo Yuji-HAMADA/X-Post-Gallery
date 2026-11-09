@@ -91,24 +91,38 @@ class _DetailImageItemState extends State<DetailImageItem>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.item.isVideo && widget.item.videoUrl != null) {
+    final List<String> imageUrls = widget.item.origUrls;
+    final List<String> videoUrls = widget.item.videoUrls;
+
+    // 動画が含まれる場合（複数動画・または静止画と動画の混在投稿）
+    if (videoUrls.isNotEmpty) {
       return SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            VideoPlayerItem(
-              videoUrl: widget.item.videoUrl!,
-              thumbnailUrl: widget.item.thumbnailUrl,
-            ),
+            // 全動画プレイヤーを縦並びで表示
+            for (int vi = 0; vi < videoUrls.length; vi++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4.0),
+                child: VideoPlayerItem(
+                  key: ValueKey('${widget.item.id}_video_$vi'),
+                  videoUrl: videoUrls[vi],
+                  thumbnailUrl: widget.item.thumbnailUrl,
+                ),
+              ),
+            // 静止画が含まれている場合、静止画も縦並びで表示（混在メディア対応）
+            for (int ii = 0; ii < imageUrls.length; ii++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4.0),
+                child: _buildSimpleImage(imageUrls[ii], ii),
+              ),
             _buildTextDetail(),
           ],
         ),
       );
     }
-
-    final List<String> imageUrls = widget.item.origUrls;
 
     return SingleChildScrollView(
       physics: _isZoomed
@@ -127,6 +141,30 @@ class _DetailImageItemState extends State<DetailImageItem>
             child: _buildTextDetail(),
           ),
         ],
+      ),
+    );
+  }
+
+  /// [JA] 混在メディア表示用のシンプルな画像描画ウィジェット
+  /// [EN] Simple image rendering widget for mixed-media display
+  Widget _buildSimpleImage(String url, int index) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double ratio = _resolvedRatios[index] ?? 1.0;
+
+    return Container(
+      width: screenWidth,
+      constraints: BoxConstraints(
+        minHeight: 0,
+        maxHeight: screenWidth / ratio,
+      ),
+      color: Colors.black,
+      child: Image.network(
+        url,
+        fit: BoxFit.contain,
+        alignment: Alignment.center,
+        errorBuilder: (context, error, stackTrace) => const Center(
+          child: Icon(Icons.broken_image, color: Colors.grey, size: 40),
+        ),
       ),
     );
   }
