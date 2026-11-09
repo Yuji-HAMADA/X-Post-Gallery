@@ -40,6 +40,8 @@ class AppLocalizations {
 
   String get tooltipSwitchToHorizontal =>
       isJapanese ? '横方向レイアウトに切り替え' : 'Switch to horizontal layout';
+  String get tooltipToggleGap =>
+      isJapanese ? '画像の隙間を切り替え' : 'Toggle image gap';
   String get tooltipPinToTop => isJapanese ? '一番上に移動' : 'Pin to top';
   String get tooltipUnpin => isJapanese ? 'ピン留めを解除' : 'Unpin from top';
   String get tooltipSaveToGist => isJapanese ? 'Gistに保存' : 'Save to Gist';

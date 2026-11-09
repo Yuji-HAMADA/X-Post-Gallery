@@ -161,7 +161,7 @@ void main() {
       expect(find.textContaining('複数画像の投稿テキスト'), findsOneWidget);
     });
 
-    testWidgets('単一画像の投稿では切り替えボタンが表示されない', (tester) async {
+    testWidgets('単一画像の投稿でも切り替えボタンが表示され、タップで横方向画面に遷移できる', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: DetailPage(
@@ -172,12 +172,53 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 単一画像では切り替えボタンが存在しないこと
+      // 単一画像でも切り替えボタンが存在すること
       final switchButton = find.byIcon(Icons.view_carousel_outlined);
-      expect(switchButton, findsNothing);
+      expect(switchButton, findsOneWidget);
 
       // デフォルト画面のテキストは表示されていること
       expect(find.textContaining('単一画像の投稿テキスト'), findsOneWidget);
+
+      // タップで横方向画面に遷移できること
+      await tester.tap(switchButton);
+      await tester.pumpAndSettle();
+      expect(find.byType(HorizontalDetailPage), findsOneWidget);
+    });
+
+    testWidgets('横方向画面で隙間切り替えトグルをタップすると画像間のパディングが変化する', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HorizontalDetailPage(
+            items: [multiImageItem],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // トグルボタンが存在すること
+      final toggleButton = find.byIcon(Icons.view_column_outlined);
+      expect(toggleButton, findsOneWidget);
+
+      // 初期状態: 画像間に 4.0 のパディングが存在すること
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Padding && w.padding == const EdgeInsets.only(right: 4.0),
+        ),
+        findsWidgets,
+      );
+
+      // トグルボタンをタップ
+      await tester.tap(toggleButton);
+      await tester.pumpAndSettle();
+
+      // 隙間ゼロ状態: 4.0 のパディングがなくなり 0.0 になること
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Padding && w.padding == const EdgeInsets.only(right: 4.0),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('横方向モード中に上下スワイプで前後の投稿へ移動し、戻るボタンでその投稿に復帰する', (tester) async {

@@ -59,11 +59,11 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  /// [JA] 現在のポストが複数画像を持つかどうかを判定
-  /// [EN] Determines whether the current post contains multiple images
-  bool get _hasMultipleImages {
+  /// [JA] 現在のポストが画像（単一または複数）を持つかどうかを判定
+  /// [EN] Determines whether the current post contains images (single or multiple)
+  bool get _hasImages {
     if (_currentIndex < 0 || _currentIndex >= widget.items.length) return false;
-    return widget.items[_currentIndex].origUrls.length > 1;
+    return widget.items[_currentIndex].origUrls.isNotEmpty;
   }
 
   @override
@@ -79,7 +79,7 @@ class _DetailPageState extends State<DetailPage> {
         foregroundColor: Colors.white,
         title: null,
         actions: [
-          if (_hasMultipleImages)
+          if (_hasImages)
             IconButton(
               icon: const Icon(Icons.view_carousel_outlined),
               tooltip: l10n.tooltipSwitchToHorizontal,

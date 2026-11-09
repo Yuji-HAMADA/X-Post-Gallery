@@ -33,6 +33,7 @@ class HorizontalDetailPage extends StatefulWidget {
 class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
   late PageController _verticalPageController;
   late int _currentIndex;
+  bool _zeroGap = false;
 
   @override
   void initState() {
@@ -49,6 +50,12 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
 
   void _handleBack() {
     Navigator.pop(context, _currentIndex);
+  }
+
+  void _toggleGap() {
+    setState(() {
+      _zeroGap = !_zeroGap;
+    });
   }
 
   @override
@@ -85,19 +92,47 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
         ),
         // [JA] 上下スワイプで前後の投稿へシームレスに切り替える垂直 PageView
         // [EN] Vertical PageView allowing seamless transition between posts via up/down swipe
-        body: PageView.builder(
-          controller: _verticalPageController,
-          scrollDirection: Axis.vertical,
-          itemCount: widget.items.length,
-          onPageChanged: (index) {
-            setState(() => _currentIndex = index);
-          },
-          itemBuilder: (context, index) {
-            return _HorizontalPostImagesView(
-              key: ValueKey(widget.items[index].id),
-              item: widget.items[index],
-            );
-          },
+        body: Stack(
+          children: [
+            PageView.builder(
+              controller: _verticalPageController,
+              scrollDirection: Axis.vertical,
+              itemCount: widget.items.length,
+              onPageChanged: (index) {
+                setState(() => _currentIndex = index);
+              },
+              itemBuilder: (context, index) {
+                return _HorizontalPostImagesView(
+                  key: ValueKey(widget.items[index].id),
+                  item: widget.items[index],
+                  zeroGap: _zeroGap,
+                );
+              },
+            ),
+            // [JA] 画面左下の隙間切り替えトグルボタン
+            // [EN] Zero-gap toggle button positioned at the bottom left
+            Positioned(
+              left: 16,
+              bottom: 24,
+              child: SafeArea(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.black38,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      _zeroGap ? Icons.view_column : Icons.view_column_outlined,
+                      color: _zeroGap ? Colors.lightBlueAccent : Colors.white,
+                      size: 20,
+                    ),
+                    onPressed: _toggleGap,
+                    tooltip: l10n.tooltipToggleGap,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -108,10 +143,12 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
 /// [EN] View that renders all images of a single post in a horizontal continuous scroll
 class _HorizontalPostImagesView extends StatefulWidget {
   final TweetItem item;
+  final bool zeroGap;
 
   const _HorizontalPostImagesView({
     super.key,
     required this.item,
+    this.zeroGap = false,
   });
 
   @override
@@ -185,7 +222,7 @@ class _HorizontalPostImagesViewState extends State<_HorizontalPostImagesView> {
             final bool isLast = i == imageUrls.length - 1;
 
             return Padding(
-              padding: EdgeInsets.only(right: isLast ? 0.0 : 4.0),
+              padding: EdgeInsets.only(right: (isLast || widget.zeroGap) ? 0.0 : 4.0),
               child: Container(
                 height: screenHeight,
                 width: ratio != null ? screenHeight * ratio : null,
