@@ -56,8 +56,22 @@ fi
 # 実行権限の確認
 chmod +x "$PROJECT_DIR/append_gist.sh"
 
+# --- 引数の解析 ---
+TARGET_SLOT="all"
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --slot)
+      TARGET_SLOT="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
 echo "=========================================="
-echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Local Scheduled Fetch Started"
+echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Local Scheduled Fetch Started (Slot: $TARGET_SLOT)"
 echo "=========================================="
 
 CONSECUTIVE_ERRORS=0
@@ -428,10 +442,14 @@ while [ $LOOP_COUNT -lt $MAX_LOOPS ]; do
   echo "🔁 [Loop iteration $LOOP_COUNT/$MAX_LOOPS]"
   PROCESSED=false
 
-  process_slot "$SLOT0_ID" 0 && PROCESSED=true
+  if [ "$TARGET_SLOT" = "0" ] || [ "$TARGET_SLOT" = "all" ]; then
+    process_slot "$SLOT0_ID" 0 && PROCESSED=true
+  fi
 
-  if [ -n "$SLOT1_ID" ]; then
-    process_slot "$SLOT1_ID" 1 && PROCESSED=true
+  if [ "$TARGET_SLOT" = "1" ] || [ "$TARGET_SLOT" = "all" ]; then
+    if [ -n "$SLOT1_ID" ]; then
+      process_slot "$SLOT1_ID" 1 && PROCESSED=true
+    fi
   fi
 
   if [ "$PROCESSED" = false ]; then
