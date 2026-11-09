@@ -179,5 +179,56 @@ void main() {
       // デフォルト画面のテキストは表示されていること
       expect(find.textContaining('単一画像の投稿テキスト'), findsOneWidget);
     });
+
+    testWidgets('横方向モード中に上下スワイプで前後の投稿へ移動し、戻るボタンでその投稿に復帰する', (tester) async {
+      final post1 = TweetItem(
+        id: 'post_1',
+        fullText: '最初の投稿テキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: ['https://example.com/p1_1.jpg', 'https://example.com/p1_2.jpg'],
+      );
+      final post2 = TweetItem(
+        id: 'post_2',
+        fullText: '次の投稿テキスト',
+        createdAt: '2025-01-02',
+        mediaUrls: ['https://example.com/p2_1.jpg', 'https://example.com/p2_2.jpg'],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DetailPage(
+            items: [post1, post2],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // post1 の横方向モードを開く
+      final switchButton = find.byIcon(Icons.view_carousel_outlined);
+      await tester.tap(switchButton);
+      await tester.pumpAndSettle();
+      expect(find.byType(HorizontalDetailPage), findsOneWidget);
+
+      // 上方向へスワイプ（画面を下から上へドラッグして次の投稿 post2 へ移動）
+      await tester.drag(find.byType(HorizontalDetailPage), const Offset(0, -600));
+      await tester.pumpAndSettle();
+
+      // post2 の横方向画像ビューが表示されていること
+      expect(find.byKey(const ValueKey('post_2')), findsOneWidget);
+
+      // 戻るボタンをタップ
+      final backButton = find.descendant(
+        of: find.byType(HorizontalDetailPage),
+        matching: find.byIcon(Icons.arrow_back),
+      );
+      await tester.tap(backButton);
+      await tester.pumpAndSettle();
+
+      // デフォルト画面に戻ったとき、移動先の post2 の投稿テキストが表示されていること（同期復帰）
+      expect(find.byType(HorizontalDetailPage), findsNothing);
+      expect(find.textContaining('次の投稿テキスト'), findsOneWidget);
+      expect(find.textContaining('最初の投稿テキスト'), findsNothing);
+    });
   });
 }

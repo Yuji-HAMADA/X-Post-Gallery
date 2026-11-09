@@ -83,14 +83,22 @@ class _DetailPageState extends State<DetailPage> {
             IconButton(
               icon: const Icon(Icons.view_carousel_outlined),
               tooltip: l10n.tooltipSwitchToHorizontal,
-              onPressed: () {
-                final currentItem = widget.items[_currentIndex];
-                Navigator.push(
+              onPressed: () async {
+                final newIndex = await Navigator.push<int>(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => HorizontalDetailPage(item: currentItem),
+                    builder: (_) => HorizontalDetailPage(
+                      items: widget.items,
+                      initialIndex: _currentIndex,
+                    ),
                   ),
                 );
+                if (newIndex != null && newIndex != _currentIndex && mounted) {
+                  _pageController.jumpToPage(newIndex);
+                  setState(() {
+                    _currentIndex = newIndex;
+                  });
+                }
               },
             ),
         ],
