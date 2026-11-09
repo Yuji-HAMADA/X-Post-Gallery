@@ -100,94 +100,115 @@ def parse_syndication_video(data, origin_user, origin_status_id):
 
     return extracted
 
-async def extract_tweet_data(page, article):
-    """1つのarticle要素からツイート情報を抽出するロジック"""
-    # ステータスIDとユーザー名の取得（投稿自身のタイムスタンプリンクを最優先）
-    origin_user, origin_status_id = "unknown", ""
-    time_link = await article.query_selector('a:has(time)')
-    if time_link:
-        href = await time_link.get_attribute('href')
-        if href:
-            match = re.search(r'/([^/]+)/status/(\d+)', href)
-            if match:
-                origin_user, origin_status_id = match.group(1), match.group(2)
+EXTRACT_ARTICLE_JS = """(el) => {
+    let origin_user = "unknown";
+    let origin_status_id = "";
 
-    # フォールバック: timeリンクがない場合は引用ツイート外のステータスリンクを探索
-    if not origin_status_id:
-        links = await article.query_selector_all('a[href*="/status/"]')
-        for link in links:
-            is_quoted = await link.evaluate("""(node) => {
-                return !!node.closest('[data-testid="quotedTweet"]');
-            }""")
-            if is_quoted: continue
-            href = await link.get_attribute('href')
-            if not href: continue
-            match = re.search(r'/([^/]+)/status/(\d+)', href)
-            if match:
-                origin_user, origin_status_id = match.group(1), match.group(2)
-                break
+    // 1. time リンクを最優先探索
+    const timeEl = el.querySelector('time');
+    const timeLink = timeEl ? timeEl.closest('a') : el.querySelector('a:has(time)');
+    if (timeLink) {
+        const href = timeLink.getAttribute('href') || "";
+        const m = href.match(/\\/([^\\/]+)\\/status\\/(\\d+)/);
+        if (m) {
+            origin_user = m[1];
+            origin_status_id = m[2];
+        }
+    }
 
-    if not origin_status_id: return None
+    // 2. フォールバック: time リンクがない場合は引用ツイート外のステータスリンクを探索
+    if (!origin_status_id) {
+        const links = el.querySelectorAll('a[href*="/status/"]');
+        for (const link of links) {
+            if (link.closest('[data-testid="quotedTweet"]')) continue;
+            const href = link.getAttribute('href') || "";
+            const m = href.match(/\\/([^\\/]+)\\/status\\/(\\d+)/);
+            if (m) {
+                origin_user = m[1];
+                origin_status_id = m[2];
+                break;
+            }
+        }
+    }
 
-    # ソーシャルコンテキストの取得（リポスト判定・固定ツイート判定用）
-    social_context = await article.query_selector('[data-testid="socialContext"]')
-    social_text = (await social_context.inner_text()).strip() if social_context else ""
+    if (!origin_status_id) return null;
 
-    # リポスト判定（本文の「リポスト」表記による誤爆を防ぐため socialContext のみで判定）
-    is_repost = any(w in social_text for w in ["リポスト", "Reposted", "reposted"])
-    if is_repost: return None
+    // 3. ソーシャルコンテキスト（リポスト・固定ツイート判定）
+    const scEl = el.querySelector('[data-testid="socialContext"]');
+    const socialText = scEl ? (scEl.innerText || "").trim() : "";
+    const isRepost = /リポスト|reposted/i.test(socialText);
+    if (isRepost) return null;
 
-    # 固定ツイート（Pinned Tweet）判定（言語・UI構造差異に対応）
-    pinned_keywords = [
+    const pinnedKeywords = [
         "固定されたポスト", "固定されたツイート", "固定ツイート",
         "ピン留めされたポスト", "ピン留め",
         "Pinned", "Pinned Tweet", "Pinned Post", "Pinned post"
-    ]
-    is_pinned = any(w in social_text for w in pinned_keywords)
-    if not is_pinned and social_context:
-        sc_html = (await social_context.inner_html()).lower()
-        if "pin" in sc_html or any(w in social_text for w in ["固定", "ピン"]):
-            is_pinned = True
+    ];
+    let isPinned = pinnedKeywords.some(kw => socialText.includes(kw));
+    if (!isPinned && scEl) {
+        const scHtml = scEl.innerHTML.toLowerCase();
+        if (scHtml.includes("pin") || socialText.includes("固定") || socialText.includes("ピン")) {
+            isPinned = true;
+        }
+    }
 
-    tweet_text_el = await article.query_selector('[data-testid="tweetText"]')
-    raw_text = await tweet_text_el.inner_text() if tweet_text_el else ""
-    full_text = f"@{origin_user}: {raw_text}"
+    // 4. ツイートテキスト
+    const textEl = el.querySelector('[data-testid="tweetText"]');
+    const rawText = textEl ? (textEl.innerText || "") : "";
 
-    # メディア抽出 (画像)
-    images = await article.query_selector_all('[data-testid="tweetPhoto"] img')
-    media_urls = []
-    for img in images:
-        # 引用ツイート内などは除外
-        is_excluded = await img.evaluate("""(node) => {
-            return !!node.closest('[data-testid="quotedTweet"]') || 
-                   !!node.closest('[data-testid="placementTracking"]');
-        }""")
-        src = await img.get_attribute('src')
-        if is_excluded or not src or any(sz in src for sz in ["name=120x120", "name=240x240"]):
-            continue
-        
-        src = src.split('&name=')[0]
-        media_urls.append({
+    // 5. 画像
+    const imgEls = el.querySelectorAll('[data-testid="tweetPhoto"] img');
+    const photoUrls = [];
+    for (const img of imgEls) {
+        if (img.closest('[data-testid="quotedTweet"]') || img.closest('[data-testid="placementTracking"]')) continue;
+        let src = img.getAttribute('src');
+        if (!src || src.includes("name=120x120") || src.includes("name=240x240")) continue;
+        src = src.split('&name=')[0];
+        photoUrls.push(src);
+    }
+
+    // 6. 動画要素
+    const vidEls = el.querySelectorAll('[data-testid="videoPlayer"], [data-testid="videoComponent"]');
+    let hasVideo = false;
+    for (const vid of vidEls) {
+        if (!vid.closest('[data-testid="quotedTweet"]')) {
+            hasVideo = true;
+            break;
+        }
+    }
+
+    // 7. タイムスタンプ
+    const timestamp = timeEl ? (timeEl.getAttribute('datetime') || "") : "";
+
+    return {
+        origin_user: origin_user,
+        origin_status_id: origin_status_id,
+        is_pinned: isPinned,
+        raw_text: rawText,
+        photo_urls: photoUrls,
+        has_video: hasVideo,
+        timestamp: timestamp
+    };
+}"""
+
+async def build_tweet_data_from_raw(page, raw_info):
+    """ブラウザJS側で一括抽出された raw_info から完全なツイートデータを構築"""
+    origin_user = raw_info["origin_user"]
+    origin_status_id = raw_info["origin_status_id"]
+    full_text = f"@{origin_user}: {raw_info['raw_text']}"
+
+    media_urls = [
+        {
             "media_url_https": src,
             "type": "photo",
             "expanded_url": f"https://x.com/{origin_user}/status/{origin_status_id}/photo/1"
-        })
+        }
+        for src in raw_info["photo_urls"]
+    ]
 
-    # メディア抽出 (動画)
-    video_elements = await article.query_selector_all('[data-testid="videoPlayer"], [data-testid="videoComponent"]')
-    has_video = False
-    for vid in video_elements:
-        is_excluded = await vid.evaluate("""(node) => {
-            return !!node.closest('[data-testid="quotedTweet"]');
-        }""")
-        if not is_excluded:
-            has_video = True
-            break
-
-    if has_video and origin_status_id:
+    if raw_info["has_video"] and origin_status_id:
         try:
-            # トークンをブラウザJS環境で安全に生成
-            token = await page.evaluate(f"({origin_status_id} / 1e15 * Math.PI).toString(36).replace(/(0+|\\.)/g, '')")
+            token = await page.evaluate(f"({origin_status_id} / 1e15 * Math.PI).toString(36).replace(/(0+|\\\\.)/g, '')")
             resp = await page.context.request.get(f"https://cdn.syndication.twimg.com/tweet-result?id={origin_status_id}&token={token}")
             if resp.ok:
                 data = await resp.json()
@@ -196,22 +217,29 @@ async def extract_tweet_data(page, article):
         except Exception as e:
             print(f"⚠️ Failed to fetch video info for {origin_status_id}: {e}")
 
-    if not media_urls: return None
-
-    # 時間
-    time_el = await article.query_selector('time')
-    timestamp = await time_el.get_attribute('datetime') if time_el else ""
+    if not media_urls:
+        return None
 
     return {
         "tweet": {
             "id_str": origin_status_id,
             "full_text": full_text,
-            "created_at": timestamp,
+            "created_at": raw_info["timestamp"],
             "entities": {"media": media_urls},
             "extended_entities": {"media": media_urls}
         },
-        "is_pinned": is_pinned
+        "is_pinned": raw_info["is_pinned"]
     }
+
+async def extract_tweet_data(page, article):
+    """1つのarticle要素からツイート情報を抽出するロジック（後方互換用）"""
+    try:
+        raw_info = await article.evaluate(EXTRACT_ARTICLE_JS)
+        if not raw_info:
+            return None
+        return await build_tweet_data_from_raw(page, raw_info)
+    except Exception:
+        return None
 
 async def dismiss_modals(page):
     """ログインダイアログ、センシティブ警告、シートダイアログ等を自動解除する"""
@@ -617,7 +645,7 @@ async def run():
                 await browser.close()
                 sys.exit(0)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.5)
         await dismiss_modals(page)
 
         # ページ全体のテキストからレート制限をチェック
@@ -630,17 +658,11 @@ async def run():
 
         # 既知IDの読み込み（スキップ対象）
         skip_ids = set()
-        # 順序付きID→インデックスマップ（連続一致判定用）
-        gist_id_index = {}
         if args.skip_ids_file and os.path.exists(args.skip_ids_file):
             with open(args.skip_ids_file, 'r') as f:
-                ordered_ids = [line.strip() for line in f if line.strip()]
-            skip_ids = set(ordered_ids)
-            gist_id_index = {tid: i for i, tid in enumerate(ordered_ids)}
+                skip_ids = {line.strip() for line in f if line.strip()}
             print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
 
-        CONSECUTIVE_STOP = 2  # 連続一致でストップする閾値
-        MIN_SCROLLS_FOR_STOP = 3  # 通常ツイートを十分に確認するため停止判定前に最低限必要なスクロール回数
         new_tweets, seen_ids = [], set()
         stall_count = 0
         scroll_count = 0
@@ -648,8 +670,6 @@ async def run():
         MAX_STALLS = 8
         skipped_count = 0
         hit_existing = False
-        consecutive_count = 0
-        last_gist_index = -1
         no_new_scrolls = 0
         start_time = time.time()
 
@@ -662,45 +682,40 @@ async def run():
                 total_articles_detected += len(articles)
             prev_seen = len(seen_ids)
             for article in articles:
-                data = await extract_tweet_data(page, article)
-                if not data: continue
+                try:
+                    raw_info = await article.evaluate(EXTRACT_ARTICLE_JS)
+                except Exception:
+                    continue
+                if not raw_info: continue
 
-                tid = data["tweet"]["id_str"]
+                tid = raw_info["origin_status_id"]
                 if tid in seen_ids: continue
                 seen_ids.add(tid)
 
-                is_pinned = data.get("is_pinned", False)
+                is_pinned = raw_info.get("is_pinned", False)
 
-                # 固定ツイート（Pinned）は重複停止カウント（stop_on_existing）から明確に除外・スキップ
+                # 固定ツイート（Pinned）は重複停止判定から除外・スキップ
                 if is_pinned:
                     if tid in skip_ids:
                         skipped_count += 1
                     else:
-                        new_tweets.append(data)
-                        print(f"  [{len(new_tweets)}] Saved (Pinned): @{tid}")
+                        data = await build_tweet_data_from_raw(page, raw_info)
+                        if data:
+                            new_tweets.append(data)
+                            print(f"  [{len(new_tweets)}] Saved (Pinned): @{tid}")
                     continue
 
                 if tid in skip_ids:
-                    # 通常ツイートの連続一致判定
-                    if args.stop_on_existing and gist_id_index:
-                        gist_idx = gist_id_index.get(tid, -1)
-                        if gist_idx >= 0 and last_gist_index >= 0 and gist_idx == last_gist_index + 1:
-                            consecutive_count += 1
-                        else:
-                            consecutive_count = 1
-                        last_gist_index = gist_idx
-
-                        # 固定ツイートより下の通常ツイートを確認し、数回スクロールした後に停止判定
-                        if consecutive_count >= CONSECUTIVE_STOP and scroll_count >= MIN_SCROLLS_FOR_STOP:
-                            print(f"🛑 {CONSECUTIVE_STOP} consecutive existing IDs matched in order (after {scroll_count} scrolls). Stopping.")
-                            hit_existing = True
-                            break
                     skipped_count += 1
+                    # 1個の既存IDを検出した時点で即時停止
+                    if args.stop_on_existing:
+                        print(f"🛑 Existing tweet ID detected (@{tid}). Stopping.")
+                        hit_existing = True
+                        break
                     continue
 
-                # 新規通常ポスト → 連続カウントをリセット
-                consecutive_count = 0
-                last_gist_index = -1
+                data = await build_tweet_data_from_raw(page, raw_info)
+                if not data: continue
 
                 new_tweets.append(data)
                 print(f"  [{len(new_tweets)}] Saved: @{tid}")
@@ -743,17 +758,20 @@ async def run():
                 await page.evaluate("window.scrollBy(0, 1000)")
             except Exception:
                 await page.mouse.wheel(0, 1000)
-            await dismiss_modals(page)
+
+            # ストール発生時のみモーダル解除を試行
+            if stall_count > 0:
+                await dismiss_modals(page)
 
             # ローディングスピナーが表示されている場合はロード完了を少し待機
             try:
                 spinner = await page.query_selector('div[role="progressbar"]')
                 if spinner:
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
             except Exception:
                 pass
 
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(1.2)
 
         if skipped_count:
             print(f"⏭️ Skipped {skipped_count} already-known posts.")

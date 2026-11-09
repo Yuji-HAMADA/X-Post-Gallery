@@ -78,5 +78,42 @@ class TestExtractMediaGuards(unittest.TestCase):
             self.assertIn("--max-runtime", called_cmd)
             self.assertIn("555", called_cmd)
 
+    def test_build_tweet_data_from_raw_photo(self):
+        """raw_info から画像付きツイートデータが正しく構築されること"""
+        import asyncio
+        raw_info = {
+            "origin_user": "test_user",
+            "origin_status_id": "1234567890",
+            "is_pinned": False,
+            "raw_text": "Hello world",
+            "photo_urls": ["https://pbs.twimg.com/media/abc?format=jpg"],
+            "has_video": False,
+            "timestamp": "2026-11-10T00:00:00.000Z"
+        }
+        mock_page = MagicMock()
+        data = asyncio.run(extract_media.build_tweet_data_from_raw(mock_page, raw_info))
+        self.assertIsNotNone(data)
+        self.assertEqual(data["tweet"]["id_str"], "1234567890")
+        self.assertEqual(data["tweet"]["full_text"], "@test_user: Hello world")
+        self.assertEqual(len(data["tweet"]["entities"]["media"]), 1)
+        self.assertEqual(data["tweet"]["entities"]["media"][0]["type"], "photo")
+        self.assertEqual(data["is_pinned"], False)
+
+    def test_build_tweet_data_from_raw_no_media(self):
+        """メディアがない場合は None が返ること"""
+        import asyncio
+        raw_info = {
+            "origin_user": "test_user",
+            "origin_status_id": "1234567890",
+            "is_pinned": False,
+            "raw_text": "No media tweet",
+            "photo_urls": [],
+            "has_video": False,
+            "timestamp": "2026-11-10T00:00:00.000Z"
+        }
+        mock_page = MagicMock()
+        data = asyncio.run(extract_media.build_tweet_data_from_raw(mock_page, raw_info))
+        self.assertIsNone(data)
+
 if __name__ == "__main__":
     unittest.main()
