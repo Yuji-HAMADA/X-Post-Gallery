@@ -24,6 +24,7 @@ class _DetailPageState extends State<DetailPage> {
   late PageController _pageController;
   late int _currentIndex;
   bool _isZoomed = false;
+  final ValueNotifier<bool> _firstVideoMutedNotifier = ValueNotifier<bool>(true);
 
   @override
   void initState() {
@@ -50,6 +51,7 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void dispose() {
     _pageController.dispose();
+    _firstVideoMutedNotifier.dispose();
     super.dispose();
   }
 
@@ -59,11 +61,21 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
-  /// [JA] 現在のポストが画像（単一または複数）を持つかどうかを判定
-  /// [EN] Determines whether the current post contains images (single or multiple)
+  /// [JA] 現在のポストが画像のみ（動画を含まない）を持つかどうかを判定
+  /// [EN] Determines whether the current post contains images without videos
   bool get _hasImages {
     if (_currentIndex < 0 || _currentIndex >= widget.items.length) return false;
-    return widget.items[_currentIndex].origUrls.isNotEmpty;
+    final item = widget.items[_currentIndex];
+    // 動画を含むポストは横方向表示モードへの遷移ボタンは不要
+    if (item.isVideo) return false;
+    return item.origUrls.isNotEmpty;
+  }
+
+  /// [JA] 現在のポストが動画を含むかどうかを判定
+  /// [EN] Determines whether the current post contains a video
+  bool get _hasVideo {
+    if (_currentIndex < 0 || _currentIndex >= widget.items.length) return false;
+    return widget.items[_currentIndex].isVideo;
   }
 
   @override
@@ -101,6 +113,23 @@ class _DetailPageState extends State<DetailPage> {
                 }
               },
             ),
+          if (_hasVideo)
+            ValueListenableBuilder<bool>(
+              valueListenable: _firstVideoMutedNotifier,
+              builder: (context, isMuted, _) {
+                return IconButton(
+                  icon: Icon(
+                    isMuted ? Icons.volume_off : Icons.volume_up,
+                    color: Colors.white,
+                  ),
+                  tooltip: isMuted ? '消音解除' : '消音',
+                  onPressed: () {
+                    _firstVideoMutedNotifier.value =
+                        !_firstVideoMutedNotifier.value;
+                  },
+                );
+              },
+            ),
         ],
       ),
       body: PageView.builder(
@@ -114,12 +143,15 @@ class _DetailPageState extends State<DetailPage> {
             _currentIndex = index;
             _isZoomed = false;
           });
+          _firstVideoMutedNotifier.value = true;
           _preloadAdjacent(index);
         },
         itemBuilder: (context, index) {
           return DetailImageItem(
             item: widget.items[index],
             onZoomChanged: _handleZoomChanged,
+            muteNotifier:
+                index == _currentIndex ? _firstVideoMutedNotifier : null,
           );
         },
       ),

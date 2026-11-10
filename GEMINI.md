@@ -19,6 +19,9 @@ PostViewer (package name: `x_post_gallery`) は、X（旧Twitter）からスク�
   - X（旧Twitter）のアカウント名/スクリーンネーム、Gist ID、アクセストークン等の固有情報・機密情報を、**GitHub等に露出する形でコード内に絶対にハードコードしてはならない**。
   - 必ず `.env` ファイル、環境変数（`resolveEnv` / `--dart-define`）、または動的設定ファイルから安全に取得・注入すること。
 
+### 3. 【Python実行環境（venv利用必須）】
+- **仮想環境の利用:** Pythonスクリプトやテストの実行時は、Playwright等の依存ライブラリが整備されているプロジェクト直下の仮想環境（`./venv/bin/python`）を必ず使用すること。グローバルの `python3` を直接実行してはならない。
+
 ## Common Commands & Workflows
 
 ### Flutter App (`lib/`)
@@ -26,12 +29,13 @@ PostViewer (package name: `x_post_gallery`) は、X（旧Twitter）からスク�
 flutter run                      # デフォルトデバイスで実行
 flutter analyze                  # Dart静的解析 (flutter_lints)
 flutter test                     # 単体テスト・ウィジェットテスト実行
+# pub upgrade や依存更新後は必ず analyze と test を通して健全性を確認すること
 ```
 
 ### Scraping & Crawler Pipeline (`scripts/`)
 ```bash
-# Python 単体抽出 (data/auth.json のクッキーが必要)
-python3 scripts/extract_media.py -u <username> -n 100
+# Python 単体抽出 (data/auth.json のクッキーが必要、必ず venv の python を使用)
+./venv/bin/python scripts/extract_media.py -u <username> -n 100
 
 # Gist へのアペンド実行
 ./append_gist.sh -g <master_gist_id> -u <username> -n 100 -s
@@ -43,7 +47,7 @@ python3 scripts/extract_media.py -u <username> -n 100
 ./scripts/run_scheduled_fetch_local.sh
 
 # テスト実行
-python3 -m unittest discover tests
+./venv/bin/python -m unittest discover tests
 bash tests/test_crawler_adaptive_skip.sh
 bash tests/test_crawler_delete_defense.sh
 ```

@@ -148,6 +148,21 @@ class TweetItem {
   List<String> get origUrls =>
       mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
 
+  /// [JA] 動画サムネイルを除いた純粋な静止画URL一覧（混在メディア用）
+  /// [EN] List of pure image URLs excluding video thumbnails (for mixed media)
+  List<String> get pureImageUrls {
+    if (videoUrls.isEmpty) return origUrls;
+    return origUrls.where((u) {
+      if (u.contains('video_thumb')) return false;
+      if (videoThumbnailUrl != null &&
+          videoThumbnailUrl!.isNotEmpty &&
+          u.contains(videoThumbnailUrl!.split('?')[0])) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
   /// [JA] ツイート本文の先頭にある "@username:" からスクリーンネームを抽出する（username フィールドがある場合はそれを優先する）
   /// [EN] Extracts username from the leading '@username:' text, prioritizing the dedicated username field
   String? get extractedUsername {
@@ -156,6 +171,28 @@ class TweetItem {
     }
     final match = RegExp(r'^@([^:]+):').firstMatch(fullText);
     return match?.group(1)?.trim();
+  }
+
+  TweetItem copyWith({
+    String? id,
+    String? fullText,
+    String? createdAt,
+    List<String>? mediaUrls,
+    String? postUrl,
+    String? username,
+    List<String>? videoUrls,
+    String? videoThumbnailUrl,
+  }) {
+    return TweetItem(
+      id: id ?? this.id,
+      fullText: fullText ?? this.fullText,
+      createdAt: createdAt ?? this.createdAt,
+      mediaUrls: mediaUrls ?? this.mediaUrls,
+      postUrl: postUrl ?? this.postUrl,
+      username: username ?? this.username,
+      videoUrls: videoUrls ?? this.videoUrls,
+      videoThumbnailUrl: videoThumbnailUrl ?? this.videoThumbnailUrl,
+    );
   }
 
   Map<String, dynamic> toJson() => {

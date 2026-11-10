@@ -5,11 +5,17 @@ import 'package:video_player/video_player.dart';
 class VideoPlayerItem extends StatefulWidget {
   final String videoUrl;
   final String? thumbnailUrl;
+  final bool autoPlay;
+  final bool isFirst;
+  final ValueNotifier<bool>? muteNotifier;
 
   const VideoPlayerItem({
     super.key,
     required this.videoUrl,
     this.thumbnailUrl,
+    this.autoPlay = true,
+    this.isFirst = true,
+    this.muteNotifier,
   });
 
   @override
@@ -20,21 +26,50 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   late VideoPlayerController _controller;
   bool _isInitialized = false;
   bool _hasError = false;
-  bool _isMuted = true;
+  late bool _isMuted;
 
   @override
   void initState() {
     super.initState();
+    _isMuted = widget.muteNotifier?.value ?? true;
+    widget.muteNotifier?.addListener(_handleMuteNotifierChanged);
     _initializePlayer();
+  }
+
+  @override
+  void didUpdateWidget(VideoPlayerItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.muteNotifier != widget.muteNotifier) {
+      oldWidget.muteNotifier?.removeListener(_handleMuteNotifierChanged);
+      widget.muteNotifier?.addListener(_handleMuteNotifierChanged);
+      if (widget.muteNotifier != null) {
+        _handleMuteNotifierChanged();
+      }
+    }
+  }
+
+  void _handleMuteNotifierChanged() {
+    if (widget.muteNotifier == null) return;
+    final muted = widget.muteNotifier!.value;
+    if (_isMuted != muted) {
+      setState(() {
+        _isMuted = muted;
+        if (_isInitialized) {
+          _controller.setVolume(_isMuted ? 0.0 : 1.0);
+        }
+      });
+    }
   }
 
   Future<void> _initializePlayer() async {
     try {
       _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
       await _controller.initialize();
-      await _controller.setVolume(0.0);
+      await _controller.setVolume(_isMuted ? 0.0 : 1.0);
       await _controller.setLooping(true);
-      await _controller.play();
+      if (widget.autoPlay) {
+        await _controller.play();
+      }
       if (mounted) {
         setState(() {
           _isInitialized = true;
@@ -52,6 +87,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
 
   @override
   void dispose() {
+    widget.muteNotifier?.removeListener(_handleMuteNotifierChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -69,10 +105,15 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
 
   void _toggleMute() {
     if (!_isInitialized) return;
-    setState(() {
-      _isMuted = !_isMuted;
-      _controller.setVolume(_isMuted ? 0.0 : 1.0);
-    });
+    final newMuted = !_isMuted;
+    if (widget.muteNotifier != null) {
+      widget.muteNotifier!.value = newMuted;
+    } else {
+      setState(() {
+        _isMuted = newMuted;
+        _controller.setVolume(_isMuted ? 0.0 : 1.0);
+      });
+    }
   }
 
   @override
@@ -166,27 +207,28 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
                   color: Colors.white,
                 ),
               ),
-            // 右上: 音声ミュートトグル（ステータスバー下の「戻る」ボタンと同じ高さに配置）
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 12,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _toggleMute,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _isMuted ? Icons.volume_off : Icons.volume_up,
-                    color: Colors.white,
-                    size: 20,
+            // 右上: 音声ミュートトグル（1枚目の動画はAppBar actionsに配置するため、2枚目以降のみプレイヤー内に表示）
+            if (!widget.isFirst)
+              Positioned(
+                top: 10.0,
+                right: 12,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleMute,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _isMuted ? Icons.volume_off : Icons.volume_up,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
-            ),
             // 下部: シークバー
             Positioned(
               bottom: 0,

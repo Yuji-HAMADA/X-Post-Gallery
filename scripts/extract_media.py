@@ -57,13 +57,14 @@ def parse_syndication_video(data, origin_user, origin_status_id):
                 best_mp4 = max(mp4_variants, key=lambda x: int(x.get('bitrate', 0) if x.get('bitrate') is not None else 0))
                 best_url = best_mp4.get('url') or best_mp4.get('src')
                 if best_url:
+                    vid_index = len(extracted) + 1
                     extracted.append({
                         "media_url_https": md.get('media_url_https', ''),
                         "type": "video",
                         "video_info": {
                             "variants": [{"url": best_url, "content_type": "video/mp4", "bitrate": best_mp4.get('bitrate', 0)}]
                         },
-                        "expanded_url": md.get('expanded_url') or f"https://x.com/{origin_user}/status/{origin_status_id}/video/1"
+                        "expanded_url": md.get('expanded_url') or f"https://x.com/{origin_user}/status/{origin_status_id}/video/{vid_index}"
                     })
 
     if extracted:

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:http/http.dart' as http;
 import 'package:linkify/linkify.dart' as linkify_pkg;
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/tweet_item.dart';
@@ -11,11 +13,13 @@ import 'video_player_item.dart';
 class DetailImageItem extends StatefulWidget {
   final TweetItem item;
   final Function(bool) onZoomChanged;
+  final ValueNotifier<bool>? muteNotifier;
 
   const DetailImageItem({
     super.key,
     required this.item,
     required this.onZoomChanged,
+    this.muteNotifier,
   });
 
   @override
@@ -30,16 +34,20 @@ class _DetailImageItemState extends State<DetailImageItem>
   TapDownDetails? _doubleTapDetails;
   bool _isZoomed = false;
 
+  late List<String> _effectiveVideoUrls;
   final Map<int, double> _resolvedRatios = {};
   final List<GestureRecognizer> _urlRecognizers = [];
 
   @override
   void initState() {
     super.initState();
+    _effectiveVideoUrls = List<String>.from(widget.item.videoUrls);
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
     );
+
+    _checkAndFetchMissingVideos();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final urls = widget.item.origUrls;
@@ -47,6 +55,61 @@ class _DetailImageItemState extends State<DetailImageItem>
         _resolveImageSize(i, urls[i]);
       }
     });
+  }
+
+  /// [JA] 既存Gistで video_urls が欠落している複数動画ポストに対し、Syndication API から欠落動画を補完取得
+  /// [EN] Fallback to Syndication API to fetch missing video URLs for posts with multiple videos
+  Future<void> _checkAndFetchMissingVideos() async {
+    final hasMultipleVideoThumbs = widget.item.mediaUrls
+            .where((u) => u.contains('video_thumb'))
+            .length >
+        1;
+    if (_effectiveVideoUrls.length < 2 &&
+        hasMultipleVideoThumbs &&
+        widget.item.id.isNotEmpty) {
+      try {
+        final uri = Uri.parse(
+            'https://cdn.syndication.twimg.com/tweet-result?id=${widget.item.id}&token=anon');
+        final resp = await http.get(uri);
+        if (resp.statusCode == 200) {
+          final data = json.decode(resp.body);
+          final mediaDetails = (data['mediaDetails'] as List?) ?? [];
+          final List<String> fetchedUrls = [];
+          for (final md in mediaDetails) {
+            if (md is Map && md['type'] == 'video') {
+              final variants = (md['video_info']?['variants'] as List?) ?? [];
+              final mp4Variants = variants
+                  .where((v) =>
+                      v is Map &&
+                      (v['content_type'] == 'video/mp4' ||
+                          v['type'] == 'video/mp4'))
+                  .toList();
+              if (mp4Variants.isNotEmpty) {
+                mp4Variants.sort((a, b) {
+                  final bitA = (a['bitrate'] as num?)?.toInt() ?? 0;
+                  final bitB = (b['bitrate'] as num?)?.toInt() ?? 0;
+                  return bitB.compareTo(bitA);
+                });
+                final url = mp4Variants.first['url']?.toString() ??
+                    mp4Variants.first['src']?.toString();
+                if (url != null &&
+                    url.isNotEmpty &&
+                    !fetchedUrls.contains(url)) {
+                  fetchedUrls.add(url);
+                }
+              }
+            }
+          }
+          if (fetchedUrls.length > _effectiveVideoUrls.length && mounted) {
+            setState(() {
+              _effectiveVideoUrls = fetchedUrls;
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('Failed to fallback fetch missing videos: $e');
+      }
+    }
   }
 
   @override
@@ -91,8 +154,10 @@ class _DetailImageItemState extends State<DetailImageItem>
 
   @override
   Widget build(BuildContext context) {
-    final List<String> imageUrls = widget.item.origUrls;
-    final List<String> videoUrls = widget.item.videoUrls;
+    final List<String> videoUrls = _effectiveVideoUrls;
+    final List<String> imageUrls = videoUrls.isNotEmpty
+        ? widget.item.pureImageUrls
+        : widget.item.origUrls;
 
     // 動画が含まれる場合（複数動画・または静止画と動画の混在投稿）
     if (videoUrls.isNotEmpty) {
@@ -109,7 +174,12 @@ class _DetailImageItemState extends State<DetailImageItem>
                 child: VideoPlayerItem(
                   key: ValueKey('${widget.item.id}_video_$vi'),
                   videoUrl: videoUrls[vi],
-                  thumbnailUrl: widget.item.thumbnailUrl,
+                  thumbnailUrl: vi < widget.item.mediaUrls.length
+                      ? widget.item.mediaUrls[vi]
+                      : widget.item.thumbnailUrl,
+                  autoPlay: vi == 0,
+                  isFirst: vi == 0,
+                  muteNotifier: vi == 0 ? widget.muteNotifier : null,
                 ),
               ),
             // 静止画が含まれている場合、静止画も縦並びで表示（混在メディア対応）

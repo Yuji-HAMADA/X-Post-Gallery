@@ -325,5 +325,134 @@ void main() {
       expect(find.textContaining('複数動画投稿テキスト'), findsOneWidget);
       expect(find.byType(VideoPlayerItem), findsNWidgets(2));
     });
+
+    testWidgets('単一動画投稿で mediaUrls にサムネイルが含まれていても静止画として重複表示されない', (tester) async {
+      final singleVideoItem = TweetItem(
+        id: 'single_vid',
+        fullText: '単一動画テキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: ['https://pbs.twimg.com/amplify_video_thumb/123/img/thumb.jpg'],
+        videoUrls: ['https://video.twimg.com/123.mp4'],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DetailPage(
+            items: [singleVideoItem],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('単一動画テキスト'), findsOneWidget);
+      // 動画プレイヤーが1つ表示されること
+      expect(find.byType(VideoPlayerItem), findsOneWidget);
+      // pureImageUrls は空になるため、静止画としての Image は表示されない（サムネイル重複排除）
+      expect(singleVideoItem.pureImageUrls, isEmpty);
+      // VideoPlayerItem 内のサムネイル以外に独立した静止画 Image がないことを確認
+      final videoPlayerFinder = find.byType(VideoPlayerItem);
+      final allImages = tester.widgetList<Image>(find.byType(Image));
+      for (final img in allImages) {
+        expect(
+          find.ancestor(of: find.byWidget(img), matching: videoPlayerFinder),
+          findsOneWidget,
+        );
+      }
+    });
+
+    testWidgets('複数動画投稿で mediaUrls に各動画サムネイルが含まれていても各動画プレイヤーが表示され静止画重複しない', (tester) async {
+      final multiVideoThumbItem = TweetItem(
+        id: 'multi_vid_thumbs',
+        fullText: '複数動画サムネイルテキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: [
+          'https://pbs.twimg.com/amplify_video_thumb/111/img/thumb1.jpg',
+          'https://pbs.twimg.com/amplify_video_thumb/222/img/thumb2.jpg',
+        ],
+        videoUrls: [
+          'https://video.twimg.com/vid1.mp4',
+          'https://video.twimg.com/vid2.mp4',
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DetailPage(
+            items: [multiVideoThumbItem],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('複数動画サムネイルテキスト'), findsOneWidget);
+      final videoPlayers = tester.widgetList<VideoPlayerItem>(find.byType(VideoPlayerItem)).toList();
+      expect(videoPlayers.length, 2);
+      expect(videoPlayers[0].videoUrl, 'https://video.twimg.com/vid1.mp4');
+      expect(videoPlayers[0].autoPlay, isTrue);
+      expect(videoPlayers[0].thumbnailUrl, 'https://pbs.twimg.com/amplify_video_thumb/111/img/thumb1.jpg');
+      expect(videoPlayers[1].videoUrl, 'https://video.twimg.com/vid2.mp4');
+      expect(videoPlayers[1].autoPlay, isFalse);
+      expect(videoPlayers[1].thumbnailUrl, 'https://pbs.twimg.com/amplify_video_thumb/222/img/thumb2.jpg');
+      expect(multiVideoThumbItem.pureImageUrls, isEmpty);
+    });
+
+    testWidgets('動画を含む投稿では横方向レイアウト切り替えボタンが表示されず、AppBarにMUTEボタンが表示される', (tester) async {
+      final videoItem = TweetItem(
+        id: 'video_post',
+        fullText: '動画ポストテキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: ['https://pbs.twimg.com/amplify_video_thumb/123/img/thumb.jpg'],
+        videoUrls: ['https://video.twimg.com/vid.mp4'],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DetailPage(
+            items: [videoItem],
+            initialIndex: 0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 横方向切り替えボタンが表示されないこと
+      expect(find.byIcon(Icons.view_carousel_outlined), findsNothing);
+
+      // AppBar の actions に MUTE ボタンが表示され、初期状態は volume_off であること
+      final muteButton = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.volume_off),
+      );
+      expect(muteButton, findsOneWidget);
+
+      // MUTEボタンをタップすると消音解除（volume_up）に切り替わること
+      await tester.tap(muteButton);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byIcon(Icons.volume_up),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('混在投稿では写真のみが静止画として残り動画サムネイルは除外される', (tester) async {
+      final mixedWithThumbItem = TweetItem(
+        id: 'mixed_with_thumb',
+        fullText: '混在サムネイル投稿テキスト',
+        createdAt: '2025-01-01',
+        mediaUrls: [
+          'https://pbs.twimg.com/media/photo1.jpg',
+          'https://pbs.twimg.com/amplify_video_thumb/333/img/thumb.jpg',
+        ],
+        videoUrls: ['https://video.twimg.com/vid.mp4'],
+      );
+
+      expect(mixedWithThumbItem.pureImageUrls.length, 1);
+      expect(mixedWithThumbItem.pureImageUrls.first, contains('photo1.jpg'));
+    });
   });
 }

@@ -211,16 +211,11 @@ def run_extraction(args, skip_ids_file):
         print(f"❌ Extraction script failed with exit code {res.returncode}")
         sys.exit(res.returncode)
 
-def parse_tweets_js():
-    if not os.path.exists(TWEETS_JS):
-        return []
-    with open(TWEETS_JS, 'r', encoding='utf-8') as f:
-        content = f.read()
-    json_str = re.sub(r'^window\.YTD\.tweets\.part0\s*=\s*', '', content)
-    raw_tweets = json.loads(json_str)
+def convert_raw_tweets_to_gist_format(raw_tweets):
+    """アーカイブ形式 (tweets.js) の raw_tweets リストを Gist 保存用フォーマットに変換する"""
     converted = []
     for item in raw_tweets:
-        tweet = item.get('tweet', {})
+        tweet = item.get('tweet', item)
         media_list = (
             tweet.get('extended_entities', {}).get('media', [])
             or tweet.get('entities', {}).get('media', [])
@@ -231,17 +226,19 @@ def parse_tweets_js():
         if not media_urls:
             continue
         post_url = ''
-        video_url = None
+        video_urls = []
         for m in media_list:
             eu = m.get('expanded_url', '')
             if '/status/' in eu and not post_url:
                 post_url = re.sub(r'/(photo|video)/\d+$', '', eu)
-            if m.get('type') == 'video' and not video_url:
+            if m.get('type') == 'video':
                 variants = m.get('video_info', {}).get('variants', [])
                 mp4_variants = [v for v in variants if v.get('content_type') == 'video/mp4' or v.get('type') == 'video/mp4']
                 if mp4_variants:
                     best = max(mp4_variants, key=lambda x: int(x.get('bitrate', 0) if x.get('bitrate') is not None else 0))
-                    video_url = best.get('url') or best.get('src')
+                    v_url = best.get('url') or best.get('src')
+                    if v_url and v_url not in video_urls:
+                        video_urls.append(v_url)
         tweet_obj = {
             'full_text': tweet.get('full_text', ''),
             'created_at': tweet.get('created_at', ''),
@@ -249,10 +246,20 @@ def parse_tweets_js():
             'id_str': tweet.get('id_str', ''),
             'post_url': post_url,
         }
-        if video_url:
-            tweet_obj['video_url'] = video_url
+        if video_urls:
+            tweet_obj['video_url'] = video_urls[0]
+            tweet_obj['video_urls'] = video_urls
         converted.append(tweet_obj)
     return converted
+
+def parse_tweets_js():
+    if not os.path.exists(TWEETS_JS):
+        return []
+    with open(TWEETS_JS, 'r', encoding='utf-8') as f:
+        content = f.read()
+    json_str = re.sub(r'^window\.YTD\.tweets\.part0\s*=\s*', '', content)
+    raw_tweets = json.loads(json_str)
+    return convert_raw_tweets_to_gist_format(raw_tweets)
 
 def append_tweets(existing_tweets, new_tweets):
     if not new_tweets:
@@ -400,6 +407,8 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
         }
         if latest.get("video_url"):
             master_entry["video_url"] = latest["video_url"]
+        if latest.get("video_urls"):
+            master_entry["video_urls"] = latest["video_urls"]
         master_tweets.insert(0, master_entry)
 
     print(f"📊 Total migrated to user Gists: {migrated_count} tweets")
