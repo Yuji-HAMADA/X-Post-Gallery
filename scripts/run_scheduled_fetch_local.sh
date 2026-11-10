@@ -168,7 +168,7 @@ process_slot() {
     total_users=$(echo "$slot_json" | jq -r '(.users | length) // 0')
     if [ "$total_users" -gt 0 ]; then
       echo "🔄 [Adaptive Skip] All $total_users entries done in slot $slot_num. Resetting cycle (done=false) while keeping skip counters..."
-      slot_json=$(echo "$slot_json" | jq '.users = [.users[] | .done = false]')
+      slot_json=$(echo "$slot_json" | jq '.users = [.users[] | .done = false | .from_scratch = false]')
       local tmp_cycle
       tmp_cycle=$(mktemp /tmp/fq_cycle_reset_XXXXXX.json)
       printf '%s' "$slot_json" > "$tmp_cycle"
@@ -222,6 +222,7 @@ process_slot() {
   for i in "${!ENTRIES[@]}"; do
     local entry="${ENTRIES[$i]}"
     local USER COUNT STOP FROM_SCRATCH EXIT_CODE=0
+    local SKIP_COUNT="" SKIP_REMAINING=""
 
     USER=$(echo "$entry" | jq -r '.user // empty')
     COUNT=$(echo "$entry" | jq -r --arg def "$DEFAULT_COUNT" '(.count // ($def | tonumber) | tostring)')
@@ -230,6 +231,8 @@ process_slot() {
     fi
     STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
     FROM_SCRATCH=$(echo "$entry" | jq -r '(if .from_scratch == null then false else .from_scratch end | tostring)')
+    SKIP_COUNT=$(echo "$entry" | jq -r '.skip_count // empty')
+    SKIP_REMAINING=$(echo "$entry" | jq -r '.skip_remaining // empty')
 
     if [ -z "$USER" ]; then
       echo "⚠️ Warning: Entry has no user, skipping: $entry"
@@ -239,10 +242,6 @@ process_slot() {
     # --- アダプティブ・スキップ（バックオフ）判定 ---
     # ※ from_scratch の場合は初めから再取得する指示のためスキップせず実行
     if [ "$FROM_SCRATCH" != "true" ]; then
-      local SKIP_COUNT SKIP_REMAINING
-      SKIP_COUNT=$(echo "$entry" | jq -r '.skip_count // empty')
-      SKIP_REMAINING=$(echo "$entry" | jq -r '.skip_remaining // empty')
-
       local SHOULD_SKIP_ARGS=(should-skip -u "$USER")
       [ -n "$SKIP_COUNT" ] && SHOULD_SKIP_ARGS+=(--queue-count "$SKIP_COUNT")
       [ -n "$SKIP_REMAINING" ] && SHOULD_SKIP_ARGS+=(--queue-remaining "$SKIP_REMAINING")
@@ -402,12 +401,12 @@ process_slot() {
       echo "✨ [Adaptive Skip] $SAVED_COUNT new tweets saved for @$USER! Backoff reset to 0."
     fi
 
-    # done: true と skip_count, skip_remaining を Gist に反映
+    # done: true と skip_count, skip_remaining を Gist に反映（from_scratch は完了したため false にリセット）
     local latest_json
     latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
     if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
       latest_json=$(echo "$latest_json" | jq --arg user "$USER" --argjson sc "$NEW_SKIP_COUNT" --argjson sr "$NEW_SKIP_REMAINING" --argjson scnt "$SAVED_COUNT" \
-        '.users = [.users[] | if .user == $user then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr, "last_saved_count": $scnt} else . end]')
+        '.users = [.users[] | if .user == $user then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr, "last_saved_count": $scnt, "from_scratch": false} else . end]')
       local tmp_done
       tmp_done=$(mktemp /tmp/fq_done_XXXXXX.json)
       printf '%s' "$latest_json" > "$tmp_done"
