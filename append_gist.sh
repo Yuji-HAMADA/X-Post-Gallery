@@ -11,23 +11,40 @@ PROMOTE_GIST_ID=""
 FROM_SCRATCH=""
 
 # --- 引数の解析 ---
-for arg in "$@"; do
-  if [ "$arg" = "--from-scratch" ]; then
-    FROM_SCRATCH="--from-scratch"
-  fi
-done
-
-while getopts g:u:n:sfpr: OPT; do
-  case $OPT in
-    g) GIST_ID=$OPTARG ;;
-    u) USER=$OPTARG ;;
-    n) NUM=$OPTARG ;;
-    s) STOP_ON_EXISTING="-s" ;;
-    f) FORCE_EMPTY="--force-empty" ;;
-    p) PROMOTE_GIST_ID=$OPTARG ;;
-    r) FROM_SCRATCH="--from-scratch" ;;
-    *) echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch]"
-       exit 1 ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -g|--gist-id)
+      GIST_ID="$2"
+      shift 2
+      ;;
+    -u|--user)
+      USER="$2"
+      shift 2
+      ;;
+    -n|--num)
+      NUM="$2"
+      shift 2
+      ;;
+    -s|--stop-on-existing)
+      STOP_ON_EXISTING="-s"
+      shift
+      ;;
+    -f|--force-empty)
+      FORCE_EMPTY="--force-empty"
+      shift
+      ;;
+    -p|--promote-gist-id)
+      PROMOTE_GIST_ID="$2"
+      shift 2
+      ;;
+    -r|--from-scratch)
+      FROM_SCRATCH="--from-scratch"
+      shift
+      ;;
+    *)
+      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch]"
+      exit 1
+      ;;
   esac
 done
 
