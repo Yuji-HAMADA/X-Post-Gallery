@@ -209,6 +209,7 @@ class GitHubService {
     String username, {
     int? count,
     bool stopOnExisting = true,
+    bool fromScratch = false,
   }) async {
     debugPrint('GitHubService: addUserToFetchQueue username=$username');
     final slots = await _loadQueueSlots();
@@ -225,7 +226,8 @@ class GitHubService {
     final target = slots.writeTarget(fetchQueueGistId);
     final newEntry = <String, dynamic>{
       'user': username,
-      'stop_on_existing': stopOnExisting,
+      'stop_on_existing': fromScratch ? false : stopOnExisting,
+      'from_scratch': fromScratch,
     };
     if (count != null) newEntry['count'] = count;
     target.users.add(newEntry);

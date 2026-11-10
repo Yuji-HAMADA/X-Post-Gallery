@@ -8,9 +8,16 @@ NUM=500
 STOP_ON_EXISTING=""
 FORCE_EMPTY=""
 PROMOTE_GIST_ID=""
+FROM_SCRATCH=""
 
 # --- 引数の解析 ---
-while getopts g:u:n:sfp: OPT; do
+for arg in "$@"; do
+  if [ "$arg" = "--from-scratch" ]; then
+    FROM_SCRATCH="--from-scratch"
+  fi
+done
+
+while getopts g:u:n:sfpr: OPT; do
   case $OPT in
     g) GIST_ID=$OPTARG ;;
     u) USER=$OPTARG ;;
@@ -18,7 +25,8 @@ while getopts g:u:n:sfp: OPT; do
     s) STOP_ON_EXISTING="-s" ;;
     f) FORCE_EMPTY="--force-empty" ;;
     p) PROMOTE_GIST_ID=$OPTARG ;;
-    *) echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id]"
+    r) FROM_SCRATCH="--from-scratch" ;;
+    *) echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch]"
        exit 1 ;;
   esac
 done
@@ -41,6 +49,7 @@ echo "  Mode             : $MODE (fixed)"
 echo "  Num              : $NUM"
 echo "  Stop on existing : ${STOP_ON_EXISTING:-(skip mode)}"
 echo "  Force empty      : ${FORCE_EMPTY:-(no)}"
+echo "  From scratch     : ${FROM_SCRATCH:-(no)}"
 echo "  Promote Gist     : ${PROMOTE_GIST_ID:-(none)}"
 echo "=========================================="
 
@@ -61,4 +70,5 @@ python3 scripts/append_to_gist.py \
   -n "$NUM" \
   $STOP_ON_EXISTING \
   $FORCE_EMPTY \
+  $FROM_SCRATCH \
   $PROMOTE_FLAG

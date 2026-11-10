@@ -111,6 +111,8 @@ class AppLocalizations {
       isJapanese ? 'ストップオン' : 'Stop on Existing';
   String get skipExistingLabel =>
       isJapanese ? 'スキップ' : 'Skip Existing';
+  String get fromScratchLabel =>
+      isJapanese ? '初めから' : 'From Scratch';
 
   // --- Gist & Auth [JA: Gist・認証関連 / EN: Gist & Authentication] ---
 

@@ -101,6 +101,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
       username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
+      fromScratch: result.fromScratch,
     );
     if (mounted) {
       if (success) {

@@ -1,5 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../l10n/app_localizations.dart';
+
+/// 取得モード定義
+enum AppendFetchMode {
+  stopOnExisting,
+  skip,
+  fromScratch;
+
+  bool get isStopOnExisting => this == AppendFetchMode.stopOnExisting;
+  bool get isFromScratch => this == AppendFetchMode.fromScratch;
+}
 
 /// 追加設定ダイアログ（件数 + モード選択）
 /// gallery_page.dart / user_gallery_swipe_page.dart 共通
@@ -7,9 +18,10 @@ class AppendConfigDialog extends StatefulWidget {
   const AppendConfigDialog({super.key});
 
   /// 設定を返す（キャンセル時はnull）
-  static Future<({int count, bool stopOnExisting})?> show(
+  static Future<({int count, bool stopOnExisting, bool fromScratch})?> show(
     BuildContext context,
-  ) => showDialog(context: context, builder: (_) => const AppendConfigDialog());
+  ) =>
+      showDialog(context: context, builder: (_) => const AppendConfigDialog());
 
   @override
   State<AppendConfigDialog> createState() => _AppendConfigDialogState();
@@ -17,7 +29,7 @@ class AppendConfigDialog extends StatefulWidget {
 
 class _AppendConfigDialogState extends State<AppendConfigDialog> {
   final _countController = TextEditingController(text: '100');
-  bool _stopOnExisting = true;
+  AppendFetchMode _mode = AppendFetchMode.stopOnExisting;
 
   @override
   void dispose() {
@@ -27,8 +39,10 @@ class _AppendConfigDialogState extends State<AppendConfigDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+
     return AlertDialog(
-      title: const Text('追加設定'),
+      title: Text(l10n.appendConfigTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -37,47 +51,56 @@ class _AppendConfigDialogState extends State<AppendConfigDialog> {
             controller: _countController,
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: '取得件数',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10n.fetchCountLabel,
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
-          SegmentedButton<bool>(
-            segments: const [
+          SegmentedButton<AppendFetchMode>(
+            showSelectedIcon: false,
+            segments: [
               ButtonSegment(
-                value: true,
-                label: Text('ストップオン'),
-                icon: Icon(Icons.stop_circle_outlined),
+                value: AppendFetchMode.stopOnExisting,
+                icon: const Icon(Icons.stop_circle_outlined),
+                tooltip: l10n.stopOnExistingLabel,
               ),
               ButtonSegment(
-                value: false,
-                label: Text('スキップ'),
-                icon: Icon(Icons.skip_next),
+                value: AppendFetchMode.skip,
+                icon: const Icon(Icons.skip_next),
+                tooltip: l10n.skipExistingLabel,
+              ),
+              ButtonSegment(
+                value: AppendFetchMode.fromScratch,
+                icon: const Icon(Icons.restart_alt),
+                tooltip: l10n.fromScratchLabel,
               ),
             ],
-            selected: {_stopOnExisting},
-            onSelectionChanged: (s) =>
-                setState(() => _stopOnExisting = s.first),
+            selected: {_mode},
+            onSelectionChanged: (s) => setState(() => _mode = s.first),
           ),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル'),
+          child: Text(l10n.cancel),
         ),
         ElevatedButton(
           onPressed: () {
             final count = int.tryParse(_countController.text) ?? 100;
-            final stopOnExisting = _stopOnExisting;
-            debugPrint('AppendConfigDialog: Execute pressed. count=$count, stopOnExisting=$stopOnExisting');
+            final stopOnExisting = _mode.isStopOnExisting;
+            final fromScratch = _mode.isFromScratch;
+            debugPrint(
+              'AppendConfigDialog: Execute pressed. count=$count, mode=$_mode, stopOnExisting=$stopOnExisting, fromScratch=$fromScratch',
+            );
             Navigator.pop(context, (
               count: count,
               stopOnExisting: stopOnExisting,
+              fromScratch: fromScratch,
             ));
           },
-          child: const Text('実行'),
+          child: Text(l10n.execute),
         ),
       ],
     );

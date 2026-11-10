@@ -284,6 +284,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final username = user ?? '';
     if (username.isEmpty) return;
 
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final result = await AppendConfigDialog.show(context);
     debugPrint('_handleAppend: AppendConfigDialog result=$result');
@@ -291,21 +292,26 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (!await vm.isAdminAuthenticated()) {
       debugPrint('_handleAppend: Admin NOT authenticated');
-      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      if (mounted) _showErrorSnackBar(l10n.pleaseLoginWithMasterGist);
       return;
     }
 
-    debugPrint('_handleAppend: Queueing user @$username with count=${result.count}, stopOnExisting=${result.stopOnExisting}');
+    debugPrint(
+      '_handleAppend: Queueing user @$username with count=${result.count}, stopOnExisting=${result.stopOnExisting}, fromScratch=${result.fromScratch}',
+    );
     final success = await vm.queueUserForFetch(
       username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
+      fromScratch: result.fromScratch,
     );
     debugPrint('_handleAppend: queueUserForFetch success=$success');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? 'キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          content: Text(
+            success ? l10n.addedToQueue(username) : l10n.failedToAddToQueue,
+          ),
           backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
       );
@@ -531,12 +537,13 @@ class _GalleryPageState extends State<GalleryPage> {
 
   /// マスターGistに存在しない新規ユーザーを追加する
   Future<void> _handleAddNewUser(String username) async {
+    final l10n = AppLocalizations.of(context);
     final result = await AppendConfigDialog.show(context);
     if (result == null || !mounted) return;
 
     final vm = context.read<GalleryViewModel>();
     if (!await vm.isAdminAuthenticated()) {
-      if (mounted) _showErrorSnackBar('マスターGist IDでログインしてください');
+      if (mounted) _showErrorSnackBar(l10n.pleaseLoginWithMasterGist);
       return;
     }
 
@@ -544,6 +551,7 @@ class _GalleryPageState extends State<GalleryPage> {
       username,
       count: result.count,
       stopOnExisting: result.stopOnExisting,
+      fromScratch: result.fromScratch,
     );
     if (success) {
       await vm.registerUser(username);
@@ -551,7 +559,9 @@ class _GalleryPageState extends State<GalleryPage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? 'キューに追加しました: @$username' : 'キューへの追加に失敗しました'),
+          content: Text(
+            success ? l10n.addedToQueue(username) : l10n.failedToAddToQueue,
+          ),
           backgroundColor: success ? Colors.green : Colors.redAccent,
         ),
       );

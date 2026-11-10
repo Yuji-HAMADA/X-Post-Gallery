@@ -162,11 +162,13 @@ class GalleryViewModel extends ChangeNotifier {
     String username, {
     required int count,
     required bool stopOnExisting,
+    bool fromScratch = false,
   }) async {
     return _githubService.addUserToFetchQueue(
       username,
       count: count,
       stopOnExisting: stopOnExisting,
+      fromScratch: fromScratch,
     );
   }
 

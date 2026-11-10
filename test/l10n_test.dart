@@ -18,6 +18,11 @@ void main() {
       expect(l10n.selectedCount(3), '3 件選択中');
       expect(l10n.pinnedToTop('user1'), '@user1 を一番上に移動しました');
       expect(l10n.unpinnedFromTop('user1'), '@user1 のピン留めを解除しました');
+      expect(l10n.appendConfigTitle, '追加設定');
+      expect(l10n.fetchCountLabel, '取得件数');
+      expect(l10n.stopOnExistingLabel, 'ストップオン');
+      expect(l10n.skipExistingLabel, 'スキップ');
+      expect(l10n.fromScratchLabel, '初めから');
     });
 
     test('English locale returns accurate English strings', () {
@@ -33,6 +38,11 @@ void main() {
       expect(l10n.selectedCount(3), '3 selected');
       expect(l10n.pinnedToTop('user1'), 'Pinned @user1 to top');
       expect(l10n.unpinnedFromTop('user1'), 'Unpinned @user1');
+      expect(l10n.appendConfigTitle, 'Fetch Settings');
+      expect(l10n.fetchCountLabel, 'Fetch Count');
+      expect(l10n.stopOnExistingLabel, 'Stop on Existing');
+      expect(l10n.skipExistingLabel, 'Skip Existing');
+      expect(l10n.fromScratchLabel, 'From Scratch');
     });
 
     testWidgets('AppLocalizations.delegate automatically resolves system language', (tester) async {

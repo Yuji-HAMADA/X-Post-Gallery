@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument("-m", "--mode", default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("-n", "--num", type=int, default=500, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止")
+    parser.add_argument("--from-scratch", action="store_true", help="既存データを削除して最初から取得し直す")
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
                         help="移動先Gist IDを手動指定")
@@ -332,7 +333,7 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
 # メイン
 # ---------------------------------------------------------------------------
 
-def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None):
+def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False):
     user_groups = group_tweets_by_user(new_tweets)
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
@@ -344,7 +345,11 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
 
     for user, tweets in user_groups.items():
         if user == "Unknown":
-            master_tweets = append_tweets(master_tweets, tweets)
+            if from_scratch:
+                master_tweets = [t for t in master_tweets if extract_username(t) != "Unknown"]
+                master_tweets = tweets + master_tweets
+            else:
+                master_tweets = append_tweets(master_tweets, tweets)
             continue
 
         print(f"--- @{user} ---")
@@ -364,13 +369,18 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             p_filename, p_data = fetch_gist_data(promote_gist_id)
             gist_cache[promote_gist_id] = {"filename": p_filename, "data": p_data, "is_modified": False}
 
-        existing = get_user_tweets(p_data, user)
-        merged = append_tweets(existing, tweets)
-
-        if len(merged) == len(existing):
-            continue
-
-        migrated_count += len(merged) - len(existing)
+        if from_scratch:
+            # 既存データを削除して取得データで丸ごと置き換え
+            merged = tweets
+            migrated_count += len(merged)
+            # マスターGistのツイート一覧からも当該ユーザーの過去ツイートを除外
+            master_tweets = [t for t in master_tweets if extract_username(t).lower() != user.lower()]
+        else:
+            existing = get_user_tweets(p_data, user)
+            merged = append_tweets(existing, tweets)
+            if len(merged) == len(existing):
+                continue
+            migrated_count += len(merged) - len(existing)
 
         # メモリ上でデータを更新
         final_id, updated_data = update_or_migrate_user_gist_in_memory(
@@ -453,7 +463,10 @@ def main():
         sys.exit(1)
 
     # skip_ids 作成
-    if args.user:
+    if args.from_scratch:
+        args.stop_on_existing = False
+        skip_ids_file = write_skip_ids_file([])
+    elif args.user:
         ug_id = get_gist_id_from_entry(full_data.get("user_gists", {}).get(args.user))
         if ug_id:
             _, p_data = fetch_gist_data(ug_id)
@@ -503,7 +516,9 @@ def main():
                 write_fetch_result(args.user, 0, status="cancelled_user_deleted")
                 sys.exit(0)
 
-    final_output = process_multi_user_append(fresh_master_data, new_tweets, args.promote_gist_id)
+    final_output = process_multi_user_append(
+        fresh_master_data, new_tweets, args.promote_gist_id, from_scratch=args.from_scratch,
+    )
     output_file = "assets/data/data.json"
     os.makedirs("assets/data", exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:

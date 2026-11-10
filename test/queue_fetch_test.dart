@@ -8,16 +8,19 @@ class MockGitHubService extends GitHubService {
   String? lastQueuedUser;
   int? lastCount;
   bool? lastStopOnExisting;
+  bool? lastFromScratch;
 
   @override
   Future<bool> addUserToFetchQueue(
     String username, {
     int? count,
     bool stopOnExisting = true,
+    bool fromScratch = false,
   }) async {
     lastQueuedUser = username;
     lastCount = count;
     lastStopOnExisting = stopOnExisting;
+    lastFromScratch = fromScratch;
     return addUserToFetchQueueResult;
   }
 }
@@ -38,6 +41,24 @@ void main() {
       expect(mockGithub.lastQueuedUser, 'test_user');
       expect(mockGithub.lastCount, 100);
       expect(mockGithub.lastStopOnExisting, isTrue);
+    });
+
+    test('passes fromScratch flag correctly when queueing user', () async {
+      final mockGithub = MockGitHubService()..addUserToFetchQueueResult = true;
+      final vm = GalleryViewModel(githubService: mockGithub);
+
+      final result = await vm.queueUserForFetch(
+        'scratch_user',
+        count: 200,
+        stopOnExisting: false,
+        fromScratch: true,
+      );
+
+      expect(result, isTrue);
+      expect(mockGithub.lastQueuedUser, 'scratch_user');
+      expect(mockGithub.lastCount, 200);
+      expect(mockGithub.lastStopOnExisting, isFalse);
+      expect(mockGithub.lastFromScratch, isTrue);
     });
 
     test('returns false when addUserToFetchQueue fails', () async {

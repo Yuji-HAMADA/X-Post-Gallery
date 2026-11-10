@@ -221,7 +221,7 @@ process_slot() {
 
   for i in "${!ENTRIES[@]}"; do
     local entry="${ENTRIES[$i]}"
-    local USER COUNT STOP EXIT_CODE=0
+    local USER COUNT STOP FROM_SCRATCH EXIT_CODE=0
 
     USER=$(echo "$entry" | jq -r '.user // empty')
     COUNT=$(echo "$entry" | jq -r --arg def "$DEFAULT_COUNT" '(.count // ($def | tonumber) | tostring)')
@@ -229,6 +229,7 @@ process_slot() {
       COUNT="$DEFAULT_COUNT"
     fi
     STOP=$(echo "$entry" | jq -r '(if .stop_on_existing == null then true else .stop_on_existing end | tostring)')
+    FROM_SCRATCH=$(echo "$entry" | jq -r '(if .from_scratch == null then false else .from_scratch end | tostring)')
 
     if [ -z "$USER" ]; then
       echo "⚠️ Warning: Entry has no user, skipping: $entry"
@@ -236,32 +237,35 @@ process_slot() {
     fi
 
     # --- アダプティブ・スキップ（バックオフ）判定 ---
-    local SKIP_COUNT SKIP_REMAINING
-    SKIP_COUNT=$(echo "$entry" | jq -r '.skip_count // empty')
-    SKIP_REMAINING=$(echo "$entry" | jq -r '.skip_remaining // empty')
+    # ※ from_scratch の場合は初めから再取得する指示のためスキップせず実行
+    if [ "$FROM_SCRATCH" != "true" ]; then
+      local SKIP_COUNT SKIP_REMAINING
+      SKIP_COUNT=$(echo "$entry" | jq -r '.skip_count // empty')
+      SKIP_REMAINING=$(echo "$entry" | jq -r '.skip_remaining // empty')
 
-    local SHOULD_SKIP_ARGS=(should-skip -u "$USER")
-    [ -n "$SKIP_COUNT" ] && SHOULD_SKIP_ARGS+=(--queue-count "$SKIP_COUNT")
-    [ -n "$SKIP_REMAINING" ] && SHOULD_SKIP_ARGS+=(--queue-remaining "$SKIP_REMAINING")
+      local SHOULD_SKIP_ARGS=(should-skip -u "$USER")
+      [ -n "$SKIP_COUNT" ] && SHOULD_SKIP_ARGS+=(--queue-count "$SKIP_COUNT")
+      [ -n "$SKIP_REMAINING" ] && SHOULD_SKIP_ARGS+=(--queue-remaining "$SKIP_REMAINING")
 
-    local SKIP_CHECK_OUTPUT
-    if SKIP_CHECK_OUTPUT=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" "${SHOULD_SKIP_ARGS[@]}" 2>/dev/null); then
-      # exit code 0: スキップ対象（スキップ残り回数を1消費）
-      local rem cnt
-      rem=$(echo "$SKIP_CHECK_OUTPUT" | jq -r '.skip_remaining // 0')
-      cnt=$(echo "$SKIP_CHECK_OUTPUT" | jq -r '.skip_count // 0')
-      echo ""
-      echo "⏩ [Adaptive Skip] Slot $slot_num [$((i+1))/$entry_count]: Skipping @$USER ($rem cycles remaining, backoff level $cnt)"
+      local SKIP_CHECK_OUTPUT
+      if SKIP_CHECK_OUTPUT=$(python3 "$PROJECT_DIR/scripts/adaptive_skip.py" "${SHOULD_SKIP_ARGS[@]}" 2>/dev/null); then
+        # exit code 0: スキップ対象（スキップ残り回数を1消費）
+        local rem cnt
+        rem=$(echo "$SKIP_CHECK_OUTPUT" | jq -r '.skip_remaining // 0')
+        cnt=$(echo "$SKIP_CHECK_OUTPUT" | jq -r '.skip_count // 0')
+        echo ""
+        echo "⏩ [Adaptive Skip] Slot $slot_num [$((i+1))/$entry_count]: Skipping @$USER ($rem cycles remaining, backoff level $cnt)"
 
-      # バッチ更新用に一時ファイルへ蓄積（Gist通信をスキップして高速化）
-      printf '{"user":"%s","skip_count":%s,"skip_remaining":%s}\n' "$USER" "$cnt" "$rem" >> "$BATCH_SKIPS_FILE"
+        # バッチ更新用に一時ファイルへ蓄積（Gist通信をスキップして高速化）
+        printf '{"user":"%s","skip_count":%s,"skip_remaining":%s}\n' "$USER" "$cnt" "$rem" >> "$BATCH_SKIPS_FILE"
 
-      # 25件蓄積されたら定期フラッシュ
-      if [ "$(wc -l < "$BATCH_SKIPS_FILE")" -ge 25 ]; then
-        flush_pending_skips
+        # 25件蓄積されたら定期フラッシュ
+        if [ "$(wc -l < "$BATCH_SKIPS_FILE")" -ge 25 ]; then
+          flush_pending_skips
+        fi
+
+        continue
       fi
-
-      continue
     fi
 
     # クロール対象の場合、保留中のスキップがあればフラッシュ
@@ -283,10 +287,12 @@ process_slot() {
 
     # --- クロール実行 ---
     echo ""
-    echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP)"
+    echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP, from_scratch=$FROM_SCRATCH)"
     rm -f "$PROJECT_DIR/data/.last_fetch_result.json"
 
-    if [ "$STOP" = "true" ]; then
+    if [ "$FROM_SCRATCH" = "true" ]; then
+      ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" --from-scratch || EXIT_CODE=$?
+    elif [ "$STOP" = "true" ]; then
       ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
     else
       ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
