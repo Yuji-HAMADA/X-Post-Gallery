@@ -162,19 +162,49 @@ def fetch_gist_data(gist_id):
     print("❌ No valid data found in Gist.")
     sys.exit(1)
 
-def fetch_queue_users(queue_gist_id):
-    """fetch_queue.json から登録ユーザー名リスト（小文字）を安全に取得する"""
+def fetch_queue_data(queue_gist_id):
+    """fetch_queue.json を安全に取得してパースした dict を返す"""
     try:
         res = subprocess.run(
             ["gh", "gist", "view", queue_gist_id, "-f", "fetch_queue.json"],
             capture_output=True, text=True,
         )
         if res.returncode == 0 and res.stdout.strip():
-            q_data = json.loads(res.stdout)
-            return [u.get("user", "").lower() for u in q_data.get("users", []) if u.get("user")]
+            return json.loads(res.stdout)
     except Exception as e:
-        print(f"⚠️ Warning: Could not verify queue gist: {e}", file=sys.stderr)
+        print(f"⚠️ Warning: Could not verify queue gist {queue_gist_id}: {e}", file=sys.stderr)
     return None
+
+def fetch_all_queue_users():
+    """Slot 0 および Slot 1 (sibling_gist_id / FETCH_QUEUE_SLOT1_GIST_ID) の全キュー登録ユーザー名（小文字 set）を取得する"""
+    slot0_id = os.environ.get("FETCH_QUEUE_GIST_ID")
+    if not slot0_id:
+        return None
+
+    slot0_data = fetch_queue_data(slot0_id)
+    if slot0_data is None:
+        return None
+
+    queue_users = {
+        u.get("user", "").lower()
+        for u in slot0_data.get("users", [])
+        if u.get("user")
+    }
+
+    slot1_id = (
+        os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID")
+        or slot0_data.get("sibling_gist_id")
+    )
+    if slot1_id and slot1_id != slot0_id:
+        slot1_data = fetch_queue_data(slot1_id)
+        if slot1_data:
+            queue_users.update(
+                u.get("user", "").lower()
+                for u in slot1_data.get("users", [])
+                if u.get("user")
+            )
+
+    return queue_users
 
 def select_promote_gist_from_master(full_data):
     """user_gists に登録されているGistのうち最後に追加されたIDを返す"""
@@ -495,6 +525,20 @@ def main():
             get_existing_ids_ordered(full_data.get("tweets", []))
         )
 
+    # クロール開始前のマスターGistおよびキューの状態を記録（クロール中の削除検知用）
+    user_lower = args.user.lower() if args.user else None
+    initial_had_master_user = (
+        any(k.lower() == user_lower for k in full_data.get("user_gists", {}).keys())
+        if user_lower
+        else False
+    )
+    initial_queue_users = fetch_all_queue_users() if user_lower else None
+    initial_had_queue_user = (
+        (user_lower in initial_queue_users)
+        if initial_queue_users is not None
+        else False
+    )
+
     try:
         run_extraction(args, skip_ids_file)
     finally:
@@ -513,21 +557,19 @@ def main():
         print(f"❌ Error: {args.gist_id} is not a Master Gist.")
         sys.exit(1)
 
-    if args.user:
-        user_lower = args.user.lower()
+    if user_lower:
         # 1. 抽出前にマスターGistにいたが、抽出完了時に削除されていたケースの検知
-        initial_had_user = any(k.lower() == user_lower for k in full_data.get("user_gists", {}).keys())
-        fresh_has_user = any(k.lower() == user_lower for k in fresh_master_data.get("user_gists", {}).keys())
-        if initial_had_user and not fresh_has_user:
+        fresh_has_master_user = any(k.lower() == user_lower for k in fresh_master_data.get("user_gists", {}).keys())
+        if initial_had_master_user and not fresh_has_master_user:
             print(f"⚠️ User @{args.user} was removed from Master Gist during crawl. Aborting append to prevent zombie resurrection.")
             write_fetch_result(args.user, 0, status="cancelled_user_deleted")
             sys.exit(0)
 
-        # 2. キューGistからの削除検知
-        queue_gist_id = os.environ.get("FETCH_QUEUE_GIST_ID")
-        if queue_gist_id:
-            q_users = fetch_queue_users(queue_gist_id)
-            if q_users is not None and user_lower not in q_users:
+        # 2. キューからの削除検知
+        # 抽出開始時にキューに存在していたが、抽出完了時に両スロットのキューから削除されていたケース
+        if initial_had_queue_user:
+            fresh_queue_users = fetch_all_queue_users()
+            if fresh_queue_users is not None and user_lower not in fresh_queue_users:
                 print(f"⚠️ User @{args.user} was removed from Fetch Queue during crawl. Aborting append to prevent zombie resurrection.")
                 write_fetch_result(args.user, 0, status="cancelled_user_deleted")
                 sys.exit(0)
