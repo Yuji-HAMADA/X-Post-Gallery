@@ -136,12 +136,26 @@ class GalleryRepository {
 
       // 1. 標準の子Gist形式 (users -> username -> tweets)
       final users = data['users'] as Map<String, dynamic>?;
-      if (users != null && users.containsKey(username)) {
-        final userData = users[username] as Map<String, dynamic>;
-        return (userData['tweets'] as List? ?? [])
-            .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
-            .where((item) => item.mediaUrls.isNotEmpty)
-            .toList();
+      if (users != null) {
+        Map<String, dynamic>? userData;
+        if (users.containsKey(username)) {
+          userData = users[username] as Map<String, dynamic>?;
+        } else {
+          final targetLower = username.toLowerCase();
+          for (final entry in users.entries) {
+            if (entry.key.toLowerCase() == targetLower) {
+              userData = entry.value as Map<String, dynamic>?;
+              break;
+            }
+          }
+        }
+
+        if (userData != null) {
+          return (userData['tweets'] as List? ?? [])
+              .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+              .where((item) => item.mediaUrls.isNotEmpty)
+              .toList();
+        }
       }
 
       // 2. フォールバック: 直下に 'tweets' がある形式
@@ -152,7 +166,7 @@ class GalleryRepository {
             .toList();
       }
 
-      debugPrint('[fetchUserGist] ERROR: User not found in Gist');
+      debugPrint('[fetchUserGist] ERROR: User $username not found in Gist ($gistId)');
       return [];
     }
 

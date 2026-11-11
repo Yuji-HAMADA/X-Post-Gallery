@@ -1145,11 +1145,12 @@ class _GalleryPageState extends State<GalleryPage> {
       (u) => u.toLowerCase() == username.toLowerCase(),
     );
     if (initialIndex < 0) {
-      sortedUsernames = List.from(sortedUsernames)..insert(0, username);
+      final canonical = vm.getCanonicalUsername(username) ?? username;
+      sortedUsernames = List.from(sortedUsernames)..insert(0, canonical);
       initialIndex = 0;
     }
 
-    final gistIds = sortedUsernames.map((u) => vm.userGists[u]).toList();
+    final gistIds = sortedUsernames.map((u) => vm.getGistIdForUser(u)).toList();
 
     if (mounted) {
       Navigator.push(

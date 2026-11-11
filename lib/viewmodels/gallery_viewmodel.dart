@@ -87,10 +87,11 @@ class GalleryViewModel extends ChangeNotifier {
     return false;
   }
 
-  /// 保存済み Gist ID でマスターギャラリーを再読み込み
+  /// 保存済み Gist ID でマスターギャラリーを再読み込み（キャッシュを強制破棄して最新取得）
   Future<void> reloadGallery() async {
     final savedId = await _repository.getSavedGistId();
     if (savedId == null || savedId.isEmpty) return;
+    await _repository.clearCache();
     await loadGallery(savedId);
   }
 
@@ -136,11 +137,42 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ユーザーの全ツイートを取得（Gist分割対応）
+  /// 大文字小文字を問わずユーザーのGist IDを取得
+  String? getGistIdForUser(String username) {
+    if (_userGists.containsKey(username)) {
+      final id = _userGists[username];
+      return (id != null && id.isNotEmpty) ? id : null;
+    }
+    final targetLower = username.toLowerCase();
+    for (final entry in _userGists.entries) {
+      if (entry.key.toLowerCase() == targetLower) {
+        final id = entry.value;
+        return (id.isNotEmpty) ? id : null;
+      }
+    }
+    return null;
+  }
+
+  /// 大文字小文字を問わず登録されている正準アカウント名を取得
+  String? getCanonicalUsername(String username) {
+    if (_userGists.containsKey(username)) {
+      return username;
+    }
+    final targetLower = username.toLowerCase();
+    for (final key in _userGists.keys) {
+      if (key.toLowerCase() == targetLower) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  /// ユーザーの全ツイートを取得（Gist分割対応、大文字小文字不問）
   Future<List<TweetItem>> fetchUserItems(String username) async {
-    final gistId = _userGists[username];
+    final gistId = getGistIdForUser(username);
+    final canonicalName = getCanonicalUsername(username) ?? username;
     if (gistId != null) {
-      return await _repository.fetchUserGist(gistId, username);
+      return await _repository.fetchUserGist(gistId, canonicalName);
     }
     // マスターデータからフィルタ（1件のみユーザー等）
     return _items.where((item) {

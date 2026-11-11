@@ -68,7 +68,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     try {
       final items = await vm.fetchUserItems(username);
       if (mounted) setState(() => _loadedItems[username] = items);
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('[UserGallerySwipePage] Error loading items for $username: $e\n$stack');
       if (mounted) setState(() => _loadedItems[username] = []);
     } finally {
       if (mounted) setState(() => _loading[username] = false);
