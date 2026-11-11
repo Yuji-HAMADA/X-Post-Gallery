@@ -31,9 +31,7 @@ class _QueueSlots {
   /// 書き込み先の Gist ID・データ・ユーザーリストを返す
   ({String gistId, Map<String, dynamic> data, List<Map<String, dynamic>> users})
   writeTarget(String primaryGistId) {
-    final slot0Status = slot0Data['status'] as String? ?? 'idle';
     final writeToSlot1 =
-        slot0Status == 'processing' &&
         siblingGistId != null &&
         siblingGistId!.isNotEmpty;
     return (

@@ -90,6 +90,22 @@ def get_gist_id_from_entry(entry):
         return entry.get("gist_id")
     return entry  # legacy string format
 
+def has_user_gists_id_changed(initial_gists_map, new_user_gists):
+    """
+    MASTER_GIST 内の user_gists の所属 Gist ID に変更があるかを判定する。
+    新規ユーザー追加または Gist ID の変更がある場合は True、変更がなければ False。
+    """
+    if len(initial_gists_map) != len(new_user_gists):
+        return True
+    for u, new_entry in new_user_gists.items():
+        if u not in initial_gists_map:
+            return True
+        old_id = initial_gists_map[u]
+        new_id = get_gist_id_from_entry(new_entry)
+        if old_id != new_id:
+            return True
+    return False
+
 def get_user_tweets(data, user):
     """データからユーザのツイートを取得"""
     if is_master_gist_format(data):
@@ -516,6 +532,12 @@ def main():
                 write_fetch_result(args.user, 0, status="cancelled_user_deleted")
                 sys.exit(0)
 
+    # 所属 Gist ID の変化を検知するため更新前のマッピングを記録
+    initial_user_gists = {
+        u: get_gist_id_from_entry(e)
+        for u, e in fresh_master_data.get("user_gists", {}).items()
+    }
+
     final_output = process_multi_user_append(
         fresh_master_data, new_tweets, args.promote_gist_id, from_scratch=args.from_scratch,
     )
@@ -523,9 +545,15 @@ def main():
     os.makedirs("assets/data", exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(final_output, f, ensure_ascii=False, indent=2)
-    subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
+
+    # 所属 Gist ID に変更がある場合（新規ユーザー・新子Gist作成等）のみ MASTER_GIST を更新
+    if has_user_gists_id_changed(initial_user_gists, final_output.get("user_gists", {})):
+        subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
+        print(f"✅ Master Gist updated!")
+    else:
+        print(f"ℹ️ User Gist ID unchanged. Skipped Master Gist update.")
+
     write_fetch_result(args.user, len(new_tweets), status="success")
-    print(f"✅ Master Gist updated!")
 
 if __name__ == "__main__":
     main()

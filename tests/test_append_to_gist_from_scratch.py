@@ -4,9 +4,44 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
 
-from append_to_gist import process_multi_user_append
+from append_to_gist import process_multi_user_append, has_user_gists_id_changed
 
 class TestAppendToGistFromScratch(unittest.TestCase):
+    def test_has_user_gists_id_changed(self):
+        initial_map = {
+            "user1": "gist_aaa",
+            "user2": "gist_bbb",
+        }
+
+        # 1. 変更なし（同一ID、dict形式）
+        no_change = {
+            "user1": {"gist_id": "gist_aaa", "priority_updated_at": 100},
+            "user2": {"gist_id": "gist_bbb", "priority_updated_at": 200},
+        }
+        self.assertFalse(has_user_gists_id_changed(initial_map, no_change))
+
+        # 2. 変更なし（同一ID、legacy string形式）
+        no_change_legacy = {
+            "user1": "gist_aaa",
+            "user2": "gist_bbb",
+        }
+        self.assertFalse(has_user_gists_id_changed(initial_map, no_change_legacy))
+
+        # 3. 新規ユーザー追加
+        new_user = {
+            "user1": {"gist_id": "gist_aaa", "priority_updated_at": 100},
+            "user2": {"gist_id": "gist_bbb", "priority_updated_at": 200},
+            "user3": {"gist_id": "gist_ccc", "priority_updated_at": 300},
+        }
+        self.assertTrue(has_user_gists_id_changed(initial_map, new_user))
+
+        # 4. 既存ユーザーの所属 Gist ID 変更（容量超過等によるマイグレーション）
+        migrated_user = {
+            "user1": {"gist_id": "gist_aaa_NEW", "priority_updated_at": 100},
+            "user2": {"gist_id": "gist_bbb", "priority_updated_at": 200},
+        }
+        self.assertTrue(has_user_gists_id_changed(initial_map, migrated_user))
+
     def test_process_multi_user_append_from_scratch(self):
         """from_scratch=True の場合、既存ツイートが削除され新ツイートで置き換わること"""
         master_data = {

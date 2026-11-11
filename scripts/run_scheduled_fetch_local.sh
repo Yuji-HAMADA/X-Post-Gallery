@@ -85,8 +85,9 @@ if ! echo "$SLOT0_JSON" | jq -e '.users' > /dev/null 2>&1; then
 fi
 
 SLOT1_ID=$(echo "$SLOT0_JSON" | jq -r '.sibling_gist_id // empty')
+SLOT1_ID="${SLOT1_ID:-${FETCH_QUEUE_SLOT1_GIST_ID:-}}"
 if [ -z "$SLOT1_ID" ]; then
-  echo "ℹ️ sibling_gist_id not found in slot 0. Running in single-slot mode."
+  echo "ℹ️ sibling_gist_id not found in slot 0 or env. Running in single-slot mode."
 fi
 
 MASTER_GIST_ID=$(echo "$SLOT0_JSON" | jq -r '.master_gist_id // empty')
