@@ -126,6 +126,7 @@ class GalleryViewModel extends ChangeNotifier {
       _userName = data.userName;
       _userGists = data.userGists;
       _userPriorities = data.userPriorities;
+      await _repository.saveUserPriorities(_userPriorities);
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
@@ -431,15 +432,29 @@ class GalleryViewModel extends ChangeNotifier {
   /// [JA] アカウントがピン留め（トップ固定）されているかを判定
   /// [EN] Checks whether the account is pinned to the top
   bool isPinned(String username) {
-    return (_userPriorities[username] ?? 0) > 0;
+    if ((_userPriorities[username] ?? 0) > 0) return true;
+    final lower = username.toLowerCase();
+    for (final entry in _userPriorities.entries) {
+      if (entry.key.toLowerCase() == lower) {
+        return entry.value > 0;
+      }
+    }
+    return false;
   }
 
   /// [JA] ピン留めのトグル処理: ピン留め中なら解除（0にリセット）、未ピン留めなら最上位に固定
   /// [EN] Toggles pin state: resets to 0 if already pinned, or updates timestamp to now if unpinned
   Future<bool> togglePin(String username) async {
-    final isCurrentlyPinned = isPinned(username);
+    final canonical = getCanonicalUsername(username) ?? username;
+    final isCurrentlyPinned = isPinned(canonical);
     final newPriority = isCurrentlyPinned ? 0 : DateTime.now().millisecondsSinceEpoch;
-    _userPriorities = Map.from(_userPriorities)..[username] = newPriority;
+    final lower = canonical.toLowerCase();
+    final updated = Map<String, int>.fromEntries(
+      _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
+    );
+    updated[canonical] = newPriority;
+    _userPriorities = updated;
+    await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
   }
@@ -447,8 +462,15 @@ class GalleryViewModel extends ChangeNotifier {
   /// [JA] ピン留め（最上位移動）時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
   /// [EN] Bumps user priority to now, saves to master Gist, and updates the list
   Future<bool> bumpUserPriority(String username) async {
+    final canonical = getCanonicalUsername(username) ?? username;
     final now = DateTime.now().millisecondsSinceEpoch;
-    _userPriorities = Map.from(_userPriorities)..[username] = now;
+    final lower = canonical.toLowerCase();
+    final updated = Map<String, int>.fromEntries(
+      _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
+    );
+    updated[canonical] = now;
+    _userPriorities = updated;
+    await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
   }
@@ -458,6 +480,7 @@ class GalleryViewModel extends ChangeNotifier {
   Future<bool> registerUser(String username, {String gistId = ''}) async {
     _userGists = Map.from(_userGists)..[username] = gistId;
     _userPriorities = Map.from(_userPriorities)..[username] = 0;
+    await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
   }
@@ -476,6 +499,7 @@ class GalleryViewModel extends ChangeNotifier {
       final u = item.extractedUsername?.toLowerCase();
       return u != lower;
     }).toList();
+    await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
   }

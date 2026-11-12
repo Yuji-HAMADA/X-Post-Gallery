@@ -25,11 +25,20 @@ if ! flock -n 200; then
   exit 0
 fi
 
-# --- 3. .env の読み込みと環境変数の検証 ---
+# --- 3. .env の読み込みと環境変数の検証（既存の環境変数は上書きしない） ---
 if [ -f "$PROJECT_DIR/.env" ]; then
-  set -a
-  source "$PROJECT_DIR/.env"
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    [[ "$line" =~ ^# ]] && continue
+    [[ "$line" != *"="* ]] && continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    key=$(echo "$key" | tr -d '[:space:]')
+    val=$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
+    if [ -n "$key" ] && [ -z "${!key+x}" ]; then
+      export "$key=$val"
+    fi
+  done < "$PROJECT_DIR/.env"
 fi
 
 # GITHUB_TOKEN から GH_TOKEN へのフォールバック
@@ -164,10 +173,11 @@ process_slot() {
   echo "📋 Unprocessed entries in slot $slot_num: $entry_count"
 
   if [ "$entry_count" -eq 0 ]; then
-    # 全エントリが処理済みの場合、アダプティブ・スキップカウンタを維持したまま done フラグをリセットして次周回に備える
+    # 全エントリが処理済みの場合、Slot 0（定期巡回枠）のみアダプティブ・スキップカウンタを維持したまま done フラグをリセットして次周回に備える
+    # Slot 1（ユーザーリクエスト枠）は使い切りキューのため周回リセットは行わない
     local total_users
     total_users=$(echo "$slot_json" | jq -r '(.users | length) // 0')
-    if [ "$total_users" -gt 0 ]; then
+    if [ "$total_users" -gt 0 ] && [ "$slot_num" -eq 0 ]; then
       echo "🔄 [Adaptive Skip] All $total_users entries done in slot $slot_num. Resetting cycle (done=false) while keeping skip counters..."
       slot_json=$(echo "$slot_json" | jq '.users = [.users[] | .done = false | .from_scratch = false]')
       local tmp_cycle
@@ -241,8 +251,9 @@ process_slot() {
     fi
 
     # --- アダプティブ・スキップ（バックオフ）判定 ---
-    # ※ from_scratch の場合は初めから再取得する指示のためスキップせず実行
-    if [ "$FROM_SCRATCH" != "true" ]; then
+    # ※ Slot 0（定期巡回枠）かつ from_scratch でない場合のみ適用。
+    # ※ Slot 1（ユーザーリクエスト枠）は明示的なオンデマンド実行のためスキップせず即時実行
+    if [ "$slot_num" -eq 0 ] && [ "$FROM_SCRATCH" != "true" ]; then
       local SHOULD_SKIP_ARGS=(should-skip -u "$USER")
       [ -n "$SKIP_COUNT" ] && SHOULD_SKIP_ARGS+=(--queue-count "$SKIP_COUNT")
       [ -n "$SKIP_REMAINING" ] && SHOULD_SKIP_ARGS+=(--queue-remaining "$SKIP_REMAINING")
@@ -319,12 +330,17 @@ process_slot() {
     # エラー時のハンドリング
     if [ $EXIT_CODE -ne 0 ]; then
       if [ $EXIT_CODE -eq 44 ]; then
-        echo "🗑️ Inaccessible or dead user @$USER (code 44). Marking as done to safely skip."
+        echo "🗑️ Inaccessible or dead user @$USER (code 44). Removing from Slot 1 or marking as done in Slot 0."
         local latest_json
         latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
         if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-          latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
-            '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+          if [ "$slot_num" -eq 1 ]; then
+            latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+              '.users = [.users[] | select((.user | ascii_downcase) != ($user | ascii_downcase))]')
+          else
+            latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+              '.users = [.users[] | if (.user | ascii_downcase) == ($user | ascii_downcase) then . + {"done": true} else . end]')
+          fi
           local tmp_done
           tmp_done=$(mktemp /tmp/scheduled_fq_done_XXXXXX.json)
           printf '%s' "$latest_json" > "$tmp_done"
@@ -332,15 +348,20 @@ process_slot() {
           rm -f "$tmp_done"
         fi
         CONSECUTIVE_ERRORS=0
-        echo "⏩ Skipped inaccessible user @$USER and proceeding to next entry."
+        echo "⏩ Handled inaccessible user @$USER and proceeding to next entry."
 
       elif [ $EXIT_CODE -eq 43 ]; then
         echo "⚠️ Server-side or timeline DOM error (code 43) for target: @$USER"
         local latest_json
         latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
         if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-          latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
-            '.users = [.users[] | if .user == $user then . + {"done": true} else . end]')
+          if [ "$slot_num" -eq 1 ]; then
+            latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+              '.users = [.users[] | select((.user | ascii_downcase) != ($user | ascii_downcase))]')
+          else
+            latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+              '.users = [.users[] | if (.user | ascii_downcase) == ($user | ascii_downcase) then . + {"done": true} else . end]')
+          fi
           local tmp_done
           tmp_done=$(mktemp /tmp/scheduled_fq_done_XXXXXX.json)
           printf '%s' "$latest_json" > "$tmp_done"
@@ -348,7 +369,7 @@ process_slot() {
           rm -f "$tmp_done"
         fi
         CONSECUTIVE_ERRORS=0
-        echo "⏩ Safely skipped target in current queue and proceeding to next entry."
+        echo "⏩ Safely handled target in current queue and proceeding to next entry."
 
       else
         CONSECUTIVE_ERRORS=$((CONSECUTIVE_ERRORS + 1))
@@ -402,12 +423,20 @@ process_slot() {
       echo "✨ [Adaptive Skip] $SAVED_COUNT new tweets saved for @$USER! Backoff reset to 0."
     fi
 
-    # done: true と skip_count, skip_remaining を Gist に反映（from_scratch は完了したため false にリセット）
+    # キューを更新:
+    # Slot 1（ユーザーリクエスト枠）は処理完了したためキューから完全に削除（消化）
+    # Slot 0（定期巡回枠）は done: true と skip_count, skip_remaining を反映
     local latest_json
     latest_json=$(gh gist view "$slot_id" -f fetch_queue.json 2>/dev/null || echo "")
     if echo "$latest_json" | jq -e '.users' > /dev/null 2>&1; then
-      latest_json=$(echo "$latest_json" | jq --arg user "$USER" --argjson sc "$NEW_SKIP_COUNT" --argjson sr "$NEW_SKIP_REMAINING" --argjson scnt "$SAVED_COUNT" \
-        '.users = [.users[] | if .user == $user then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr, "last_saved_count": $scnt, "from_scratch": false} else . end]')
+      if [ "$slot_num" -eq 1 ]; then
+        echo "🗑️ [Slot 1] Consumed and removed @$USER from manual fetch queue."
+        latest_json=$(echo "$latest_json" | jq --arg user "$USER" \
+          '.users = [.users[] | select((.user | ascii_downcase) != ($user | ascii_downcase))]')
+      else
+        latest_json=$(echo "$latest_json" | jq --arg user "$USER" --argjson sc "$NEW_SKIP_COUNT" --argjson sr "$NEW_SKIP_REMAINING" --argjson scnt "$SAVED_COUNT" \
+          '.users = [.users[] | if (.user | ascii_downcase) == ($user | ascii_downcase) then . + {"done": true, "skip_count": $sc, "skip_remaining": $sr, "last_saved_count": $scnt, "from_scratch": false} else . end]')
+      fi
       local tmp_done
       tmp_done=$(mktemp /tmp/fq_done_XXXXXX.json)
       printf '%s' "$latest_json" > "$tmp_done"

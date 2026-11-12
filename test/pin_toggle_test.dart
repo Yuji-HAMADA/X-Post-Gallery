@@ -1,5 +1,6 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:x_post_gallery/services/gallery_repository.dart';
 import 'package:x_post_gallery/services/github_service.dart';
 import 'package:x_post_gallery/viewmodels/gallery_viewmodel.dart';
@@ -27,8 +28,15 @@ class MockGalleryRepositoryForPin extends GalleryRepository {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUpAll(() {
+    SharedPreferences.setMockInitialValues({});
     dotenv.loadFromString(envString: 'MASTER_GIST_ID=master_123');
+  });
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
   });
 
   group('GalleryViewModel Pin Toggle Tests', () {
@@ -42,8 +50,9 @@ void main() {
     });
 
     test('togglePin toggles between pinned (priority > 0) and unpinned (priority == 0)', () async {
+      final repo = MockGalleryRepositoryForPin();
       final vm = GalleryViewModel(
-        repository: MockGalleryRepositoryForPin(),
+        repository: repo,
         githubService: MockGitHubServiceForPin(),
       );
 
@@ -57,11 +66,37 @@ void main() {
       expect(vm.isPinned('userA'), isTrue);
       expect(vm.userPriorities['userA'], greaterThan(0));
 
+      // SharedPreferences に保存されていることを確認
+      final savedPriorities = await repo.loadUserPriorities();
+      expect(savedPriorities['userA'], equals(vm.userPriorities['userA']));
+
       // 2回目のタップ: ピン留め解除（デフォルト位置へ）
       final res2 = await vm.togglePin('userA');
       expect(res2, isTrue);
       expect(vm.isPinned('userA'), isFalse);
       expect(vm.userPriorities['userA'], equals(0));
+
+      // SharedPreferences の値も 0 に更新されていることを確認
+      final unpinnedPriorities = await repo.loadUserPriorities();
+      expect(unpinnedPriorities['userA'], equals(0));
+    });
+
+    test('isPinned and togglePin handle case-insensitivity correctly', () async {
+      final repo = MockGalleryRepositoryForPin();
+      final vm = GalleryViewModel(
+        repository: repo,
+        githubService: MockGitHubServiceForPin(),
+      );
+
+      await vm.registerUser('AliceInWonderland');
+      expect(vm.isPinned('AliceInWonderland'), isFalse);
+      expect(vm.isPinned('aliceinwonderland'), isFalse);
+
+      // 小文字でピン留め
+      await vm.togglePin('aliceinwonderland');
+      expect(vm.isPinned('AliceInWonderland'), isTrue);
+      expect(vm.isPinned('aliceinwonderland'), isTrue);
+      expect(vm.isPinned('ALICEINWONDERLAND'), isTrue);
     });
 
     test('registerUser initializes priority to 0 (unpinned by default)', () async {

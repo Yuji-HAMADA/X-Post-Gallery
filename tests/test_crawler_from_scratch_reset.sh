@@ -53,6 +53,7 @@ chmod +x "$PROJECT_DIR/append_gist.sh"
 export PATH="$MOCK_BIN:$PATH"
 export GH_TOKEN="dummy_token"
 export FETCH_QUEUE_GIST_ID="dummy_slot0"
+export FETCH_QUEUE_SLOT1_GIST_ID=""
 
 # run_scheduled_fetch_local.sh を実行（MAX_LOOPS=1）
 MAX_LOOPS=1 bash "$PROJECT_DIR/scripts/run_scheduled_fetch_local.sh"

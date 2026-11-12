@@ -32,6 +32,7 @@ class GalleryRepository {
   static const String _keyCachedUpdatedAt = 'cached_updated_at';
   static const String _keyFavoriteUsers = 'favorite_users';
   static const String _keyFavoritesGistId = 'favorites_gist_id';
+  static const String _keyUserPriorities = 'user_priorities';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
@@ -71,7 +72,8 @@ class GalleryRepository {
         final cached = await getCachedData();
         if (cached != null) {
           debugPrint("Using cached data (updated_at: $remoteUpdatedAt)");
-          return _parseGalleryData(cached);
+          final galleryData = _parseGalleryData(cached);
+          return await _mergeLocalPriorities(galleryData);
         }
       }
     }
@@ -94,10 +96,36 @@ class GalleryRepository {
           debugPrint("Cache save failed: $e");
         }
       }
-      return _parseGalleryData(jsonStr);
+      final galleryData = _parseGalleryData(jsonStr);
+      return await _mergeLocalPriorities(galleryData);
     } else {
       throw Exception('Invalid Password (ID)');
     }
+  }
+
+  /// [JA] ローカル SharedPreferences のピン留め状態をマスターデータとマージする
+  Future<GalleryData> _mergeLocalPriorities(GalleryData data) async {
+    final localPriorities = await loadUserPriorities();
+    if (localPriorities.isEmpty) {
+      return data;
+    }
+    final mergedPriorities = Map<String, int>.from(data.userPriorities);
+    final localLowerMap = {
+      for (final e in localPriorities.entries) e.key.toLowerCase(): e.value,
+    };
+    for (final key in data.userGists.keys) {
+      final lower = key.toLowerCase();
+      if (localLowerMap.containsKey(lower)) {
+        mergedPriorities[key] = localLowerMap[lower]!;
+      }
+    }
+    return GalleryData(
+      userName: data.userName,
+      items: data.items,
+      userGists: data.userGists,
+      userPriorities: mergedPriorities,
+      userGistEntries: data.userGistEntries,
+    );
   }
 
   GalleryData _parseGalleryData(String jsonStr) {
@@ -220,9 +248,14 @@ class GalleryRepository {
     Map<String, int> userPriorities = const {},
   }) {
     // スキーマ統一: user_gists の各アカウントデータに必ず priority_updated_at を持たせる
+    final lowerPriorityMap = {
+      for (final e in userPriorities.entries) e.key.toLowerCase(): e.value,
+    };
     final Map<String, dynamic> formattedUserGists = {};
     for (final entry in userGists.entries) {
-      final priority = userPriorities[entry.key] ?? 0;
+      final priority = userPriorities[entry.key] ??
+          lowerPriorityMap[entry.key.toLowerCase()] ??
+          0;
       formattedUserGists[entry.key] = UserGistEntry(
         gistId: entry.value,
         priorityUpdatedAt: priority,
@@ -364,5 +397,30 @@ class GalleryRepository {
   Future<void> saveFavoritesGistId(String gistId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyFavoritesGistId, gistId);
+  }
+
+  /// [JA] ローカル SharedPreferences からピン留め（優先度）マップを読み込む
+  Future<Map<String, int>> loadUserPriorities() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString(_keyUserPriorities);
+    if (jsonStr == null || jsonStr.isEmpty) return {};
+    try {
+      final decoded = json.decode(jsonStr) as Map<String, dynamic>;
+      return decoded.map(
+        (k, v) => MapEntry(
+          k,
+          v is num ? v.toInt() : (int.tryParse(v.toString()) ?? 0),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error loading user priorities from SharedPreferences: $e');
+      return {};
+    }
+  }
+
+  /// [JA] ピン留め（優先度）マップをローカル SharedPreferences に保存する
+  Future<void> saveUserPriorities(Map<String, int> priorities) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUserPriorities, json.encode(priorities));
   }
 }

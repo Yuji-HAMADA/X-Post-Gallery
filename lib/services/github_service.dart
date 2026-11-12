@@ -187,19 +187,15 @@ class GitHubService {
     );
   }
 
-  /// 両スロットの未処理エントリで重複チェック
-  bool _isDuplicateInSlots(_QueueSlots slots, String field, String value) {
-    bool check(List<Map<String, dynamic>> users) {
-      return users.any(
-        (u) =>
-            u[field] != null &&
-            (u[field] as String).toLowerCase() == value.toLowerCase() &&
-            u['done'] != true,
-      );
-    }
-
-    return check(slots.slot0Users) ||
-        (slots.slot1Users != null && check(slots.slot1Users!));
+  /// 対象スロット内の未処理エントリで重複チェック
+  bool _isDuplicateInTarget(List<Map<String, dynamic>> users, String username) {
+    final lower = username.toLowerCase();
+    return users.any(
+      (u) =>
+          u['user'] != null &&
+          (u['user'] as String).toLowerCase() == lower &&
+          u['done'] != true,
+    );
   }
 
   /// fetch_queue.json にユーザーを追加する（2スロットリングバッファ対応）
@@ -216,12 +212,13 @@ class GitHubService {
       return false;
     }
 
-    if (_isDuplicateInSlots(slots, 'user', username)) {
-      debugPrint('GitHubService: addUserToFetchQueue DUPLICATE found for $username');
+    final target = slots.writeTarget(fetchQueueGistId);
+
+    if (_isDuplicateInTarget(target.users, username)) {
+      debugPrint('GitHubService: addUserToFetchQueue DUPLICATE found for $username in target slot');
       return true;
     }
 
-    final target = slots.writeTarget(fetchQueueGistId);
     final newEntry = <String, dynamic>{
       'user': username,
       'stop_on_existing': fromScratch ? false : stopOnExisting,

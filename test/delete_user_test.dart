@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:x_post_gallery/models/tweet_item.dart';
 import 'package:x_post_gallery/services/gallery_repository.dart';
 import 'package:x_post_gallery/services/github_service.dart';
@@ -49,7 +50,9 @@ class MockGalleryRepositoryForDelete extends GalleryRepository {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() {
+    SharedPreferences.setMockInitialValues({});
     dotenv.loadFromString(envString: 'MASTER_GIST_ID=master_123');
   });
 
