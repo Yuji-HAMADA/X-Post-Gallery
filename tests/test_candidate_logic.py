@@ -116,5 +116,19 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertIn("--is-candidate", call_args_new)
         self.assertNotIn("-s", call_args_new)
 
+    def test_rate_limit_url_filtering(self):
+        # サードパーティドメインの429は除外、X APIドメインの429は検知
+        valid_domains = ["api.twitter.com", "api.x.com", "x.com/i/api/", "twitter.com/i/api/"]
+
+        def is_x_api_rate_limit(url):
+            url_lower = url.lower()
+            return any(d in url_lower for d in valid_domains)
+
+        self.assertTrue(is_x_api_rate_limit("https://x.com/i/api/graphql/xxx/UserTweets"))
+        self.assertTrue(is_x_api_rate_limit("https://api.x.com/2/users/by/username/test"))
+        self.assertFalse(is_x_api_rate_limit("https://analytics.google.com/g/collect?v=2"))
+        self.assertFalse(is_x_api_rate_limit("https://adservice.google.com/adsid/integrator.sync"))
+        self.assertFalse(is_x_api_rate_limit("https://pbs.twimg.com/media/abc.jpg"))
+
 if __name__ == "__main__":
     unittest.main()

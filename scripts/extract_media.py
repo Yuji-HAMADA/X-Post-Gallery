@@ -563,7 +563,12 @@ async def run():
         async def handle_response(response):
             nonlocal rate_limit_hit
             if response.status == 429:
-                rate_limit_hit = True
+                res_url = response.url.lower()
+                # X (Twitter) の コア API エンドポイント (/i/api/ や api.x.com / api.twitter.com) の 429 のみを対象にする
+                # 広告・サードパーティ・アナリティクス等の 429 は無視する
+                if any(domain in res_url for domain in ["api.twitter.com", "api.x.com", "x.com/i/api/", "twitter.com/i/api/"]):
+                    print(f"⚠️ X API Rate limit (429) hit on: {response.url.split('?')[0]}")
+                    rate_limit_hit = True
 
         page.on("response", handle_response)
         

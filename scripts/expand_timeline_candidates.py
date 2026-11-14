@@ -122,6 +122,10 @@ def parse_args():
     parser.add_argument("--scroll-batch-size", type=int, default=10, help="Number of scrolls per collection batch (default: 10)")
     parser.add_argument("--max-cycles", type=int, default=None, help="Maximum number of reload-and-collect cycles (default: unlimited)")
     parser.add_argument("--max-total-accounts", type=int, default=None, help="Max total accounts to process")
+    parser.add_argument("--rate-limit-wait", type=int, default=int(os.environ.get("RATE_LIMIT_WAIT", 900)),
+                        help="Seconds to wait when rate limited (code 42, default: 900s / 15m)")
+    parser.add_argument("--account-cooldown", type=int, default=3,
+                        help="Cooldown seconds between processing accounts (default: 3s)")
     parser.add_argument("--no-headless", action="store_true", help="Run browser in headful mode")
     return parser.parse_args()
 
@@ -195,7 +199,7 @@ def process_account(gist_id, username, num, is_existing):
         cmd.append("--is-candidate")
 
     res = subprocess.run(cmd)
-    return res.returncode == 0
+    return res.returncode
 
 async def run_expansion_loop(args, gist_id):
     if not os.path.exists(AUTH_PATH):
@@ -252,11 +256,25 @@ async def run_expansion_loop(args, gist_id):
 
                     is_existing = acc_lower in existing_users_lower
                     print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}) ---")
-                    ok = process_account(gist_id, account, args.num, is_existing)
-                    if ok:
+                    ret_code = process_account(gist_id, account, args.num, is_existing)
+
+                    # レート制限 (code 42) 検知時の自動待機＆リトライ
+                    if ret_code == 42:
+                        wait_mins = round(args.rate_limit_wait / 60, 1)
+                        print(f"\n🚨 Rate limit detected from X (exit code 42) while processing @{account}.")
+                        print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until X rate limit resets...")
+                        await asyncio.sleep(args.rate_limit_wait)
+                        print(f"🔄 Retrying @{account} after cooldown...")
+                        ret_code = process_account(gist_id, account, args.num, is_existing)
+
+                    if ret_code == 0:
                         total_processed += 1
                         if not is_existing:
                             existing_users_lower[acc_lower] = account
+
+                    # 連続アクセスによるレートリミットを予防するためのクールダウン
+                    if args.account_cooldown > 0:
+                        await asyncio.sleep(args.account_cooldown)
 
                     if args.max_total_accounts and total_processed >= args.max_total_accounts:
                         print(f"🛑 Reached maximum total accounts limit ({args.max_total_accounts}).")
