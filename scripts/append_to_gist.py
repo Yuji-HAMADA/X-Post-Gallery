@@ -513,6 +513,12 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
 
 def main():
     args = parse_args()
+    if not args.user:
+        print("❌ Error: Target user ID (-u/--user) is required for append_to_gist.py.")
+        print("💡 Hint: To automatically discover accounts from your timeline and expand Candidate gallery, run:")
+        print("   ./scripts/run_expand_timeline_local.sh")
+        sys.exit(1)
+
     gist_filename, full_data = fetch_gist_data(args.gist_id)
 
     if not is_master_gist_format(full_data):

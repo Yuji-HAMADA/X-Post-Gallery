@@ -46,6 +46,9 @@ flutter test                     # 単体テスト・ウィジェットテスト
 # スケジュール巡回単体実行 (アダプティブ・スキップ対応)
 ./scripts/run_scheduled_fetch_local.sh
 
+# タイムラインからの Candidate アカウント自動収集・ギャラリー拡張実行
+./scripts/run_expand_timeline_local.sh
+
 # テスト実行
 ./venv/bin/python -m unittest discover tests
 bash tests/test_crawler_adaptive_skip.sh
@@ -67,6 +70,7 @@ bash tests/test_crawler_delete_defense.sh
 - **`run_master_local.sh`**: 常駐マスターループ。
 - **`run_scheduled_fetch_local.sh`**: 2スロットリングバッファ対応の巡回クローラー（アダプティブ・スキップバックオフ機能付き）。
 - **`run_fetch_favorites_local.sh`**: お気に入り巡回スクリプト。
+- **`run_expand_timeline_local.sh`**: タイムライン巡回・Candidateアカウント自動収集・ギャラリー拡張スクリプト。
 - **`append_to_gist.py` / `append_gist.sh`**: 抽出したツイートを子GistおよびマスターGistへアペンド（重複除外、スリム化、上書き競合・削除防御付き）。
 - **`extract_media.py`**: Playwright による X メディア抽出。
 - **`adaptive_skip.py`**: 更新がないアカウントの巡回頻度を段階的に抑制するアダプティブ・スキップ管理。
