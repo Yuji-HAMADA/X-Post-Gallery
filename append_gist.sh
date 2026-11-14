@@ -9,6 +9,7 @@ STOP_ON_EXISTING=""
 FORCE_EMPTY=""
 PROMOTE_GIST_ID=""
 FROM_SCRATCH=""
+IS_CANDIDATE=""
 
 # --- 引数の解析 ---
 while [ $# -gt 0 ]; do
@@ -41,8 +42,12 @@ while [ $# -gt 0 ]; do
       FROM_SCRATCH="--from-scratch"
       shift
       ;;
+    --is-candidate)
+      IS_CANDIDATE="--is-candidate"
+      shift
+      ;;
     *)
-      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch]"
+      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch] [--is-candidate]"
       exit 1
       ;;
   esac
@@ -88,4 +93,5 @@ python3 scripts/append_to_gist.py \
   $STOP_ON_EXISTING \
   $FORCE_EMPTY \
   $FROM_SCRATCH \
-  $PROMOTE_FLAG
+  $PROMOTE_FLAG \
+  $IS_CANDIDATE

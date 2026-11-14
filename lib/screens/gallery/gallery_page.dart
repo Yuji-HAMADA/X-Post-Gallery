@@ -39,11 +39,13 @@ class GalleryPage extends StatefulWidget {
 class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
   final ScrollController _favGridController = ScrollController();
+  final ScrollController _candidateGridController = ScrollController();
   final PageController _pageController = PageController();
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
   bool _isFavRandomChecked = false;
   bool _isUserRandomChecked = false;
+  bool _isCandidateRandomChecked = false;
 
   @override
   void initState() {
@@ -59,6 +61,7 @@ class _GalleryPageState extends State<GalleryPage> {
   void dispose() {
     _pageController.dispose();
     _favGridController.dispose();
+    _candidateGridController.dispose();
     super.dispose();
   }
 
@@ -82,6 +85,7 @@ class _GalleryPageState extends State<GalleryPage> {
     const pageMap = {
       'favorite': 0,
       'user': 1,
+      'candidate': 2,
     };
     final page = pageMap[t.toLowerCase()];
     if (page == null) return;
@@ -606,12 +610,13 @@ class _GalleryPageState extends State<GalleryPage> {
     final l10n = AppLocalizations.of(context);
     final isFavPage = _currentPage == 0;
     final isUserPage = _currentPage == 1;
+    final isCandidatePage = _currentPage == 2;
     final favoriteItems = vm.items.where((item) {
       final key = item.extractedUsername;
       return key != null && vm.isFavorite(key);
     }).toList();
 
-    final pageTitles = [l10n.tabFavorites, l10n.tabUsers];
+    final pageTitles = [l10n.tabFavorites, l10n.tabUsers, l10n.tabCandidate];
     final currentTitle = vm.isSelectionMode
         ? l10n.selectedCount(vm.selectedIds.length)
         : pageTitles[_currentPage];
@@ -667,6 +672,9 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'random_user':
                       _toggleUserRandomMode();
                       break;
+                    case 'random_candidate':
+                      _toggleCandidateRandomMode();
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
@@ -680,6 +688,12 @@ class _GalleryPageState extends State<GalleryPage> {
                     CheckedPopupMenuItem<String>(
                       value: 'random_user',
                       checked: _isUserRandomChecked,
+                      child: Text(l10n.randomSelection),
+                    ),
+                  if (isCandidatePage)
+                    CheckedPopupMenuItem<String>(
+                      value: 'random_candidate',
+                      checked: _isCandidateRandomChecked,
                       child: Text(l10n.randomSelection),
                     ),
                   PopupMenuItem(
@@ -724,6 +738,14 @@ class _GalleryPageState extends State<GalleryPage> {
                     vm.userGists,
                     vm.favoriteUsers,
                     vm.userPriorities,
+                    isCandidateView: false,
+                  ),
+                  _buildUserGroupedGrid(
+                    vm.items,
+                    vm.userGists,
+                    vm.favoriteUsers,
+                    vm.userPriorities,
+                    isCandidateView: true,
                   ),
                 ],
               ),
@@ -881,17 +903,22 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// ユーザーグループ化したグリッド（メインギャラリー用）
+  /// ユーザーグループ化したグリッド（メイン / 候補ギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
     Map<String, String> userGists,
     Set<String> favoriteUsers,
-    Map<String, int> userPriorities,
-  ) {
+    Map<String, int> userPriorities, {
+    bool isCandidateView = false,
+  }) {
+    final vm = context.read<GalleryViewModel>();
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
       final key = item.extractedUsername ?? '_unknown';
       if (favoriteUsers.contains(key)) {
+        continue;
+      }
+      if (vm.isCandidate(key) != isCandidateView) {
         continue;
       }
       grouped.putIfAbsent(key, () => []).add(item);
@@ -909,6 +936,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
     for (final username in originalKeys) {
       if (favoriteUsers.contains(username)) continue;
+      if (vm.isCandidate(username) != isCandidateView) continue;
       final userItems = grouped[username] ?? [];
       entries.add(MapEntry(username, userItems));
       addedUsers.add(username);
@@ -926,8 +954,19 @@ class _GalleryPageState extends State<GalleryPage> {
 
     final userUsernames = entries.map((e) => e.key).toList();
 
+    if (entries.isEmpty && isCandidateView) {
+      final l10n = AppLocalizations.of(context);
+      return Center(
+        child: Text(
+          l10n.noCandidatesYet,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
     return GridView.builder(
-      controller: _gridController,
+      controller: isCandidateView ? _candidateGridController : _gridController,
       padding: const EdgeInsets.all(4),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -1077,7 +1116,10 @@ class _GalleryPageState extends State<GalleryPage> {
     final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final usernames = _getAllUsernames(vm.items)
-        .where((username) => !vm.favoriteUsers.contains(username))
+        .where(
+          (username) =>
+              !vm.favoriteUsers.contains(username) && !vm.isCandidate(username),
+        )
         .toList();
     if (usernames.isEmpty) {
       if (mounted) {
@@ -1102,6 +1144,41 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (mounted) {
       setState(() => _isUserRandomChecked = false);
+    }
+  }
+
+  Future<void> _toggleCandidateRandomMode() async {
+    final l10n = AppLocalizations.of(context);
+    final vm = context.read<GalleryViewModel>();
+    final usernames = _getAllUsernames(vm.items)
+        .where(
+          (username) =>
+              !vm.favoriteUsers.contains(username) && vm.isCandidate(username),
+        )
+        .toList();
+    if (usernames.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.noCandidatesYet)),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isCandidateRandomChecked = true);
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RandomGallerySwipePage(
+          usernames: usernames,
+          title: '${l10n.randomSelection} (${l10n.tabCandidate})',
+        ),
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _isCandidateRandomChecked = false);
     }
   }
 

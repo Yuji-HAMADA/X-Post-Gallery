@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument("-m", "--mode", default="post_only", help="(deprecated, ignored: always post_only)")
     parser.add_argument("-n", "--num", type=int, default=500, help=f"最大取得件数（上限{GIST_MAX_TWEETS}）")
     parser.add_argument("-s", "--stop-on-existing", action="store_true", help="既存IDに当たったら停止")
+    parser.add_argument("--is-candidate", action="store_true", help="新規ユーザーの場合Candidateとして登録")
     parser.add_argument("--from-scratch", action="store_true", help="既存データを削除して最初から取得し直す")
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
@@ -379,7 +380,7 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
 # メイン
 # ---------------------------------------------------------------------------
 
-def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False):
+def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False, is_candidate=False):
     user_groups = group_tweets_by_user(new_tweets)
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
@@ -443,17 +444,24 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
 
         existing_entry = user_gists_map.get(user)
         now_ms = int(time.time() * 1000)
+        user_is_candidate = False
         if isinstance(existing_entry, dict):
             user_priority = existing_entry.get("priority_updated_at", now_ms)
+            user_is_candidate = existing_entry.get("is_candidate", False)
         elif existing_entry is not None:
             user_priority = now_ms
+            user_is_candidate = False
         else:
             user_priority = now_ms
+            user_is_candidate = is_candidate
 
-        user_gists_map[user] = {
+        entry_data = {
             "gist_id": final_id,
             "priority_updated_at": user_priority,
         }
+        if user_is_candidate:
+            entry_data["is_candidate"] = True
+        user_gists_map[user] = entry_data
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
         latest = merged[0]
         master_entry = {
@@ -486,10 +494,13 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
     unified_user_gists = {}
     for u, entry in user_gists_map.items():
         if isinstance(entry, dict):
-            unified_user_gists[u] = {
+            e_dict = {
                 "gist_id": entry.get("gist_id", ""),
                 "priority_updated_at": int(entry.get("priority_updated_at", 0) or 0),
             }
+            if entry.get("is_candidate"):
+                e_dict["is_candidate"] = True
+            unified_user_gists[u] = e_dict
         else:
             unified_user_gists[u] = {
                 "gist_id": str(entry),
@@ -581,7 +592,7 @@ def main():
     }
 
     final_output = process_multi_user_append(
-        fresh_master_data, new_tweets, args.promote_gist_id, from_scratch=args.from_scratch,
+        fresh_master_data, new_tweets, args.promote_gist_id, from_scratch=args.from_scratch, is_candidate=args.is_candidate,
     )
     output_file = "assets/data/data.json"
     os.makedirs("assets/data", exist_ok=True)

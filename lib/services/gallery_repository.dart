@@ -246,6 +246,7 @@ class GalleryRepository {
     String userName = '',
     Map<String, String> userGists = const {},
     Map<String, int> userPriorities = const {},
+    Map<String, UserGistEntry> userGistEntries = const {},
   }) {
     // スキーマ統一: user_gists の各アカウントデータに必ず priority_updated_at を持たせる
     final lowerPriorityMap = {
@@ -253,12 +254,16 @@ class GalleryRepository {
     };
     final Map<String, dynamic> formattedUserGists = {};
     for (final entry in userGists.entries) {
+      final existingEntry = userGistEntries[entry.key];
       final priority = userPriorities[entry.key] ??
           lowerPriorityMap[entry.key.toLowerCase()] ??
+          existingEntry?.priorityUpdatedAt ??
           0;
+      final isCandidate = existingEntry?.isCandidate ?? false;
       formattedUserGists[entry.key] = UserGistEntry(
         gistId: entry.value,
         priorityUpdatedAt: priority,
+        isCandidate: isCandidate,
       ).toJson();
     }
 

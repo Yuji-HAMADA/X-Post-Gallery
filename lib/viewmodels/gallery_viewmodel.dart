@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/tweet_item.dart';
+import '../models/user_gist_entry.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
 import '../utils/env_helper.dart';
@@ -37,6 +38,21 @@ class GalleryViewModel extends ChangeNotifier {
 
   Map<String, int> _userPriorities = {};
   Map<String, int> get userPriorities => _userPriorities;
+
+  Map<String, UserGistEntry> _userGistEntries = {};
+  Map<String, UserGistEntry> get userGistEntries => _userGistEntries;
+  bool isCandidate(String username) {
+    if (_userGistEntries.containsKey(username)) {
+      return _userGistEntries[username]?.isCandidate ?? false;
+    }
+    final lower = username.toLowerCase();
+    for (final e in _userGistEntries.entries) {
+      if (e.key.toLowerCase() == lower) {
+        return e.value.isCandidate;
+      }
+    }
+    return false;
+  }
 
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
@@ -126,6 +142,7 @@ class GalleryViewModel extends ChangeNotifier {
       _userName = data.userName;
       _userGists = data.userGists;
       _userPriorities = data.userPriorities;
+      _userGistEntries = data.userGistEntries;
       await _repository.saveUserPriorities(_userPriorities);
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
@@ -410,6 +427,7 @@ class GalleryViewModel extends ChangeNotifier {
         userName: _userName,
         userGists: _userGists,
         userPriorities: _userPriorities,
+        userGistEntries: _userGistEntries,
       );
       final success = await _githubService.updateGistFile(
         gistId: masterGistId,
@@ -454,6 +472,12 @@ class GalleryViewModel extends ChangeNotifier {
     );
     updated[canonical] = newPriority;
     _userPriorities = updated;
+    final currentEntry = _userGistEntries[canonical];
+    _userGistEntries = Map<String, UserGistEntry>.fromEntries(
+      _userGistEntries.entries.where((e) => e.key.toLowerCase() != lower),
+    )..[canonical] = (currentEntry ?? UserGistEntry(gistId: _userGists[canonical] ?? '')).copyWith(
+      priorityUpdatedAt: newPriority,
+    );
     await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
@@ -470,6 +494,12 @@ class GalleryViewModel extends ChangeNotifier {
     );
     updated[canonical] = now;
     _userPriorities = updated;
+    final currentEntry = _userGistEntries[canonical];
+    _userGistEntries = Map<String, UserGistEntry>.fromEntries(
+      _userGistEntries.entries.where((e) => e.key.toLowerCase() != lower),
+    )..[canonical] = (currentEntry ?? UserGistEntry(gistId: _userGists[canonical] ?? '')).copyWith(
+      priorityUpdatedAt: now,
+    );
     await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
@@ -477,9 +507,18 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// [JA] 新規アカウント登録時: priority_updated_at は未操作（0）としてマスターGistを更新
   /// [EN] Registers a new user with priority_updated_at defaulting to 0 (unpinned)
-  Future<bool> registerUser(String username, {String gistId = ''}) async {
+  Future<bool> registerUser(
+    String username, {
+    String gistId = '',
+    bool isCandidate = false,
+  }) async {
     _userGists = Map.from(_userGists)..[username] = gistId;
     _userPriorities = Map.from(_userPriorities)..[username] = 0;
+    _userGistEntries = Map.from(_userGistEntries)..[username] = UserGistEntry(
+      gistId: gistId,
+      priorityUpdatedAt: 0,
+      isCandidate: isCandidate,
+    );
     await _repository.saveUserPriorities(_userPriorities);
     notifyListeners();
     return await _saveMasterGist();
@@ -494,6 +533,9 @@ class GalleryViewModel extends ChangeNotifier {
     );
     _userPriorities = Map.fromEntries(
       _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
+    );
+    _userGistEntries = Map.fromEntries(
+      _userGistEntries.entries.where((e) => e.key.toLowerCase() != lower),
     );
     _items = _items.where((item) {
       final u = item.extractedUsername?.toLowerCase();
