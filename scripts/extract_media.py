@@ -247,11 +247,23 @@ async def dismiss_modals(page):
     try:
         # 1. センシティブ警告・プロファイル閲覧確認ボタンの自動クリック
         sensitive_btn_texts = [
-            "プロフィールを表示", "表示する", "表示",
-            "View profile", "Yes, view profile", "Show profile", "Show", "View"
+            "プロフィールを表示", "表示する", "プロフィールを見る",
+            "View profile", "Yes, view profile", "Show profile", "Show warning",
         ]
         for txt in sensitive_btn_texts:
             btn = await page.query_selector(f'div[role="button"]:has-text("{txt}"), button:has-text("{txt}")')
+            if btn:
+                try:
+                    await btn.click()
+                    print(f"🔓 Dismissed profile warning banner: '{txt}'")
+                    await asyncio.sleep(1)
+                    break
+                except Exception:
+                    pass
+
+        # "表示", "Show", "View" 単体テキストのボタン（Show more / Show this thread などの誤爆を防ぐため完全一致）
+        for txt in ["表示", "Show", "View"]:
+            btn = await page.query_selector(f'div[role="button"]:text-is("{txt}"), button:text-is("{txt}")')
             if btn:
                 try:
                     await btn.click()

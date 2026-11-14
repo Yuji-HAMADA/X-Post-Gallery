@@ -3,12 +3,12 @@
 タイムライン上のポストからXアカウントを自動収集し、ギャラリーを拡張するスクリプト。
 
 【仕様】
-1. 自分のタイムライン（https://x.com/home）にアクセスし、流れているポストからアカウントを抽出。
+1. タイムライン（https://x.com/home）にアクセスし、10スクロールでアカウントを収集。
 2. タイムライン上およびポスト内の広告（Ad）は完全に除外。
-3. タイムラインがこれ以上スクロールできなくなった時点でタイムライン走査を終了。
-4. 抽出された各アカウントについて最新300件のポストを取得:
+3. 10スクロールで収集した各アカウントに対して最新300ポスト分の画像収集を実行:
    - 既存アカウントの場合: --stop-on-existing で読み込み、既存ギャラリー（Favorite/User）を維持。
    - 新規アカウントの場合: --is-candidate で読み込み、「Candidate」ギャラリーに新規登録。
+4. 画像収集が完了したらホーム画面をリロードし、再び10スクロールのアカウント収集へ戻ってループを継続。
 """
 
 import asyncio
@@ -119,81 +119,63 @@ def parse_args():
     parser.add_argument("-g", "--gist-id", default=None, help="Master Gist ID (defaults to MASTER_GIST_ID env)")
     parser.add_argument("-n", "--num", type=int, default=300, help="Number of tweets to fetch per account (default: 300)")
     parser.add_argument("--timeline-url", default="https://x.com/home", help="Timeline URL to scrape")
-    parser.add_argument("--max-accounts", type=int, default=None, help="Max accounts to process")
+    parser.add_argument("--scroll-batch-size", type=int, default=10, help="Number of scrolls per collection batch (default: 10)")
+    parser.add_argument("--max-cycles", type=int, default=None, help="Maximum number of reload-and-collect cycles (default: unlimited)")
+    parser.add_argument("--max-total-accounts", type=int, default=None, help="Max total accounts to process")
     parser.add_argument("--no-headless", action="store_true", help="Run browser in headful mode")
     return parser.parse_args()
 
-async def collect_accounts_from_timeline(timeline_url, max_accounts=None, headless=True):
-    """タイムラインをスクロールしてアカウント一覧を収集（広告ポスト除外、終了条件判定付き）"""
-    if not os.path.exists(AUTH_PATH):
-        print(f"❌ Error: Auth credentials not found at {AUTH_PATH}")
-        sys.exit(1)
+async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_lower=None):
+    """10スクロール分のアカウントを広告除外しながら収集して返す"""
+    excluded = excluded_accounts_lower or set()
+    batch_accounts = []
+    batch_set = set()
 
-    print(f"🚀 Launching browser to collect accounts from: {timeline_url}")
-    seen_accounts = []
-    seen_set = set()
-    no_change_count = 0
-    max_no_change = 5
+    # 初期表示のアカウント抽出
+    await dismiss_modals(page)
+    try:
+        initial_extracted = await page.evaluate(EXTRACT_ACCOUNTS_JS)
+        for acc in initial_extracted:
+            acc_clean = acc.strip().lstrip("@")
+            acc_lower = acc_clean.lower()
+            if acc_clean and acc_lower not in excluded and acc_lower not in batch_set:
+                batch_set.add(acc_lower)
+                batch_accounts.append(acc_clean)
+                print(f"  🎯 Found account from initial view: @{acc_clean} (Batch total: {len(batch_accounts)})")
+    except Exception as e:
+        print(f"⚠️ Initial extraction warning: {e}")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=headless)
-        context = await browser.new_context(
-            storage_state=AUTH_PATH,
-            viewport={"width": 1280, "height": 900},
-        )
-        page = await context.new_page()
+    for scroll_idx in range(1, scroll_batch_size + 1):
+        await dismiss_modals(page)
 
+        # スクロール実行
+        prev_scroll_y = await page.evaluate("window.scrollY")
+        await page.mouse.wheel(0, 2000)
+        await asyncio.sleep(2.5)
+        curr_scroll_y = await page.evaluate("window.scrollY")
+
+        # 広告除外してアカウント抽出
         try:
-            await page.goto(timeline_url, wait_until="domcontentloaded", timeout=45000)
-            await page.wait_for_timeout(5000)
+            extracted_batch = await page.evaluate(EXTRACT_ACCOUNTS_JS)
         except Exception as e:
-            print(f"⚠️ Initial page load warning: {e}")
+            print(f"⚠️ Extraction evaluate warning: {e}")
+            extracted_batch = []
 
-        while True:
-            await dismiss_modals(page)
+        new_count = 0
+        for acc in extracted_batch:
+            acc_clean = acc.strip().lstrip("@")
+            acc_lower = acc_clean.lower()
+            if acc_clean and acc_lower not in excluded and acc_lower not in batch_set:
+                batch_set.add(acc_lower)
+                batch_accounts.append(acc_clean)
+                new_count += 1
+                print(f"  🎯 Found account (scroll {scroll_idx}/{scroll_batch_size}): @{acc_clean} (Batch total: {len(batch_accounts)})")
 
-            # 広告を除外してアカウント一覧を抽出
-            try:
-                extracted_batch = await page.evaluate(EXTRACT_ACCOUNTS_JS)
-            except Exception as e:
-                print(f"⚠️ Extraction evaluate warning: {e}")
-                extracted_batch = []
+        if curr_scroll_y == prev_scroll_y and new_count == 0:
+            print(f"⏳ Cannot scroll down further at scroll {scroll_idx}/{scroll_batch_size}.")
+            break
 
-            new_in_batch = 0
-            for acc in extracted_batch:
-                acc_clean = acc.strip().lstrip("@")
-                acc_lower = acc_clean.lower()
-                if acc_clean and acc_lower not in seen_set:
-                    seen_set.add(acc_lower)
-                    seen_accounts.append(acc_clean)
-                    new_in_batch += 1
-                    print(f"  🎯 Found account from timeline: @{acc_clean} (Total unique: {len(seen_accounts)})")
-                    if max_accounts and len(seen_accounts) >= max_accounts:
-                        break
-
-            if max_accounts and len(seen_accounts) >= max_accounts:
-                print(f"🛑 Reached requested maximum accounts limit: {max_accounts}")
-                break
-
-            # スクロールと終了判定
-            prev_scroll_y = await page.evaluate("window.scrollY")
-            await page.mouse.wheel(0, 2000)
-            await asyncio.sleep(2.5)
-            curr_scroll_y = await page.evaluate("window.scrollY")
-
-            # 終了条件: これ以上スクロールできない、または新規アカウントが見つからない
-            if curr_scroll_y == prev_scroll_y and new_in_batch == 0:
-                no_change_count += 1
-                print(f"⏳ Scroll down limit reached or no new items (check {no_change_count}/{max_no_change})...")
-                if no_change_count >= max_no_change:
-                    print("🏁 Reached end of timeline. Stopping account collection.")
-                    break
-            else:
-                no_change_count = 0
-
-        await browser.close()
-
-    return seen_accounts
+    return batch_accounts
 
 def process_account(gist_id, username, num, is_existing):
     """
@@ -215,6 +197,91 @@ def process_account(gist_id, username, num, is_existing):
     res = subprocess.run(cmd)
     return res.returncode == 0
 
+async def run_expansion_loop(args, gist_id):
+    if not os.path.exists(AUTH_PATH):
+        print(f"❌ Error: Auth credentials not found at {AUTH_PATH}")
+        sys.exit(1)
+
+    print(f"🚀 Launching browser for timeline candidate expansion loop...")
+    current_user_gists = fetch_master_user_gists(gist_id)
+    existing_users_lower = {k.lower(): k for k in current_user_gists.keys()}
+    processed_accounts_lower = set()
+
+    cycle = 0
+    total_processed = 0
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=not args.no_headless)
+        context = await browser.new_context(
+            storage_state=AUTH_PATH,
+            viewport={"width": 1280, "height": 900},
+        )
+        page = await context.new_page()
+
+        while True:
+            cycle += 1
+            print("\n==================================================")
+            print(f"🔄 Starting Cycle {cycle}: Loading / Reloading Timeline")
+            print(f"  URL: {args.timeline_url}")
+            print(f"  Scroll Batch Size: {args.scroll_batch_size} scrolls")
+            print(f"  Total Processed so far: {total_processed}")
+            print("==================================================")
+
+            # 3. ホーム画面のリロード（初回は通常遷移）
+            try:
+                await page.goto(args.timeline_url, wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(4000)
+            except Exception as e:
+                print(f"⚠️ Page load warning: {e}")
+
+            # 1. 10スクロールでアカウント収集
+            print(f"\n📜 [Cycle {cycle}] Collecting accounts (10 scrolls limit)...")
+            batch_accounts = await collect_batch_accounts(
+                page,
+                scroll_batch_size=args.scroll_batch_size,
+                excluded_accounts_lower=processed_accounts_lower,
+            )
+
+            print(f"📋 [Cycle {cycle}] Discovered {len(batch_accounts)} new accounts in this batch.")
+
+            # 2. 収集したアカウントの画像取得（最新300ポスト）
+            if batch_accounts:
+                for idx, account in enumerate(batch_accounts, start=1):
+                    acc_lower = account.lower()
+                    processed_accounts_lower.add(acc_lower)
+
+                    is_existing = acc_lower in existing_users_lower
+                    print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}) ---")
+                    ok = process_account(gist_id, account, args.num, is_existing)
+                    if ok:
+                        total_processed += 1
+                        if not is_existing:
+                            existing_users_lower[acc_lower] = account
+
+                    if args.max_total_accounts and total_processed >= args.max_total_accounts:
+                        print(f"🛑 Reached maximum total accounts limit ({args.max_total_accounts}).")
+                        break
+            else:
+                print("ℹ️ No new accounts found in this 10-scroll batch.")
+
+            if args.max_total_accounts and total_processed >= args.max_total_accounts:
+                break
+
+            if args.max_cycles and cycle >= args.max_cycles:
+                print(f"🏁 Reached maximum requested cycles ({args.max_cycles}). Stopping loop.")
+                break
+
+            print(f"\n✅ [Cycle {cycle}] Completed image fetching. Reloading timeline for next cycle in 3 seconds...")
+            await asyncio.sleep(3)
+
+        await browser.close()
+
+    print("\n==================================================")
+    print("Timeline Expansion Loop Finished")
+    print(f"  Total Cycles Completed : {cycle}")
+    print(f"  Total Accounts Handled : {total_processed}")
+    print("==================================================")
+
 def main():
     args = parse_args()
     gist_id = args.gist_id or load_master_gist_id()
@@ -224,52 +291,13 @@ def main():
 
     print("==================================================")
     print("Timeline Candidate Account Extractor & Expander")
-    print(f"  Master Gist ID : {gist_id}")
-    print(f"  Per Account Num: {args.num}")
-    print(f"  Timeline URL   : {args.timeline_url}")
+    print(f"  Master Gist ID     : {gist_id}")
+    print(f"  Per Account Num    : {args.num}")
+    print(f"  Scroll Batch Size  : {args.scroll_batch_size}")
+    print(f"  Timeline URL       : {args.timeline_url}")
     print("==================================================")
 
-    # 1. タイムラインからアカウント一覧を収集
-    accounts = asyncio.run(
-        collect_accounts_from_timeline(
-            args.timeline_url,
-            max_accounts=args.max_accounts,
-            headless=not args.no_headless,
-        )
-    )
-
-    if not accounts:
-        print("ℹ️ No accounts discovered from timeline.")
-        sys.exit(0)
-
-    print(f"\n📋 Discovered {len(accounts)} accounts from timeline. Fetching master Gist status...")
-    current_user_gists = fetch_master_user_gists(gist_id)
-    existing_users_lower = {k.lower(): k for k in current_user_gists.keys()}
-
-    # 2. アカウントごとに読み込み＆Gist登録を実行
-    success_count = 0
-    new_candidate_count = 0
-    existing_count = 0
-
-    for idx, account in enumerate(accounts, start=1):
-        is_existing = account.lower() in existing_users_lower
-        print(f"\n--- [{idx}/{len(accounts)}] @{account} (Existing: {is_existing}) ---")
-        ok = process_account(gist_id, account, args.num, is_existing)
-        if ok:
-            success_count += 1
-            if is_existing:
-                existing_count += 1
-            else:
-                new_candidate_count += 1
-                existing_users_lower[account.lower()] = account
-
-    print("\n==================================================")
-    print("Timeline Expansion Summary")
-    print(f"  Total Accounts Found : {len(accounts)}")
-    print(f"  Successfully Processed: {success_count}")
-    print(f"  Existing Users Updated: {existing_count}")
-    print(f"  New Candidates Added  : {new_candidate_count}")
-    print("==================================================")
+    asyncio.run(run_expansion_loop(args, gist_id))
 
 if __name__ == "__main__":
     main()
