@@ -29,10 +29,8 @@ EXTRACT_ACCOUNTS_JS = """() => {
 
     articles.forEach(article => {
         // --- 広告（プロモーションポスト）の除外チェック ---
-        // 1. 属性・DOMによる判定: [data-testid="placementTracking"]
-        if (article.querySelector('[data-testid="placementTracking"]') || (article.matches && article.matches('[data-testid="placementTracking"]'))) return;
-
-        // 2. テキストによる判定: ポスト要素内のテキストに「プロモーション」または「Promoted」が含まれる場合
+        // テキストによる判定: ポスト要素内のテキストに「プロモーション」または「Promoted」が含まれる場合
+        // ※ [data-testid="placementTracking"] はXの動画プレイヤーラッパー要素にも付与されるため属性単体では除外しない
         const articleText = (article.innerText || '').toLowerCase();
         if (articleText.includes('プロモーション') || articleText.includes('promoted')) return;
 

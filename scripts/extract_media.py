@@ -120,12 +120,8 @@ def parse_syndication_video(data, origin_user, origin_status_id):
 
 EXTRACT_ARTICLE_JS = """(el) => {
     // --- 広告（プロモーションポスト）の除外チェック ---
-    // 1. 属性・DOMによる判定: [data-testid="placementTracking"] 等の広告特有属性が存在する場合はスキップ
-    if (el.querySelector('[data-testid="placementTracking"]') || (el.matches && el.matches('[data-testid="placementTracking"]'))) {
-        return null;
-    }
-
-    // 2. テキストによる判定: ポスト要素内のテキストに「プロモーション」または「Promoted」が含まれる場合はスキップ
+    // テキストによる判定: ポスト要素内のテキストに「プロモーション」または「Promoted」が含まれる場合はスキップ
+    // ※ [data-testid="placementTracking"] はXの動画プレイヤーラッパー要素にも付与されるため、動画除外バグ防止のため属性単体では除外しない
     const elText = (el.innerText || "").toLowerCase();
     if (elText.includes("プロモーション") || elText.includes("promoted")) {
         return null;
@@ -190,15 +186,15 @@ EXTRACT_ARTICLE_JS = """(el) => {
     const imgEls = el.querySelectorAll('[data-testid="tweetPhoto"] img');
     const photoUrls = [];
     for (const img of imgEls) {
-        if (img.closest('[data-testid="quotedTweet"]') || img.closest('[data-testid="placementTracking"]')) continue;
+        if (img.closest('[data-testid="quotedTweet"]')) continue;
         let src = img.getAttribute('src');
         if (!src || src.includes("name=120x120") || src.includes("name=240x240")) continue;
         src = src.split('&name=')[0];
         photoUrls.push(src);
     }
 
-    // 6. 動画要素
-    const vidEls = el.querySelectorAll('[data-testid="videoPlayer"], [data-testid="videoComponent"]');
+    // 6. 動画要素（videoPlayer, videoComponent, または video タグ）
+    const vidEls = el.querySelectorAll('[data-testid="videoPlayer"], [data-testid="videoComponent"], video');
     let hasVideo = false;
     for (const vid of vidEls) {
         if (!vid.closest('[data-testid="quotedTweet"]')) {

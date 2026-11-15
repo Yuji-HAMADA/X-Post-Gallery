@@ -179,7 +179,7 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertFalse(is_x_api_rate_limit("https://pbs.twimg.com/media/abc.jpg"))
 
     def test_extract_accounts_js_ad_filtering(self):
-        """EXTRACT_ACCOUNTS_JS がタイムライン広告のプロモーションテキストや placementTracking 属性を除外すること"""
+        """EXTRACT_ACCOUNTS_JS がタイムライン広告のプロモーションテキストを除外し、placementTracking を含む動画ポストのアカウントは正常に抽出すること"""
         import asyncio
         from playwright.async_api import async_playwright
         from expand_timeline_candidates import EXTRACT_ACCOUNTS_JS
@@ -203,8 +203,10 @@ class TestCandidateLogic(unittest.TestCase):
                         <span>Promoted</span>
                     </article>
                     <article>
-                        <time><a href="/placement_ad_user/status/400">now</a></time>
-                        <div data-testid="placementTracking"></div>
+                        <time><a href="/video_user/status/400">now</a></time>
+                        <div data-testid="placementTracking">
+                            <div data-testid="videoPlayer"></div>
+                        </div>
                     </article>
                 ''')
 
@@ -216,8 +218,8 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertIn("valid_user1", accounts)
         self.assertNotIn("promo_user", accounts)
         self.assertNotIn("promoted_user", accounts)
-        self.assertNotIn("placement_ad_user", accounts)
-        self.assertEqual(len(accounts), 1)
+        self.assertIn("video_user", accounts)
+        self.assertEqual(len(accounts), 2)
 
 if __name__ == "__main__":
     unittest.main()
