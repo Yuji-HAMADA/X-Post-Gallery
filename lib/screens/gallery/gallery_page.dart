@@ -40,6 +40,8 @@ class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
   final ScrollController _favGridController = ScrollController();
   final ScrollController _candidateGridController = ScrollController();
+  static const int _kTabCount = 3;
+  static const int _kLoopCenter = 3000;
   late final PageController _pageController;
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
@@ -50,7 +52,7 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: _currentPage);
+    _pageController = PageController(initialPage: _kLoopCenter + _currentPage);
     if (widget.initialItems != null) {
       // フィルタ済みサブギャラリー：ViewModelには触れず直接表示
     } else {
@@ -92,7 +94,13 @@ class _GalleryPageState extends State<GalleryPage> {
     if (page == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _pageController.jumpToPage(page);
+      final currentRaw = _pageController.hasClients
+          ? (_pageController.page?.round() ?? (_kLoopCenter + _currentPage))
+          : (_kLoopCenter + _currentPage);
+      final currentLogical =
+          ((currentRaw % _kTabCount) + _kTabCount) % _kTabCount;
+      final target = currentRaw - currentLogical + page;
+      _pageController.jumpToPage(target);
       setState(() => _currentPage = page);
     });
   }
@@ -610,10 +618,15 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted &&
-          _pageController.hasClients &&
-          _pageController.page?.round() != _currentPage) {
-        _pageController.jumpToPage(_currentPage);
+      if (mounted && _pageController.hasClients) {
+        final currentRaw = _pageController.page?.round() ??
+            (_kLoopCenter + _currentPage);
+        final currentLogical =
+            ((currentRaw % _kTabCount) + _kTabCount) % _kTabCount;
+        if (currentLogical != _currentPage) {
+          final target = currentRaw - currentLogical + _currentPage;
+          _pageController.jumpToPage(target);
+        }
       }
     });
 
@@ -740,33 +753,45 @@ class _GalleryPageState extends State<GalleryPage> {
             ? const Center(child: Text('Waiting for authentication...'))
             : vm.items.isEmpty
             ? const Center(child: CircularProgressIndicator())
-            : PageView(
+            : PageView.builder(
                 controller: _pageController,
-                onPageChanged: (page) {
-                  setState(() => _currentPage = page);
+                onPageChanged: (rawPage) {
+                  final logicalPage =
+                      ((rawPage % _kTabCount) + _kTabCount) % _kTabCount;
+                  if (_currentPage != logicalPage) {
+                    setState(() => _currentPage = logicalPage);
+                  }
                 },
-                children: [
-                  _buildFavoritesGrid(
-                    favoriteItems,
-                    vm.userGists,
-                    vm.favoriteUsers,
-                    vm.userPriorities,
-                  ),
-                  _buildUserGroupedGrid(
-                    vm.items,
-                    vm.userGists,
-                    vm.favoriteUsers,
-                    vm.userPriorities,
-                    isCandidateView: false,
-                  ),
-                  _buildUserGroupedGrid(
-                    vm.items,
-                    vm.userGists,
-                    vm.favoriteUsers,
-                    vm.userPriorities,
-                    isCandidateView: true,
-                  ),
-                ],
+                itemBuilder: (context, index) {
+                  final logicalIndex =
+                      ((index % _kTabCount) + _kTabCount) % _kTabCount;
+                  switch (logicalIndex) {
+                    case 0:
+                      return _buildFavoritesGrid(
+                        favoriteItems,
+                        vm.userGists,
+                        vm.favoriteUsers,
+                        vm.userPriorities,
+                      );
+                    case 1:
+                      return _buildUserGroupedGrid(
+                        vm.items,
+                        vm.userGists,
+                        vm.favoriteUsers,
+                        vm.userPriorities,
+                        isCandidateView: false,
+                      );
+                    case 2:
+                    default:
+                      return _buildUserGroupedGrid(
+                        vm.items,
+                        vm.userGists,
+                        vm.favoriteUsers,
+                        vm.userPriorities,
+                        isCandidateView: true,
+                      );
+                  }
+                },
               ),
       ),
     );

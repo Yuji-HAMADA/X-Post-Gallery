@@ -135,4 +135,65 @@ void main() {
     expect(find.text('候補'), findsWidgets);
     expect(repo.reloadCalled, isTrue);
   });
+
+  testWidgets('Cyclic gallery tab navigation (Favorites <-> Users <-> Candidate <-> Favorites)', (tester) async {
+    final repo = _MockRepoForReload();
+    final github = _MockGitHubServiceForReload();
+    final vm = GalleryViewModel(repository: repo, githubService: github);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: vm,
+        child: const MaterialApp(
+          locale: Locale('ja'),
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GalleryPage(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // 1. 初期状態: 「お気に入り」
+    expect(find.text('お気に入り'), findsWidgets);
+
+    final pageView = find.byType(PageView);
+    expect(pageView, findsOneWidget);
+
+    // 2. 「お気に入り」で右スワイプ（左端から引っ張る操作）-> 「候補」へサイクリック遷移
+    await tester.fling(pageView, const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('候補'), findsWidgets);
+
+    // 3. 「候補」でさらに右スワイプ -> 「ユーザー」へ遷移
+    await tester.fling(pageView, const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('ユーザー'), findsWidgets);
+
+    // 4. 「ユーザー」でさらに右スワイプ -> 「お気に入り」へ遷移
+    await tester.fling(pageView, const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('お気に入り'), findsWidgets);
+
+    // 5. 「お気に入り」で左スワイプ（順方向）-> 「ユーザー」へ遷移
+    await tester.fling(pageView, const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('ユーザー'), findsWidgets);
+
+    // 6. 「ユーザー」で左スワイプ -> 「候補」へ遷移
+    await tester.fling(pageView, const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('候補'), findsWidgets);
+
+    // 7. 「候補」で左スワイプ -> 「お気に入り」へサイクリック遷移
+    await tester.fling(pageView, const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('お気に入り'), findsWidgets);
+  });
 }
