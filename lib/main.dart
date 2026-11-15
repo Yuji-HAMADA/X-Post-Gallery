@@ -10,7 +10,11 @@ import 'package:x_post_gallery/viewmodels/gallery_viewmodel.dart';
 /// [EN] Application entry point
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("dotenv load warning: $e");
+  }
 
   runApp(const ReViewGallery());
 }

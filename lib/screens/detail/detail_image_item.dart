@@ -423,7 +423,7 @@ class _DetailImageItemState extends State<DetailImageItem>
           Text.rich(TextSpan(children: spans), style: defaultStyle),
           const SizedBox(height: 40),
           Text(
-            "Posted: ${widget.item.createdAt}",
+            "Posted: ${widget.item.formattedCreatedAt}",
             style: const TextStyle(color: Colors.grey, fontSize: 13),
           ),
           if (widget.item.postUrl != null) ...[

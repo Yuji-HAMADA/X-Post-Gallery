@@ -5,6 +5,7 @@ import re
 import sys
 import time
 import argparse
+from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 from playwright.async_api import async_playwright
 
@@ -13,6 +14,22 @@ DATA_DIR = "data"
 OUTPUT_FILE = os.path.join(DATA_DIR, "tweets.js")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
+JST = timezone(timedelta(hours=9))
+
+def to_jst_timestamp(ts_str):
+    """タイムスタンプ文字列を東京ローカルタイム（JST: YYYY-MM-DD HH:mm:ss JST）に変換"""
+    if not ts_str:
+        return ts_str
+    try:
+        cleaned = ts_str.strip()
+        if cleaned.endswith("JST"):
+            return cleaned
+        cleaned = cleaned.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(cleaned)
+        jst_dt = dt.astimezone(JST)
+        return jst_dt.strftime("%Y-%m-%d %H:%M:%S JST")
+    except Exception:
+        return ts_str
 
 def write_crawl_result(user, tweets_saved, status="ok"):
     """クローラーの取得結果（保存ツイート数など）をメタデータファイルに書き出す"""
@@ -225,7 +242,7 @@ async def build_tweet_data_from_raw(page, raw_info):
         "tweet": {
             "id_str": origin_status_id,
             "full_text": full_text,
-            "created_at": raw_info["timestamp"],
+            "created_at": to_jst_timestamp(raw_info.get("timestamp", "")),
             "entities": {"media": media_urls},
             "extended_entities": {"media": media_urls}
         },

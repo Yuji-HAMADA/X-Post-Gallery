@@ -104,17 +104,31 @@ class TestCandidateLogic(unittest.TestCase):
     def test_process_account_command_args(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
 
-        # 既存ユーザーの場合: -s が付くこと
-        process_account("dummy_gist", "existing_user", 300, is_existing=True)
+        # 既存ユーザーの場合: -s が付くこと、および500件渡せること
+        process_account("dummy_gist", "existing_user", 500, is_existing=True)
         call_args_existing = mock_run.call_args[0][0]
         self.assertIn("-s", call_args_existing)
         self.assertNotIn("--is-candidate", call_args_existing)
+        self.assertIn("500", call_args_existing)
 
-        # 新規ユーザーの場合: --is-candidate が付き、-s は付かないこと
+        # 新規ユーザーの場合: --is-candidate が付き、-s は付かないこと、および300件渡せること
         process_account("dummy_gist", "new_user", 300, is_existing=False)
         call_args_new = mock_run.call_args[0][0]
         self.assertIn("--is-candidate", call_args_new)
         self.assertNotIn("-s", call_args_new)
+        self.assertIn("300", call_args_new)
+
+    def test_parse_args_fetch_counts(self):
+        from expand_timeline_candidates import parse_args
+        with patch("sys.argv", ["expand_timeline_candidates.py"]):
+            args = parse_args()
+            self.assertEqual(args.num, 300)
+            self.assertEqual(args.num_existing, 500)
+
+        with patch("sys.argv", ["expand_timeline_candidates.py", "-n", "150", "--num-existing", "600"]):
+            args = parse_args()
+            self.assertEqual(args.num, 150)
+            self.assertEqual(args.num_existing, 600)
 
     def test_rate_limit_url_filtering(self):
         # サードパーティドメインの429は除外、X APIドメインの429は検知

@@ -4,6 +4,7 @@ import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
 import '../services/gallery_repository.dart';
 import '../services/github_service.dart';
+import '../utils/date_helper.dart';
 import '../utils/env_helper.dart';
 
 enum GalleryStatus { initial, loading, authenticated, error }
@@ -185,19 +186,23 @@ class GalleryViewModel extends ChangeNotifier {
     return null;
   }
 
-  /// ユーザーの全ツイートを取得（Gist分割対応、大文字小文字不問）
+  /// ユーザーの全ツイートを取得（Gist分割対応、大文字小文字不問、新しい順ソート）
   Future<List<TweetItem>> fetchUserItems(String username) async {
     final gistId = getGistIdForUser(username);
     final canonicalName = getCanonicalUsername(username) ?? username;
+    List<TweetItem> items;
     if (gistId != null) {
-      return await _repository.fetchUserGist(gistId, canonicalName);
+      items = await _repository.fetchUserGist(gistId, canonicalName);
+    } else {
+      // マスターデータからフィルタ（1件のみユーザー等）
+      items = _items.where((item) {
+        final extName = item.extractedUsername;
+        return extName != null &&
+            extName.toLowerCase() == username.toLowerCase();
+      }).toList();
     }
-    // マスターデータからフィルタ（1件のみユーザー等）
-    return _items.where((item) {
-      final extName = item.extractedUsername;
-      return extName != null &&
-          extName.toLowerCase() == username.toLowerCase();
-    }).toList();
+    items.sort(compareTweetsByNewest);
+    return items;
   }
 
   /// 管理者認証済みかどうか（Append 共通）

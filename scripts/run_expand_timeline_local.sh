@@ -68,4 +68,4 @@ echo "  Master Gist ID : $MASTER_GIST_ID"
 echo "=================================================="
 
 # --- 4. タイムライン収集スクリプトの実行 ---
-python3 "$PROJECT_DIR/scripts/expand_timeline_candidates.py" -g "$MASTER_GIST_ID" -n 300 "$@"
+python3 "$PROJECT_DIR/scripts/expand_timeline_candidates.py" -g "$MASTER_GIST_ID" "$@"

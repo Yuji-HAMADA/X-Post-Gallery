@@ -1,3 +1,5 @@
+import '../utils/date_helper.dart';
+
 /// [JA] 単一ポスト（画像・動画・本文・メタデータ）のデータモデル
 /// [EN] Data model for a single post (images, videos, text, and metadata)
 class TweetItem {
@@ -110,12 +112,15 @@ class TweetItem {
       }
     }
 
+    final rawCreatedAt =
+        (json['created_at'] ?? json['tweet']?['created_at'] ?? 'Unknown')
+            .toString();
+
     return TweetItem(
       id: (json['id'] ?? json['id_str'] ?? json['tweet']?['id_str'] ?? '')
           .toString(),
       fullText: json['full_text'] ?? json['tweet']?['full_text'] ?? '',
-      createdAt:
-          json['created_at'] ?? json['tweet']?['created_at'] ?? 'Unknown',
+      createdAt: formatToJst(rawCreatedAt),
       mediaUrls: mediaUrls,
       postUrl: (postUrl != null && postUrl.isNotEmpty) ? postUrl : null,
       username: json['username'] as String?,
@@ -123,6 +128,9 @@ class TweetItem {
       videoThumbnailUrl: videoThumb ?? json['thumbnail_url']?.toString(),
     );
   }
+
+  /// [JA] 東京ローカルタイム（JST）の投稿日時文字列を取得
+  String get formattedCreatedAt => formatToJst(createdAt);
 
   /// [JA] Twitterメディアに name= パラメータを付与する
   /// [EN] Appends the name= size parameter to Twitter media URLs

@@ -98,6 +98,15 @@ class TestExtractMediaGuards(unittest.TestCase):
         self.assertEqual(len(data["tweet"]["entities"]["media"]), 1)
         self.assertEqual(data["tweet"]["entities"]["media"][0]["type"], "photo")
         self.assertEqual(data["is_pinned"], False)
+        # UTC 00:00:00 -> JST 09:00:00
+        self.assertEqual(data["tweet"]["created_at"], "2026-11-10 09:00:00 JST")
+
+    def test_to_jst_timestamp(self):
+        """to_jst_timestamp が ISO UTC 文字列を JST に変換すること"""
+        self.assertEqual(extract_media.to_jst_timestamp("2026-11-10T15:30:00.000Z"), "2026-11-11 00:30:00 JST")
+        self.assertEqual(extract_media.to_jst_timestamp("2026-11-10 09:00:00 JST"), "2026-11-10 09:00:00 JST")
+        self.assertEqual(extract_media.to_jst_timestamp(""), "")
+        self.assertEqual(extract_media.to_jst_timestamp("invalid_date"), "invalid_date")
 
     def test_build_tweet_data_from_raw_no_media(self):
         """メディアがない場合は None が返ること"""

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
+import '../utils/date_helper.dart';
 import '../utils/env_helper.dart';
 
 const String _externalGithubUsername = String.fromEnvironment('GITHUB_USERNAME');
@@ -179,19 +180,23 @@ class GalleryRepository {
         }
 
         if (userData != null) {
-          return (userData['tweets'] as List? ?? [])
+          final tweets = (userData['tweets'] as List? ?? [])
               .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
               .where((item) => item.mediaUrls.isNotEmpty)
               .toList();
+          tweets.sort(compareTweetsByNewest);
+          return tweets;
         }
       }
 
       // 2. フォールバック: 直下に 'tweets' がある形式
       if (data is Map<String, dynamic> && data.containsKey('tweets')) {
-        return (data['tweets'] as List? ?? [])
+        final tweets = (data['tweets'] as List? ?? [])
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
             .where((item) => item.mediaUrls.isNotEmpty)
             .toList();
+        tweets.sort(compareTweetsByNewest);
+        return tweets;
       }
 
       debugPrint('[fetchUserGist] ERROR: User $username not found in Gist ($gistId)');

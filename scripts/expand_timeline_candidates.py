@@ -117,7 +117,8 @@ def fetch_master_user_gists(gist_id):
 def parse_args():
     parser = argparse.ArgumentParser(description="Timeline Candidate Account Collector")
     parser.add_argument("-g", "--gist-id", default=None, help="Master Gist ID (defaults to MASTER_GIST_ID env)")
-    parser.add_argument("-n", "--num", type=int, default=300, help="Number of tweets to fetch per account (default: 300)")
+    parser.add_argument("-n", "--num", type=int, default=300, help="Number of tweets to fetch for new accounts (default: 300)")
+    parser.add_argument("--num-existing", type=int, default=500, help="Number of tweets to fetch for existing accounts (default: 500)")
     parser.add_argument("--timeline-url", default="https://x.com/home", help="Timeline URL to scrape")
     parser.add_argument("--scroll-batch-size", type=int, default=10, help="Number of scrolls per collection batch (default: 10)")
     parser.add_argument("--max-cycles", type=int, default=None, help="Maximum number of reload-and-collect cycles (default: unlimited)")
@@ -255,8 +256,9 @@ async def run_expansion_loop(args, gist_id):
                     processed_accounts_lower.add(acc_lower)
 
                     is_existing = acc_lower in existing_users_lower
-                    print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}) ---")
-                    ret_code = process_account(gist_id, account, args.num, is_existing)
+                    fetch_num = args.num_existing if is_existing else args.num
+                    print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
+                    ret_code = process_account(gist_id, account, fetch_num, is_existing)
 
                     # レート制限 (code 42) 検知時の自動待機＆リトライ
                     if ret_code == 42:
@@ -265,7 +267,7 @@ async def run_expansion_loop(args, gist_id):
                         print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until X rate limit resets...")
                         await asyncio.sleep(args.rate_limit_wait)
                         print(f"🔄 Retrying @{account} after cooldown...")
-                        ret_code = process_account(gist_id, account, args.num, is_existing)
+                        ret_code = process_account(gist_id, account, fetch_num, is_existing)
 
                     if ret_code == 0:
                         total_processed += 1
