@@ -40,7 +40,7 @@ class _GalleryPageState extends State<GalleryPage> {
   final ScrollController _gridController = ScrollController();
   final ScrollController _favGridController = ScrollController();
   final ScrollController _candidateGridController = ScrollController();
-  final PageController _pageController = PageController();
+  late final PageController _pageController;
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
   bool _isFavRandomChecked = false;
@@ -50,6 +50,7 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _currentPage);
     if (widget.initialItems != null) {
       // フィルタ済みサブギャラリー：ViewModelには触れず直接表示
     } else {
@@ -602,11 +603,20 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     // ルートギャラリー：メイン / お気に入り を PageView で切り替え
-    final isAuthenticated = vm.status == GalleryStatus.authenticated;
+    final isAuthenticated = vm.status == GalleryStatus.authenticated ||
+        (vm.status == GalleryStatus.loading && vm.items.isNotEmpty);
     return _buildRootScaffold(vm, isAuthenticated);
   }
 
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          _pageController.hasClients &&
+          _pageController.page?.round() != _currentPage) {
+        _pageController.jumpToPage(_currentPage);
+      }
+    });
+
     final l10n = AppLocalizations.of(context);
     final isFavPage = _currentPage == 0;
     final isUserPage = _currentPage == 1;
@@ -650,7 +660,16 @@ class _GalleryPageState extends State<GalleryPage> {
                 ),
               ],
               IconButton(
-                icon: const Icon(Icons.refresh),
+                icon: vm.status == GalleryStatus.loading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.refresh),
                 tooltip: l10n.reload,
                 onPressed: vm.status == GalleryStatus.loading
                     ? null
