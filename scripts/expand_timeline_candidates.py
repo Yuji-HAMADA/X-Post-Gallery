@@ -97,22 +97,59 @@ def load_master_gist_id():
     return None
 
 def fetch_master_user_gists(gist_id):
-    """マスターGistから現在の user_gists を取得して返す"""
+    """マスターGistから現在の全既存ユーザー一覧（user_gists/tweets/users）を取得して返す"""
     if not gist_id:
         return {}
     candidate_files = ["data.json", "gallary_data.json"]
-    for fn in candidate_files:
-        try:
-            res = subprocess.run(
-                ["gh", "gist", "view", gist_id, "-f", fn],
-                capture_output=True, text=True, check=True
-            )
-            data = json.loads(res.stdout.strip())
-            if isinstance(data, dict) and "user_gists" in data:
-                return data["user_gists"]
-        except Exception:
-            continue
-    return {}
+    data = None
+
+    # 1. GitHub API + raw_url 経由での取得（大容量JSON対応）
+    try:
+        res = subprocess.run(
+            ["gh", "api", f"gists/{gist_id}"],
+            capture_output=True, text=True, check=True
+        )
+        gist_meta = json.loads(res.stdout)
+        files = gist_meta.get("files", {})
+        for fn in candidate_files:
+            if fn in files and files[fn].get("raw_url"):
+                dl = subprocess.run(
+                    ["curl", "-sf", "-L", files[fn]["raw_url"]],
+                    capture_output=True, text=True, check=True
+                )
+                data = json.loads(dl.stdout.strip())
+                if data:
+                    break
+    except Exception as e:
+        # 2. フォールバック: gh gist view
+        for fn in candidate_files:
+            try:
+                res = subprocess.run(
+                    ["gh", "gist", "view", gist_id, "-f", fn],
+                    capture_output=True, text=True, check=True
+                )
+                data = json.loads(res.stdout.strip())
+                if data:
+                    break
+            except Exception:
+                continue
+
+    if not isinstance(data, dict):
+        return {}
+
+    user_map = {}
+    if "user_gists" in data and isinstance(data["user_gists"], dict):
+        user_map.update(data["user_gists"])
+    if "users" in data and isinstance(data["users"], dict):
+        for u in data["users"].keys():
+            if u not in user_map:
+                user_map[u] = {}
+    if "tweets" in data and isinstance(data["tweets"], list):
+        for t in data["tweets"]:
+            u = t.get("username")
+            if u and u not in user_map:
+                user_map[u] = {}
+    return user_map
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Timeline Candidate Account Collector")

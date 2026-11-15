@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import sys
 import os
+import json
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from append_to_gist import process_multi_user_append
@@ -129,6 +130,39 @@ class TestCandidateLogic(unittest.TestCase):
             args = parse_args()
             self.assertEqual(args.num, 150)
             self.assertEqual(args.num_existing, 600)
+
+    @patch("subprocess.run")
+    def test_fetch_master_user_gists_raw_url(self, mock_run):
+        from expand_timeline_candidates import fetch_master_user_gists
+        # 1回目の呼び出し: gh api gists/xxx
+        mock_api_res = MagicMock(returncode=0)
+        mock_api_res.stdout = json.dumps({
+            "files": {
+                "data.json": {
+                    "raw_url": "https://gist.githubusercontent.com/raw/data.json"
+                }
+            }
+        })
+        # 2回目の呼び出し: curl -sf -L raw_url
+        mock_curl_res = MagicMock(returncode=0)
+        mock_curl_res.stdout = json.dumps({
+            "user_gists": {
+                "userA": {"gist_id": "g1"}
+            },
+            "users": {
+                "userB": {"tweets": []}
+            },
+            "tweets": [
+                {"username": "userC", "id_str": "123"}
+            ]
+        })
+        mock_run.side_effect = [mock_api_res, mock_curl_res]
+
+        users = fetch_master_user_gists("dummy_id")
+        self.assertIn("userA", users)
+        self.assertIn("userB", users)
+        self.assertIn("userC", users)
+        self.assertEqual(len(users), 3)
 
     def test_rate_limit_url_filtering(self):
         # サードパーティドメインの429は除外、X APIドメインの429は検知
