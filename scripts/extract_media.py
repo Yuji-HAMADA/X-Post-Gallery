@@ -119,6 +119,18 @@ def parse_syndication_video(data, origin_user, origin_status_id):
     return extracted
 
 EXTRACT_ARTICLE_JS = """(el) => {
+    // --- 広告（プロモーションポスト）の除外チェック ---
+    // 1. 属性・DOMによる判定: [data-testid="placementTracking"] 等の広告特有属性が存在する場合はスキップ
+    if (el.querySelector('[data-testid="placementTracking"]') || (el.matches && el.matches('[data-testid="placementTracking"]'))) {
+        return null;
+    }
+
+    // 2. テキストによる判定: ポスト要素内のテキストに「プロモーション」または「Promoted」が含まれる場合はスキップ
+    const elText = (el.innerText || "").toLowerCase();
+    if (elText.includes("プロモーション") || elText.includes("promoted")) {
+        return null;
+    }
+
     let origin_user = "unknown";
     let origin_status_id = "";
 

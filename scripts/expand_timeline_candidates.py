@@ -25,11 +25,16 @@ from extract_media import AUTH_PATH, DATA_DIR, dismiss_modals
 EXTRACT_ACCOUNTS_JS = """() => {
     const articles = document.querySelectorAll('article');
     const accounts = [];
-    const adKeywords = ['広告', 'ad', 'sponsored', 'プロモーション'];
+    const adKeywords = ['広告', 'ad', 'sponsored', 'プロモーション', 'promoted'];
 
     articles.forEach(article => {
-        // 1. 広告の除外チェック
-        if (article.querySelector('[data-testid="placementTracking"]')) return;
+        // --- 広告（プロモーションポスト）の除外チェック ---
+        // 1. 属性・DOMによる判定: [data-testid="placementTracking"]
+        if (article.querySelector('[data-testid="placementTracking"]') || (article.matches && article.matches('[data-testid="placementTracking"]'))) return;
+
+        // 2. テキストによる判定: ポスト要素内のテキストに「プロモーション」または「Promoted」が含まれる場合
+        const articleText = (article.innerText || '').toLowerCase();
+        if (articleText.includes('プロモーション') || articleText.includes('promoted')) return;
 
         // バッジ、span、svg、テキストから広告判定
         const adBadges = article.querySelectorAll('[data-testid="badge"], span, svg');

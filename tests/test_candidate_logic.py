@@ -178,5 +178,46 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertFalse(is_x_api_rate_limit("https://adservice.google.com/adsid/integrator.sync"))
         self.assertFalse(is_x_api_rate_limit("https://pbs.twimg.com/media/abc.jpg"))
 
+    def test_extract_accounts_js_ad_filtering(self):
+        """EXTRACT_ACCOUNTS_JS がタイムライン広告のプロモーションテキストや placementTracking 属性を除外すること"""
+        import asyncio
+        from playwright.async_api import async_playwright
+        from expand_timeline_candidates import EXTRACT_ACCOUNTS_JS
+
+        async def _run():
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+
+                await page.set_content('''
+                    <article>
+                        <time><a href="/valid_user1/status/100">now</a></time>
+                        <div>Normal user post</div>
+                    </article>
+                    <article>
+                        <time><a href="/promo_user/status/200">now</a></time>
+                        <div>プロモーション</div>
+                    </article>
+                    <article>
+                        <time><a href="/promoted_user/status/300">now</a></time>
+                        <span>Promoted</span>
+                    </article>
+                    <article>
+                        <time><a href="/placement_ad_user/status/400">now</a></time>
+                        <div data-testid="placementTracking"></div>
+                    </article>
+                ''')
+
+                accounts = await page.evaluate(EXTRACT_ACCOUNTS_JS)
+                await browser.close()
+                return accounts
+
+        accounts = asyncio.run(_run())
+        self.assertIn("valid_user1", accounts)
+        self.assertNotIn("promo_user", accounts)
+        self.assertNotIn("promoted_user", accounts)
+        self.assertNotIn("placement_ad_user", accounts)
+        self.assertEqual(len(accounts), 1)
+
 if __name__ == "__main__":
     unittest.main()

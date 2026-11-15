@@ -124,5 +124,59 @@ class TestExtractMediaGuards(unittest.TestCase):
         data = asyncio.run(extract_media.build_tweet_data_from_raw(mock_page, raw_info))
         self.assertIsNone(data)
 
+    def test_extract_article_js_ad_filtering(self):
+        """EXTRACT_ARTICLE_JS がプロモーションテキストや placementTracking 属性を検知して除外すること"""
+        import asyncio
+        from playwright.async_api import async_playwright
+
+        async def _run():
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+
+                # 通常のツイート
+                await page.set_content('''
+                    <article id="normal">
+                        <time datetime="2026-11-15T00:00:00.000Z"><a href="/user1/status/100">now</a></time>
+                        <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/test?format=jpg" /></div>
+                        <div data-testid="tweetText">Normal tweet</div>
+                    </article>
+                    <article id="ad_promo_ja">
+                        <time datetime="2026-11-15T00:00:00.000Z"><a href="/aduser/status/200">now</a></time>
+                        <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/ad?format=jpg" /></div>
+                        <div>プロモーション</div>
+                    </article>
+                    <article id="ad_promoted_en">
+                        <time datetime="2026-11-15T00:00:00.000Z"><a href="/aduser2/status/300">now</a></time>
+                        <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/ad2?format=jpg" /></div>
+                        <span>Promoted</span>
+                    </article>
+                    <article id="ad_placement_attr">
+                        <time datetime="2026-11-15T00:00:00.000Z"><a href="/aduser3/status/400">now</a></time>
+                        <div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/ad3?format=jpg" /></div>
+                        <div data-testid="placementTracking"></div>
+                    </article>
+                ''')
+
+                normal_el = await page.query_selector('#normal')
+                promo_ja_el = await page.query_selector('#ad_promo_ja')
+                promoted_en_el = await page.query_selector('#ad_promoted_en')
+                placement_el = await page.query_selector('#ad_placement_attr')
+
+                res_normal = await normal_el.evaluate(extract_media.EXTRACT_ARTICLE_JS)
+                res_promo_ja = await promo_ja_el.evaluate(extract_media.EXTRACT_ARTICLE_JS)
+                res_promoted_en = await promoted_en_el.evaluate(extract_media.EXTRACT_ARTICLE_JS)
+                res_placement = await placement_el.evaluate(extract_media.EXTRACT_ARTICLE_JS)
+
+                await browser.close()
+                return res_normal, res_promo_ja, res_promoted_en, res_placement
+
+        normal, promo_ja, promo_en, placement = asyncio.run(_run())
+        self.assertIsNotNone(normal)
+        self.assertEqual(normal["origin_user"], "user1")
+        self.assertIsNone(promo_ja)
+        self.assertIsNone(promo_en)
+        self.assertIsNone(placement)
+
 if __name__ == "__main__":
     unittest.main()
