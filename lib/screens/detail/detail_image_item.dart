@@ -37,6 +37,8 @@ class _DetailImageItemState extends State<DetailImageItem>
   late List<String> _effectiveVideoUrls;
   final Map<int, double> _resolvedRatios = {};
   final List<GestureRecognizer> _urlRecognizers = [];
+  final List<ImageStreamListener> _streamListeners = [];
+  final List<ImageStream> _imageStreams = [];
 
   @override
   void initState() {
@@ -114,6 +116,12 @@ class _DetailImageItemState extends State<DetailImageItem>
 
   @override
   void dispose() {
+    for (int i = 0; i < _imageStreams.length; i++) {
+      _imageStreams[i].removeListener(_streamListeners[i]);
+    }
+    _imageStreams.clear();
+    _streamListeners.clear();
+
     for (var controller in _controllers.values) {
       controller.dispose();
     }
@@ -132,17 +140,23 @@ class _DetailImageItemState extends State<DetailImageItem>
   void _resolveImageSize(int index, String url) {
     if (_resolvedRatios.containsKey(index)) return;
     final ImageProvider provider = NetworkImage(url);
-    provider
-        .resolve(const ImageConfiguration())
-        .addListener(
-          ImageStreamListener((info, _) {
-            if (mounted) {
-              setState(() {
-                _resolvedRatios[index] = info.image.width / info.image.height;
-              });
-            }
-          }),
-        );
+    final stream = provider.resolve(const ImageConfiguration());
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        if (mounted) {
+          setState(() {
+            _resolvedRatios[index] = info.image.width / info.image.height;
+          });
+        }
+      },
+      onError: (dynamic exception, StackTrace? stackTrace) {
+        // ignore
+      },
+    );
+    stream.addListener(listener);
+    _streamListeners.add(listener);
+    _imageStreams.add(stream);
   }
 
   void _updateZoomState(bool zoomed) {

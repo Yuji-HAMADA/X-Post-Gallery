@@ -62,6 +62,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   @override
   void dispose() {
+    _gridController.dispose();
     _pageController.dispose();
     _favGridController.dispose();
     _candidateGridController.dispose();

@@ -23,10 +23,11 @@ class VideoPlayerItem extends StatefulWidget {
 }
 
 class _VideoPlayerItemState extends State<VideoPlayerItem> {
-  late VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   bool _isInitialized = false;
   bool _hasError = false;
   late bool _isMuted;
+  bool _isDisposed = false;
 
   @override
   void initState() {
@@ -54,29 +55,39 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     if (_isMuted != muted) {
       setState(() {
         _isMuted = muted;
-        if (_isInitialized) {
-          _controller.setVolume(_isMuted ? 0.0 : 1.0);
+        if (_isInitialized && _controller != null) {
+          _controller!.setVolume(_isMuted ? 0.0 : 1.0);
         }
       });
     }
   }
 
   Future<void> _initializePlayer() async {
+    final controller =
+        VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    _controller = controller;
     try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
-      await _controller.initialize();
-      await _controller.setVolume(_isMuted ? 0.0 : 1.0);
-      await _controller.setLooping(true);
-      if (widget.autoPlay) {
-        await _controller.play();
+      await controller.initialize();
+      if (_isDisposed) {
+        await controller.dispose();
+        return;
       }
-      if (mounted) {
+      await controller.setVolume(_isMuted ? 0.0 : 1.0);
+      await controller.setLooping(true);
+      if (widget.autoPlay) {
+        await controller.play();
+      }
+      if (mounted && !_isDisposed) {
         setState(() {
           _isInitialized = true;
         });
       }
     } catch (e) {
       debugPrint('VideoPlayer initialization error: $e');
+      if (_isDisposed) {
+        await controller.dispose();
+        return;
+      }
       if (mounted) {
         setState(() {
           _hasError = true;
@@ -87,31 +98,33 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
 
   @override
   void dispose() {
+    _isDisposed = true;
     widget.muteNotifier?.removeListener(_handleMuteNotifierChanged);
-    _controller.dispose();
+    _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 
   void _togglePlayPause() {
-    if (!_isInitialized) return;
+    if (!_isInitialized || _controller == null) return;
     setState(() {
-      if (_controller.value.isPlaying) {
-        _controller.pause();
+      if (_controller!.value.isPlaying) {
+        _controller!.pause();
       } else {
-        _controller.play();
+        _controller!.play();
       }
     });
   }
 
   void _toggleMute() {
-    if (!_isInitialized) return;
+    if (!_isInitialized || _controller == null) return;
     final newMuted = !_isMuted;
     if (widget.muteNotifier != null) {
       widget.muteNotifier!.value = newMuted;
     } else {
       setState(() {
         _isMuted = newMuted;
-        _controller.setVolume(_isMuted ? 0.0 : 1.0);
+        _controller!.setVolume(_isMuted ? 0.0 : 1.0);
       });
     }
   }
@@ -141,7 +154,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
       );
     }
 
-    if (!_isInitialized) {
+    if (!_isInitialized || _controller == null) {
       return Container(
         width: screenWidth,
         height: 240,
@@ -166,8 +179,9 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
       );
     }
 
-    final double videoAspect = _controller.value.aspectRatio > 0
-        ? _controller.value.aspectRatio
+    final controller = _controller!;
+    final double videoAspect = controller.value.aspectRatio > 0
+        ? controller.value.aspectRatio
         : (16 / 9);
 
     // 縦長動画の場合に画面高さを超えないように制約
@@ -190,11 +204,11 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
             Center(
               child: AspectRatio(
                 aspectRatio: videoAspect,
-                child: VideoPlayer(_controller),
+                child: VideoPlayer(controller),
               ),
             ),
             // 一時停止時の再生ボタン表示
-            if (!_controller.value.isPlaying)
+            if (!controller.value.isPlaying)
               Container(
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.5),
@@ -235,7 +249,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
               left: 0,
               right: 0,
               child: VideoProgressIndicator(
-                _controller,
+                controller,
                 allowScrubbing: true,
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 colors: const VideoProgressColors(

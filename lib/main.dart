@@ -19,10 +19,41 @@ void main() async {
   runApp(const ReViewGallery());
 }
 
-/// [JA] メインアプリケーションウィジェット（ダークテーマ・多言語化設定）
-/// [EN] Main application widget (dark theme & localization setup)
-class ReViewGallery extends StatelessWidget {
+/// [JA] メインアプリケーションウィジェット（ダークテーマ・多言語化設定・LMK対策ライフサイクル監視）
+/// [EN] Main application widget (dark theme, localization & LMK defense lifecycle observer)
+class ReViewGallery extends StatefulWidget {
   const ReViewGallery({super.key});
+
+  @override
+  State<ReViewGallery> createState() => _ReViewGalleryState();
+}
+
+class _ReViewGalleryState extends State<ReViewGallery>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // [JA] バックグラウンド移行時に画像キャッシュを解放し、Android OSのLMK (Low Memory Killer) によるKillを防ぐ
+    // [EN] Flush image cache when moving to background to prevent OS Low Memory Killer termination
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      debugPrint('[Lifecycle] App moved to background: clearing image cache to avoid LMK kill');
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
