@@ -66,7 +66,7 @@ fi
 chmod +x "$PROJECT_DIR/append_gist.sh"
 
 # --- 引数の解析 ---
-TARGET_SLOT="all"
+TARGET_SLOT="auto"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --slot)
@@ -78,10 +78,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-echo "=========================================="
-echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Local Scheduled Fetch Started (Slot: $TARGET_SLOT)"
-echo "=========================================="
 
 CONSECUTIVE_ERRORS=0
 
@@ -106,10 +102,34 @@ if [ -z "$DEFAULT_COUNT" ]; then
   DEFAULT_COUNT=500
 fi
 
-echo "📋 Master Gist  : $MASTER_GIST_ID"
-echo "📋 Default count: $DEFAULT_COUNT"
-echo "📋 Slot 0 Gist  : $SLOT0_ID"
-[ -n "$SLOT1_ID" ] && echo "📋 Slot 1 Gist  : $SLOT1_ID"
+# 対象スロットの決定
+# ※ 要件: ユーザー操作により新規追加または更新の指示があったXアカウント（Slot 1）のみを処理対象とする。
+# ※ 既存ユーザーの定期巡回は scripts/run_fetch_favorites_local.sh 側で --slot 0 を明示して実施する。
+ACTUAL_SLOTS=()
+if [ "$TARGET_SLOT" = "0" ]; then
+  ACTUAL_SLOTS=("0")
+elif [ "$TARGET_SLOT" = "1" ]; then
+  ACTUAL_SLOTS=("1")
+elif [ "$TARGET_SLOT" = "auto" ] || [ "$TARGET_SLOT" = "all" ]; then
+  if [ -n "$SLOT1_ID" ]; then
+    # 2スロット構成: ユーザー操作枠である Slot 1 のみを処理
+    ACTUAL_SLOTS=("1")
+  else
+    # シングルスロット構成: Slot 0 をユーザー操作枠として処理
+    ACTUAL_SLOTS=("0")
+  fi
+else
+  ACTUAL_SLOTS=("$TARGET_SLOT")
+fi
+
+echo "=========================================="
+echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Local Scheduled Fetch Started"
+echo "ℹ️ Target Slot(s) : ${ACTUAL_SLOTS[*]} (Option: $TARGET_SLOT)"
+echo "📋 Master Gist    : $MASTER_GIST_ID"
+echo "📋 Default count  : $DEFAULT_COUNT"
+echo "📋 Slot 0 Gist    : $SLOT0_ID"
+[ -n "$SLOT1_ID" ] && echo "📋 Slot 1 Gist    : $SLOT1_ID"
+echo "=========================================="
 
 # --- 5. ステータスリセット関数 ---
 reset_status() {
@@ -173,11 +193,12 @@ process_slot() {
   echo "📋 Unprocessed entries in slot $slot_num: $entry_count"
 
   if [ "$entry_count" -eq 0 ]; then
-    # 全エントリが処理済みの場合、Slot 0（定期巡回枠）のみアダプティブ・スキップカウンタを維持したまま done フラグをリセットして次周回に備える
-    # Slot 1（ユーザーリクエスト枠）は使い切りキューのため周回リセットは行わない
+    # 全エントリが処理済みの場合、明示的に --slot 0 で巡回指定された場合、
+    # またはシングルスロット構成時のみ、アダプティブ・スキップカウンタを維持したまま done フラグをリセットして次周回に備える
+    # （Slot 1 は使い切りキューのため周回リセット不要。2スロット構成の run_scheduled_fetch_local.sh では Slot 0 周回リセットを行わない）
     local total_users
     total_users=$(echo "$slot_json" | jq -r '(.users | length) // 0')
-    if [ "$total_users" -gt 0 ] && [ "$slot_num" -eq 0 ]; then
+    if [ "$total_users" -gt 0 ] && [ "$slot_num" -eq 0 ] && { [ "$TARGET_SLOT" = "0" ] || [ -z "$SLOT1_ID" ]; }; then
       echo "🔄 [Adaptive Skip] All $total_users entries done in slot $slot_num. Resetting cycle (done=false) while keeping skip counters..."
       slot_json=$(echo "$slot_json" | jq '.users = [.users[] | .done = false | .from_scratch = false]')
       local tmp_cycle
@@ -477,18 +498,21 @@ while [ $LOOP_COUNT -lt $MAX_LOOPS ]; do
   echo "🔁 [Loop iteration $LOOP_COUNT/$MAX_LOOPS]"
   PROCESSED=false
 
-  if [ "$TARGET_SLOT" = "0" ] || [ "$TARGET_SLOT" = "all" ]; then
-    process_slot "$SLOT0_ID" 0 && PROCESSED=true
-  fi
-
-  if [ "$TARGET_SLOT" = "1" ] || [ "$TARGET_SLOT" = "all" ]; then
-    if [ -n "$SLOT1_ID" ]; then
-      process_slot "$SLOT1_ID" 1 && PROCESSED=true
+  for slot in "${ACTUAL_SLOTS[@]}"; do
+    if [ "$slot" = "0" ]; then
+      process_slot "$SLOT0_ID" 0 && PROCESSED=true
+    elif [ "$slot" = "1" ]; then
+      if [ -n "$SLOT1_ID" ]; then
+        process_slot "$SLOT1_ID" 1 && PROCESSED=true
+      elif [ "$TARGET_SLOT" = "1" ]; then
+        # シングルスロット構成時かつ明示的slot 1指定時はslot 0でフォールバック
+        process_slot "$SLOT0_ID" 0 && PROCESSED=true
+      fi
     fi
-  fi
+  done
 
   if [ "$PROCESSED" = false ]; then
-    echo "✅ No unprocessed entries in any slot. All done."
+    echo "✅ No unprocessed entries in target slot(s). All done."
     break
   fi
 

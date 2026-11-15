@@ -30,6 +30,13 @@ def main():
         action="store_true",
         help="Reset 'done' flags only for a new crawl cycle while preserving adaptive skip counters",
     )
+    parser.add_argument(
+        "--slot",
+        type=str,
+        default="all",
+        choices=["0", "1", "all"],
+        help="Target slot to reset (0, 1, or all. Default: all)",
+    )
     args = parser.parse_args()
 
     load_env()
@@ -37,59 +44,74 @@ def main():
     if gh_token:
         os.environ["GH_TOKEN"] = gh_token
 
-    gist_id = os.environ.get("FETCH_QUEUE_GIST_ID")
-    if not gist_id:
+    slot0_id = os.environ.get("FETCH_QUEUE_GIST_ID")
+    if not slot0_id:
         print("❌ Error: FETCH_QUEUE_GIST_ID is not set in .env")
         sys.exit(1)
 
-    print(f"🔄 Reading fetch_queue.json from Gist: {gist_id}...")
+    # Slot 0 の読み込みと sibling_gist_id (Slot 1) の特定
     proc = subprocess.run(
-        ["gh", "gist", "view", gist_id, "-f", "fetch_queue.json"],
+        ["gh", "gist", "view", slot0_id, "-f", "fetch_queue.json"],
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
-        print(f"❌ Error fetching gist: {proc.stderr}")
+        print(f"❌ Error fetching slot 0 gist: {proc.stderr}")
         sys.exit(proc.returncode)
 
     try:
-        data = json.loads(proc.stdout)
+        slot0_data = json.loads(proc.stdout)
     except json.JSONDecodeError as e:
-        print(f"❌ Error parsing JSON: {e}")
+        print(f"❌ Error parsing JSON from slot 0: {e}")
         sys.exit(1)
 
-    users = data.get("users", [])
-    if args.cycle:
-        # サイクルリセット: done フラグのみを false にし、skip_count は保持
-        for u in users:
-            u["done"] = False
-        action_msg = f"Reset cycle for {len(users)} users (preserved adaptive skip counters)."
-    else:
-        # キュー全クリア
-        old_users_count = len(users)
-        data["users"] = []
-        data["default_count"] = 500
-        action_msg = f"Queue reset successful (cleared {old_users_count} users)."
+    slot1_id = slot0_data.get("sibling_gist_id") or os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID")
 
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        tmp_path = f.name
-
-    try:
-        edit_proc = subprocess.run(
-            ["gh", "gist", "edit", gist_id, "-f", "fetch_queue.json", tmp_path],
+    target_slots = []
+    if args.slot in ("0", "all"):
+        target_slots.append((0, slot0_id, slot0_data))
+    if args.slot in ("1", "all") and slot1_id:
+        proc1 = subprocess.run(
+            ["gh", "gist", "view", slot1_id, "-f", "fetch_queue.json"],
             capture_output=True,
             text=True,
         )
-        if edit_proc.returncode != 0:
-            print(f"❌ Error updating gist: {edit_proc.stderr}")
-            sys.exit(edit_proc.returncode)
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if proc1.returncode == 0:
+            try:
+                target_slots.append((1, slot1_id, json.loads(proc1.stdout)))
+            except json.JSONDecodeError:
+                print(f"⚠️ Warning: Could not parse slot 1 JSON: {slot1_id}")
 
-    print(f"✅ {action_msg}")
-    print("   Next run of scripts/run_fetch_favorites_local.sh will crawl users with adaptive backoff.")
+    for slot_num, gid, data in target_slots:
+        users = data.get("users", [])
+        if args.cycle:
+            for u in users:
+                u["done"] = False
+            action_msg = f"Slot {slot_num}: Reset cycle for {len(users)} users (preserved adaptive skip counters)."
+        else:
+            old_count = len(users)
+            data["users"] = []
+            data["default_count"] = 500
+            data["status"] = "idle"
+            action_msg = f"Slot {slot_num}: Cleared {old_count} queued users."
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            tmp_path = f.name
+
+        try:
+            edit_proc = subprocess.run(
+                ["gh", "gist", "edit", gid, "-f", "fetch_queue.json", tmp_path],
+                capture_output=True,
+                text=True,
+            )
+            if edit_proc.returncode != 0:
+                print(f"❌ Error updating slot {slot_num} gist: {edit_proc.stderr}")
+            else:
+                print(f"✅ {action_msg} ({gid})")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
 
 if __name__ == "__main__":
