@@ -137,5 +137,51 @@ void main() {
       expect(result[0].id, equals('2'));
       expect(result[1].id, equals('1'));
     });
+
+    test('Pinned accounts are sorted by latest post date descending (e.g. yutaka_prompt before hello_heso)', () {
+      final helloHesoTweet = TweetItem(
+        id: '1',
+        fullText: 'hello_heso tweet',
+        createdAt: '2026-11-14 08:09:21 JST',
+        mediaUrls: ['url1'],
+      );
+      final yutakaPromptTweet = TweetItem(
+        id: '2',
+        fullText: 'yutaka_prompt tweet',
+        createdAt: '2026-11-15 21:40:33 JST',
+        mediaUrls: ['url2'],
+      );
+
+      // 両者ピン留めされている状態
+      final userPriorities = {
+        'hello_heso': 1000,
+        'yutaka_prompt': 2000,
+      };
+      final originalIndex = {
+        'hello_heso': 0,
+        'yutaka_prompt': 1,
+      };
+
+      final entries = [
+        MapEntry('hello_heso', [helloHesoTweet]),
+        MapEntry('yutaka_prompt', [yutakaPromptTweet]),
+      ];
+
+      // compareTweetsByNewest を直接使ったソート検証
+      entries.sort((a, b) {
+        final isPinnedA = (userPriorities[a.key] ?? 0) > 0;
+        final isPinnedB = (userPriorities[b.key] ?? 0) > 0;
+        if (isPinnedA != isPinnedB) {
+          return isPinnedB ? 1 : -1;
+        }
+        final tweetCmp = compareTweetsByNewest(a.value.first, b.value.first);
+        if (tweetCmp != 0) return tweetCmp;
+        return (originalIndex[b.key] ?? 0).compareTo(originalIndex[a.key] ?? 0);
+      });
+
+      // 最新ポストが 11-15 の yutaka_prompt が 11-14 の hello_heso より前になること
+      expect(entries[0].key, equals('yutaka_prompt'));
+      expect(entries[1].key, equals('hello_heso'));
+    });
   });
 }

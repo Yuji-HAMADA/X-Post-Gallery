@@ -103,6 +103,54 @@ void main() {
 
       expect(find.byIcon(Icons.favorite), findsOneWidget);
     });
+
+    testWidgets('Pin icon is displayed when isPinned is true and hidden when false', (tester) async {
+      // 1. isPinned = false: ピンマーク非表示
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 150,
+                height: 150,
+                child: UserCard(
+                  username: 'unpinned_user',
+                  thumbItem: dummyThumb,
+                  isFavorite: false,
+                  isPinned: false,
+                  onTap: () {},
+                  onFavoriteTap: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.byIcon(Icons.push_pin), findsNothing);
+
+      // 2. isPinned = true: ピンマーク表示
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 150,
+                height: 150,
+                child: UserCard(
+                  username: 'pinned_user',
+                  thumbItem: dummyThumb,
+                  isFavorite: false,
+                  isPinned: true,
+                  onTap: () {},
+                  onFavoriteTap: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.byIcon(Icons.push_pin), findsOneWidget);
+    });
   });
 
   group('Toast Notification UI Tests', () {

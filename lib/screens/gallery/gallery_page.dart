@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
+import '../../utils/date_helper.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
 import 'components/dialog_helpers.dart';
@@ -916,23 +917,6 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// 優先順位（priority_updated_at 降順）および元の登録順（降順/LIFO）でユーザーを比較する
-  int _compareUserPriority(
-    String userA,
-    String userB,
-    Map<String, int> userPriorities,
-    Map<String, int> originalIndex,
-  ) {
-    final pA = userPriorities[userA] ?? 0;
-    final pB = userPriorities[userB] ?? 0;
-    final cmp = pB.compareTo(pA);
-    if (cmp != 0) return cmp;
-
-    final idxA = originalIndex[userA] ?? -1;
-    final idxB = originalIndex[userB] ?? -1;
-    return idxB.compareTo(idxA);
-  }
-
   /// ユーザーのツイート一覧からサムネイル付きの代表アイテムを選択する
   TweetItem _selectThumbnailItem(List<TweetItem> userItems) {
     return userItems.firstWhere(
@@ -946,6 +930,70 @@ class _GalleryPageState extends State<GalleryPage> {
               mediaUrls: const [],
             ),
     );
+  }
+
+  /// [JA] メインギャラリー表示順の比較関数
+  /// 1. ピン留めされているグループ（priority_updated_at > 0）をピン留めされていないグループより優先して上に配置
+  /// 2. ピン留め内外それぞれのグループ内において、「最新ポスト（代表アイテム）の時刻の新しい順（降順）」でソート
+  /// 3. ポスト時刻が同一または判別不能な場合は元の登録順（降順）で比較
+  int _compareUserEntries(
+    MapEntry<String, List<TweetItem>> a,
+    MapEntry<String, List<TweetItem>> b,
+    Map<String, int> userPriorities,
+    Map<String, int> originalIndex,
+  ) {
+    final isPinnedA = (userPriorities[a.key] ?? 0) > 0;
+    final isPinnedB = (userPriorities[b.key] ?? 0) > 0;
+
+    // 1. ピン留めグループと非ピン留めグループの分離
+    if (isPinnedA != isPinnedB) {
+      return isPinnedB ? 1 : -1;
+    }
+
+    // 2. ピン留め内外それぞれのグループ内で、最新ポスト（代表アイテム）の投稿日時の新しい順
+    final thumbA = _selectThumbnailItem(a.value);
+    final thumbB = _selectThumbnailItem(b.value);
+    final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
+    if (tweetCmp != 0) return tweetCmp;
+
+    // 3. 同一ポスト時刻の場合は元のインデックスで比較
+    final idxA = originalIndex[a.key] ?? -1;
+    final idxB = originalIndex[b.key] ?? -1;
+    return idxB.compareTo(idxA);
+  }
+
+  /// ユーザー名単体での比較用関数（UserGallerySwipePage等のスコープ生成用）
+  int _compareUserPriority(
+    String userA,
+    String userB,
+    Map<String, int> userPriorities,
+    Map<String, int> originalIndex, {
+    Map<String, List<TweetItem>>? grouped,
+  }) {
+    final isPinnedA = (userPriorities[userA] ?? 0) > 0;
+    final isPinnedB = (userPriorities[userB] ?? 0) > 0;
+
+    if (isPinnedA != isPinnedB) {
+      return isPinnedB ? 1 : -1;
+    }
+
+    if (grouped != null) {
+      final itemsA = grouped[userA] ?? [];
+      final itemsB = grouped[userB] ?? [];
+      final thumbA = _selectThumbnailItem(itemsA);
+      final thumbB = _selectThumbnailItem(itemsB);
+      final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
+      if (tweetCmp != 0) return tweetCmp;
+    }
+
+    final pA = userPriorities[userA] ?? 0;
+    final pB = userPriorities[userB] ?? 0;
+    final cmp = pB.compareTo(pA);
+    if (cmp != 0) return cmp;
+
+    final idxA = originalIndex[userA] ?? -1;
+    final idxB = originalIndex[userB] ?? -1;
+    return idxB.compareTo(idxA);
   }
 
   /// ユーザーグループ化したグリッド（メイン / 候補ギャラリー用）
@@ -994,8 +1042,8 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    // priority_updated_at の降順（新しい順）でソート
-    entries.sort((a, b) => _compareUserPriority(a.key, b.key, userPriorities, originalIndex));
+    // ピン留めグループ・非ピン留めグループそれぞれ「ポストされた時刻の新しい順」でソート
+    entries.sort((a, b) => _compareUserEntries(a, b, userPriorities, originalIndex));
 
     final userUsernames = entries.map((e) => e.key).toList();
 
@@ -1023,10 +1071,12 @@ class _GalleryPageState extends State<GalleryPage> {
         final username = entries[index].key;
         final userItems = entries[index].value;
         final thumbItem = _selectThumbnailItem(userItems);
+        final isPinned = (userPriorities[username] ?? 0) > 0;
         return UserCard(
           username: username,
           thumbItem: thumbItem,
           isFavorite: favoriteUsers.contains(username),
+          isPinned: isPinned,
           onTap: () => _openUserGallery(username, scope: userUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
@@ -1084,8 +1134,8 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    // priority_updated_at の降順（新しい順）でソート
-    entries.sort((a, b) => _compareUserPriority(a.key, b.key, userPriorities, originalIndex));
+    // ピン留めグループ・非ピン留めグループそれぞれ「ポストされた時刻の新しい順」でソート
+    entries.sort((a, b) => _compareUserEntries(a, b, userPriorities, originalIndex));
 
     // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
     final favUsernames = entries.map((e) => e.key).toList();
@@ -1103,10 +1153,12 @@ class _GalleryPageState extends State<GalleryPage> {
         final username = entries[index].key;
         final userItems = entries[index].value;
         final thumbItem = _selectThumbnailItem(userItems);
+        final isPinned = (userPriorities[username] ?? 0) > 0;
         return UserCard(
           username: username,
           thumbItem: thumbItem,
           isFavorite: true,
+          isPinned: isPinned,
           onTap: () => _openUserGallery(username, scope: favUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
@@ -1250,15 +1302,17 @@ class _GalleryPageState extends State<GalleryPage> {
           registered.add(u);
         }
       }
+      final Map<String, List<TweetItem>> grouped = {};
       for (final item in vm.items) {
         final key = item.extractedUsername ?? '_unknown';
+        grouped.putIfAbsent(key, () => []).add(item);
         if (!vm.favoriteUsers.contains(key) && !registered.contains(key)) {
           list.add(key);
           registered.add(key);
         }
       }
 
-      list.sort((a, b) => _compareUserPriority(a, b, vm.userPriorities, originalIndex));
+      list.sort((a, b) => _compareUserPriority(a, b, vm.userPriorities, originalIndex, grouped: grouped));
 
       sortedUsernames = list;
     }

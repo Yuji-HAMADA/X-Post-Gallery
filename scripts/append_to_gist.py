@@ -15,6 +15,7 @@ import argparse
 import subprocess
 import tempfile
 import time
+from datetime import datetime
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
@@ -74,6 +75,54 @@ def group_tweets_by_user(tweets):
         user = extract_username(tweet)
         groups.setdefault(user, []).append(tweet)
     return groups
+
+def get_tweet_sort_key(tweet):
+    """ツイートの投稿時刻ソートキー（ミリ秒タイムスタンプ）を返す"""
+    if not tweet or not isinstance(tweet, dict):
+        return 0
+    id_str = str(tweet.get("id_str") or tweet.get("id") or "")
+    if id_str.isdigit():
+        val = int(id_str)
+        if val > 100000000000:
+            return (val >> 22) + 1288834974650
+    created_at = tweet.get("created_at", "")
+    if created_at:
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\s+JST$", created_at)
+        if m:
+            try:
+                dt = datetime.strptime(created_at.replace(" JST", " +0900"), "%Y-%m-%d %H:%M:%S %z")
+                return int(dt.timestamp() * 1000)
+            except Exception:
+                pass
+        try:
+            dt = datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            pass
+        try:
+            iso_str = created_at.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(iso_str)
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            pass
+    return 0
+
+def has_media(tweet):
+    if not isinstance(tweet, dict):
+        return False
+    if tweet.get("media_urls") and len(tweet["media_urls"]) > 0:
+        return True
+    if tweet.get("image_url") or tweet.get("media_url") or tweet.get("video_url") or tweet.get("video_urls"):
+        return True
+    return False
+
+def select_latest_thumbnail_tweet(tweets):
+    """ユーザーのツイート群からサムネイル用最新メディアツイートを選出する"""
+    if not tweets:
+        return {}
+    media_tweets = [t for t in tweets if has_media(t)]
+    candidate_list = media_tweets if media_tweets else tweets
+    return max(candidate_list, key=get_tweet_sort_key)
 
 # ---------------------------------------------------------------------------
 # Gist フォーマット判定
@@ -463,12 +512,14 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             entry_data["is_candidate"] = True
         user_gists_map[user] = entry_data
         master_tweets = [t for t in master_tweets if extract_username(t) != user]
-        latest = merged[0]
+        latest = select_latest_thumbnail_tweet(merged)
         master_entry = {
             "id_str": latest.get("id_str", ""),
             "username": user,
             "media_urls": latest.get("media_urls", [])[:1],
         }
+        if latest.get("created_at"):
+            master_entry["created_at"] = latest["created_at"]
         if latest.get("video_url"):
             master_entry["video_url"] = latest["video_url"]
         if latest.get("video_urls"):

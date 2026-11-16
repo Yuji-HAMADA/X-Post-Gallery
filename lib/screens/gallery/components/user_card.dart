@@ -6,6 +6,7 @@ class UserCard extends StatelessWidget {
   final String username;
   final TweetItem thumbItem;
   final bool isFavorite;
+  final bool isPinned;
   final VoidCallback onTap;
   final VoidCallback onFavoriteTap;
   final VoidCallback? onLongPress;
@@ -15,6 +16,7 @@ class UserCard extends StatelessWidget {
     required this.username,
     required this.thumbItem,
     required this.isFavorite,
+    this.isPinned = false,
     required this.onTap,
     required this.onFavoriteTap,
     this.onLongPress,
@@ -43,6 +45,24 @@ class UserCard extends StatelessWidget {
                     child: Icon(Icons.broken_image, color: Colors.grey),
                   ),
           ),
+          // 左上: ピンマーク（ピン留めアカウントのみ表示）
+          if (isPinned)
+            Positioned(
+              top: 2,
+              left: 2,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: const BoxDecoration(
+                  color: Colors.black38,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.push_pin,
+                  color: Colors.amber,
+                  size: 16,
+                ),
+              ),
+            ),
           // 右上: ハートボタン（短押しでお気に入りトグル）
           Positioned(
             top: 2,

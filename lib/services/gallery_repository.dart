@@ -105,6 +105,7 @@ class GalleryRepository {
   }
 
   /// [JA] ローカル SharedPreferences のピン留め状態をマスターデータとマージする
+  /// マスターGist（リモート）の priority_updated_at を優先し、リモートに存在しないキーのみローカルで補完する
   Future<GalleryData> _mergeLocalPriorities(GalleryData data) async {
     final localPriorities = await loadUserPriorities();
     if (localPriorities.isEmpty) {
@@ -116,10 +117,13 @@ class GalleryRepository {
     };
     for (final key in data.userGists.keys) {
       final lower = key.toLowerCase();
-      if (localLowerMap.containsKey(lower)) {
+      // リモート側に priority が未設定の場合のみローカルから補完
+      if (!data.userPriorities.containsKey(key) && localLowerMap.containsKey(lower)) {
         mergedPriorities[key] = localLowerMap[lower]!;
       }
     }
+    // ローカル SharedPreferences もリモートの最新状態に同期
+    await saveUserPriorities(mergedPriorities);
     return GalleryData(
       userName: data.userName,
       items: data.items,
