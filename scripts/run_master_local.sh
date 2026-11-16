@@ -68,6 +68,11 @@ while true; do
     sleep "$ERROR_WAIT"
   else
     echo "✅ [Priority Step 1/2] Completed App Operations Queue (Slot 1)."
+
+    # ポスト更新巡回完了直後のギャラリー自動ソート（RAM4GB環境向け省メモリ実行）
+    echo ""
+    "$SCRIPT_DIR/run_sort_master_local.sh" || echo "⚠️ Warning: Master gallery sort encountered an error."
+
     sleep "$LOOP_INTERVAL"
   fi
 

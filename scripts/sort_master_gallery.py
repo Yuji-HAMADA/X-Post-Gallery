@@ -200,7 +200,7 @@ def fetch_child_user_tweets(username, gist_id):
     return []
 
 
-def sort_master_gallery(master_data, fetch_child=True, max_threads=10):
+def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
     """
     マスターGistデータをピン留めグループ/非ピン留めグループそれぞれ
     「ポスト時刻の新しい順」にソートし、最新サムネイルを指定して返す。
@@ -340,7 +340,7 @@ def main():
     parser.add_argument("-g", "--master-gist-id", default=None, help="Master Gist ID")
     parser.add_argument("--dry-run", action="store_true", help="Print sorted preview without editing Gist")
     parser.add_argument("--no-fetch-child", action="store_true", help="Skip fetching child Gists, sort by existing master tweets")
-    parser.add_argument("--threads", type=int, default=10, help="Threads for child Gist fetching (default: 10)")
+    parser.add_argument("--threads", type=int, default=2, help="Threads for child Gist fetching (default: 2)")
     args = parser.parse_args()
 
     gist_id = args.master_gist_id or load_master_gist_id()
