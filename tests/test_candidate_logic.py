@@ -221,5 +221,44 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertIn("video_user", accounts)
         self.assertEqual(len(accounts), 2)
 
+    def test_existing_unpinned_candidate_preserves_unpinned_state(self):
+        """ピン留め解除されたCandidateアカウント（priority_updated_at=0）は、再アペンド時も0を維持すること（大文字小文字違い含む）"""
+        master_data = {
+            "user_gists": {
+                "Unpinned_Candidate": {
+                    "gist_id": "gist_unpinned",
+                    "priority_updated_at": 0,
+                    "is_candidate": True
+                }
+            },
+            "tweets": []
+        }
+        # 小文字でアペンドされたケース
+        new_tweets = [
+            {
+                "username": "unpinned_candidate",
+                "id_str": "99999",
+                "media_urls": ["http://example.com/unpinned.jpg"]
+            }
+        ]
+
+        with patch("append_to_gist.fetch_gist_data", return_value=("data.json", {"users": {"unpinned_candidate": {"tweets": []}}})), \
+             patch("append_to_gist.update_or_migrate_user_gist_in_memory", return_value=("gist_unpinned", {"users": {}})), \
+             patch("subprocess.run"):
+            res = process_multi_user_append(
+                master_data,
+                new_tweets,
+                is_candidate=True
+            )
+
+        # 元の正準キーで保持され、二重登録されないこと
+        self.assertIn("Unpinned_Candidate", res["user_gists"])
+        self.assertNotIn("unpinned_candidate", [k for k in res["user_gists"].keys() if k != "Unpinned_Candidate"])
+
+        entry = res["user_gists"]["Unpinned_Candidate"]
+        self.assertTrue(entry.get("is_candidate"))
+        # ピン留め解除状態（0）が維持されていること！
+        self.assertEqual(entry.get("priority_updated_at"), 0)
+
 if __name__ == "__main__":
     unittest.main()

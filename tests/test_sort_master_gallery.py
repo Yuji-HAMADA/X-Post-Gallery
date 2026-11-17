@@ -3,9 +3,15 @@ from scripts.sort_master_gallery import (
     get_tweet_sort_key,
     select_latest_thumbnail_tweet,
     sort_master_gallery,
+    snowflake_to_jst_str,
 )
 
 class TestSortMasterGallery(unittest.TestCase):
+    def test_snowflake_to_jst_str(self):
+        # 2122474730364280881 -> 2026-11-17 08:39:44 JST
+        jst_str = snowflake_to_jst_str("2122474730364280881")
+        self.assertEqual(jst_str, "2026-11-17 08:39:44 JST")
+
     def test_get_tweet_sort_key_snowflake(self):
         # Snowflake ID のタイムスタンプ算出
         # ID: 1768875567341850624 -> ms: 1710569766952
@@ -80,6 +86,11 @@ class TestSortMasterGallery(unittest.TestCase):
         # 未ピン留めは priority_updated_at == 0 であること
         self.assertEqual(sorted_data["user_gists"]["UserB"]["priority_updated_at"], 0)
         self.assertEqual(sorted_data["user_gists"]["UserA"]["priority_updated_at"], 0)
+
+        # created_at が欠落していたツイートにも Snowflake から JST 日時が補完されていること
+        for t in sorted_data["tweets"]:
+            self.assertIn("created_at", t)
+            self.assertTrue(t["created_at"].endswith(" JST"))
 
 if __name__ == "__main__":
     unittest.main()

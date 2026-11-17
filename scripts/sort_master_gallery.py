@@ -8,7 +8,7 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -117,6 +117,22 @@ def extract_username(tweet):
     if m2:
         return m2.group(1)
     return "Unknown"
+
+
+def snowflake_to_jst_str(snowflake_id):
+    """Snowflake ID から JST 日時文字列 (YYYY-MM-DD HH:mm:ss JST) を生成"""
+    if not snowflake_id:
+        return ""
+    try:
+        val = int(str(snowflake_id))
+        if val > 100000000000:
+            ms = (val >> 22) + 1288834974650
+            jst = timezone(timedelta(hours=9))
+            dt = datetime.fromtimestamp(ms / 1000, tz=jst)
+            return dt.strftime("%Y-%m-%d %H:%M:%S JST")
+    except Exception:
+        pass
+    return ""
 
 
 def get_tweet_sort_key(tweet):
@@ -313,8 +329,9 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
                 "username": u,
                 "media_urls": latest.get("media_urls", [])[:1],
             }
-            if latest.get("created_at"):
-                master_entry["created_at"] = latest["created_at"]
+            created_at = latest.get("created_at") or snowflake_to_jst_str(master_entry["id_str"])
+            if created_at:
+                master_entry["created_at"] = created_at
             if latest.get("video_url"):
                 master_entry["video_url"] = latest["video_url"]
             if latest.get("video_urls"):
@@ -394,6 +411,10 @@ def main():
         )
         if res.returncode == 0:
             print("✅ Master Gist のソートおよび最新サムネイル更新が正常に完了しました！")
+            local_asset_path = Path("assets/data/data.json")
+            if local_asset_path.parent.exists():
+                with open(local_asset_path, "w", encoding="utf-8") as f:
+                    json.dump(sorted_data, f, ensure_ascii=False, indent=2)
         else:
             print(f"❌ Failed to update Master Gist: {res.stderr}")
             sys.exit(1)

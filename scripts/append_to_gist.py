@@ -15,7 +15,7 @@ import argparse
 import subprocess
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
@@ -75,6 +75,21 @@ def group_tweets_by_user(tweets):
         user = extract_username(tweet)
         groups.setdefault(user, []).append(tweet)
     return groups
+
+def snowflake_to_jst_str(snowflake_id):
+    """Snowflake ID から JST 日時文字列 (YYYY-MM-DD HH:mm:ss JST) を生成"""
+    if not snowflake_id:
+        return ""
+    try:
+        val = int(str(snowflake_id))
+        if val > 100000000000:
+            ms = (val >> 22) + 1288834974650
+            jst = timezone(timedelta(hours=9))
+            dt = datetime.fromtimestamp(ms / 1000, tz=jst)
+            return dt.strftime("%Y-%m-%d %H:%M:%S JST")
+    except Exception:
+        pass
+    return ""
 
 def get_tweet_sort_key(tweet):
     """ツイートの投稿時刻ソートキー（ミリ秒タイムスタンプ）を返す"""
@@ -449,9 +464,16 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             continue
 
         print(f"--- @{user} ---")
+        canonical_user = user
+        if user not in user_gists_map:
+            for k in user_gists_map.keys():
+                if k.lower() == user.lower():
+                    canonical_user = k
+                    break
+
         promote_gist_id = (
             promote_gist_id_override
-            or get_gist_id_from_entry(user_gists_map.get(user))
+            or get_gist_id_from_entry(user_gists_map.get(canonical_user))
             or select_promote_gist_from_master(master_data)
         )
         if not promote_gist_id:
@@ -491,7 +513,7 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             gist_cache[final_id]["data"] = updated_data
             gist_cache[final_id]["is_modified"] = True
 
-        existing_entry = user_gists_map.get(user)
+        existing_entry = user_gists_map.get(canonical_user)
         now_ms = int(time.time() * 1000)
         user_is_candidate = False
         if isinstance(existing_entry, dict):
@@ -510,16 +532,17 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
         }
         if user_is_candidate:
             entry_data["is_candidate"] = True
-        user_gists_map[user] = entry_data
-        master_tweets = [t for t in master_tweets if extract_username(t) != user]
+        user_gists_map[canonical_user] = entry_data
+        master_tweets = [t for t in master_tweets if extract_username(t).lower() != user.lower()]
         latest = select_latest_thumbnail_tweet(merged)
         master_entry = {
             "id_str": latest.get("id_str", ""),
             "username": user,
             "media_urls": latest.get("media_urls", [])[:1],
         }
-        if latest.get("created_at"):
-            master_entry["created_at"] = latest["created_at"]
+        created_at = latest.get("created_at") or snowflake_to_jst_str(master_entry["id_str"])
+        if created_at:
+            master_entry["created_at"] = created_at
         if latest.get("video_url"):
             master_entry["video_url"] = latest["video_url"]
         if latest.get("video_urls"):

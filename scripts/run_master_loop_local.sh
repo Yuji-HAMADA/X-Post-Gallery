@@ -22,12 +22,16 @@ while true; do
   echo "=================================================="
 
   # 1. タイムライン収集（1巡分）の実行
-  echo "▶️ [Step 1/2] Running run_expand_timeline_local.sh (--max-cycles 1)..."
+  echo "▶️ [Step 1/3] Running run_expand_timeline_local.sh (--max-cycles 1)..."
   "$SCRIPT_DIR/run_expand_timeline_local.sh" --max-cycles 1 "$@" || true
 
   # 2. 続けてスケジュール・キューフェッチを実行
-  echo "▶️ [Step 2/2] Running run_scheduled_fetch_local.sh..."
+  echo "▶️ [Step 2/3] Running run_scheduled_fetch_local.sh..."
   "$SCRIPT_DIR/run_scheduled_fetch_local.sh" "$@" || true
+
+  # 3. タイムライン収集および詳細取得完了後のギャラリーソート実行
+  echo "▶️ [Step 3/3] Running run_sort_master_local.sh (Sorting Master Gallery)..."
+  "$SCRIPT_DIR/run_sort_master_local.sh" || echo "⚠️ Warning: Master gallery sort encountered an error."
 
   echo "✅ Completed Loop Cycle #$CYCLE. Repeating cycle..."
 done
