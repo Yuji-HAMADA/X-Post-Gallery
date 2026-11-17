@@ -22,30 +22,23 @@ GITHUB_API = "https://api.github.com"
 # ---------------------------------------------------------------------------
 # Token & API Helpers
 # ---------------------------------------------------------------------------
-def load_token():
-    token = os.environ.get("GITHUB_TOKEN", "")
-    if token:
-        return token
+def load_env_var(key):
+    val = os.environ.get(key, "")
+    if val:
+        return val
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
         text = env_path.read_text()
-        m = re.search(r"^GITHUB_TOKEN=(.+)$", text, re.MULTILINE)
-        if m:
-            return m.group(1).strip()
-    return ""
-
-def load_master_gist_id():
-    gist_id = os.environ.get("MASTER_GIST_ID", "")
-    if gist_id:
-        return gist_id
-    env_path = Path(__file__).resolve().parent.parent / ".env"
-    if env_path.exists():
-        text = env_path.read_text()
-        m = re.search(r"^MASTER_GIST_ID=(.+)$", text, re.MULTILINE)
+        m = re.search(rf"^{key}=(.+)$", text, re.MULTILINE)
         if m:
             return m.group(1).strip().strip("'\"")
     return ""
-    raise RuntimeError("GITHUB_TOKEN not found in environment or .env file")
+
+def load_token():
+    return load_env_var("GITHUB_TOKEN") or load_env_var("GH_TOKEN")
+
+def load_master_gist_id():
+    return load_env_var("MASTER_GIST_ID")
 
 def make_headers(token):
     return {
@@ -126,6 +119,63 @@ def download_gist_content(gist_id, headers):
 
     return 200, data, "OK"
 
+def is_tweet_from_invalid_users(tweet, invalid_users_lower):
+    """ツイートが削除対象ユーザーのものか判定（username / full_text / post_url を考慮）"""
+    u = tweet.get("username")
+    if u and u.lower() in invalid_users_lower:
+        return True
+    full_text = tweet.get("full_text", "")
+    if full_text.startswith("@"):
+        prefix = full_text[1:].split(":", 1)[0].strip()
+        if prefix.lower() in invalid_users_lower:
+            return True
+    post_url = tweet.get("post_url", "")
+    for target in invalid_users_lower:
+        if f"x.com/{target}/" in post_url.lower() or f"twitter.com/{target}/" in post_url.lower():
+            return True
+    return False
+
+def remove_users_from_queue_gist(queue_gist_id, invalid_usernames_lower, headers):
+    """fetch_queue.json から無効なユーザーを削除して更新する"""
+    if not queue_gist_id:
+        return False, 0, None
+    status, meta = fetch_gist_meta_with_retry(queue_gist_id, headers)
+    if status != 200 or not meta:
+        return False, 0, None
+    files = meta.get("files", {})
+    if "fetch_queue.json" not in files:
+        return False, 0, None
+
+    raw_url = files["fetch_queue.json"].get("raw_url")
+    if not raw_url:
+        return False, 0, None
+    queue_data = download_raw_json(raw_url)
+    if not queue_data or "users" not in queue_data:
+        return False, 0, None
+
+    users = queue_data.get("users", [])
+    filtered_users = [u for u in users if (u.get("user") or "").lower() not in invalid_usernames_lower]
+    removed_count = len(users) - len(filtered_users)
+
+    sibling_gist_id = queue_data.get("sibling_gist_id")
+
+    if removed_count > 0:
+        queue_data["users"] = filtered_users
+        payload = {
+            "files": {
+                "fetch_queue.json": {
+                    "content": json.dumps(queue_data, ensure_ascii=False, indent=2)
+                }
+            }
+        }
+        r = requests.patch(f"{GITHUB_API}/gists/{queue_gist_id}", headers=headers, json=payload)
+        if r.status_code != 200:
+            print(f"  ⚠️ キューGist ({queue_gist_id}) の更新に失敗: HTTP {r.status_code}")
+            return False, 0, sibling_gist_id
+        return True, removed_count, sibling_gist_id
+
+    return True, 0, sibling_gist_id
+
 # ---------------------------------------------------------------------------
 # Worker Function
 # ---------------------------------------------------------------------------
@@ -158,6 +208,7 @@ def verify_single_gist(gist_id, mapped_users, headers):
 
     results = {}
     for user in mapped_users:
+        user_lower = user.lower()
         if users_dict:
             # マルチユーザー形式
             if user in users_dict:
@@ -167,28 +218,25 @@ def verify_single_gist(gist_id, mapped_users, headers):
                 else:
                     results[user] = (False, "No tweets in multi-user data")
             else:
-                # 大文字小文字違いも探してみる
+                # 大文字小文字違いも探す
                 matched_case = None
                 for k in users_dict.keys():
-                    if k.lower() == user.lower():
+                    if k.lower() == user_lower:
                         matched_case = k
                         break
                 if matched_case:
                     user_tweets = users_dict[matched_case].get("tweets", [])
                     if user_tweets:
-                        results[user] = (False, f"Username case mismatch: mapped as '{user}' but exists as '{matched_case}'")
+                        results[user] = (True, f"Valid (case difference: child is '{matched_case}')")
                     else:
                         results[user] = (False, f"Username case mismatch and 0 tweets: '{matched_case}'")
                 else:
                     results[user] = (False, "User not found in multi-user Gist")
         elif user_screen_name:
             # シングルユーザー形式
-            if user.lower() == user_screen_name.lower():
+            if user_lower == user_screen_name.lower():
                 if tweets:
-                    if user != user_screen_name:
-                        results[user] = (False, f"Username case mismatch: mapped as '{user}' but Gist is '{user_screen_name}'")
-                    else:
-                        results[user] = (True, "Valid (single-user)")
+                    results[user] = (True, "Valid (single-user)")
                 else:
                     results[user] = (False, f"Single-user '{user_screen_name}' has 0 tweets")
             else:
@@ -197,7 +245,11 @@ def verify_single_gist(gist_id, mapped_users, headers):
             # fallback: tweets のみ
             if tweets:
                 # tweets の中にそのユーザーが投稿したツイートがあるか確認
-                has_tweet = any(t.get("username", "").lower() == user.lower() for t in tweets)
+                has_tweet = any(
+                    (t.get("username") or "").lower() == user_lower
+                    or t.get("full_text", "").lower().startswith(f"@{user_lower}:")
+                    for t in tweets
+                )
                 if has_tweet:
                     results[user] = (True, "Valid (tweets list search)")
                 else:
@@ -325,9 +377,10 @@ def main():
     # 5. 修復処理
     if invalid_users:
         invalid_usernames = set(u[0] for u in invalid_users)
+        invalid_usernames_lower = {u.lower() for u in invalid_usernames}
         
         # タイムライン(tweets)内での不整合チェック
-        timeline_tweets_to_remove = [t for t in master_tweets if t.get("username") in invalid_usernames]
+        timeline_tweets_to_remove = [t for t in master_tweets if is_tweet_from_invalid_users(t, invalid_usernames_lower)]
         print(f"\nマスタータイムライン内の影響:")
         print(f"  不整合ユーザーによるツイート数: {len(timeline_tweets_to_remove)} / {len(master_tweets)} 件")
 
@@ -338,10 +391,10 @@ def main():
         else:
             print("\n=== 修復の実行 ===")
             print(f"1. user_gists マッピングから {len(invalid_usernames)} ユーザーを削除中...")
-            new_user_gists = {k: v for k, v in user_gists.items() if k not in invalid_usernames}
+            new_user_gists = {k: v for k, v in user_gists.items() if k not in invalid_usernames and k.lower() not in invalid_usernames_lower}
             
             print(f"2. マスタータイムラインから不整合なツイート {len(timeline_tweets_to_remove)} 件を削除中...")
-            new_tweets = [t for t in master_tweets if t.get("username") not in invalid_usernames]
+            new_tweets = [t for t in master_tweets if not is_tweet_from_invalid_users(t, invalid_usernames_lower)]
             
             master_data["user_gists"] = new_user_gists
             master_data["tweets"] = new_tweets
@@ -377,6 +430,22 @@ def main():
                 print(f"❌ 更新に失敗しました: HTTP {r.status_code}")
                 print(r.text[:500])
                 sys.exit(1)
+
+            # 4. キュー（fetch_queue.json）からの削除連携
+            queue_gist_id = load_env_var("FETCH_QUEUE_GIST_ID")
+            slot1_gist_id = load_env_var("FETCH_QUEUE_SLOT1_GIST_ID")
+            if queue_gist_id:
+                print(f"\n4. クローラーキュー (Slot 0: {queue_gist_id}) から不整合ユーザーを削除中...")
+                ok, count0, sibling_id = remove_users_from_queue_gist(queue_gist_id, invalid_usernames_lower, headers)
+                if ok and count0 > 0:
+                    print(f"   Slot 0 キューから {count0} 件のユーザーをパージしました")
+                
+                target_slot1 = slot1_gist_id or sibling_id
+                if target_slot1 and target_slot1 != queue_gist_id:
+                    print(f"   クローラーキュー (Slot 1: {target_slot1}) から不整合ユーザーを削除中...")
+                    ok1, count1, _ = remove_users_from_queue_gist(target_slot1, invalid_usernames_lower, headers)
+                    if ok1 and count1 > 0:
+                        print(f"   Slot 1 キューから {count1} 件のユーザーをパージしました")
     else:
         print("\n✨ 不整合は見つかりませんでした！Gist構成は完全に健全です。")
 
