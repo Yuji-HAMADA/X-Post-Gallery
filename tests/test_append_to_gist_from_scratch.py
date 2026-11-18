@@ -4,9 +4,35 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
 
-from append_to_gist import process_multi_user_append, has_user_gists_id_changed
+from append_to_gist import process_multi_user_append, has_user_gists_id_changed, has_master_tweets_changed
 
 class TestAppendToGistFromScratch(unittest.TestCase):
+    def test_has_master_tweets_changed(self):
+        initial_tweets = [
+            {"username": "user1", "id_str": "100", "created_at": "2026-11-16 10:00:00 JST"},
+            {"username": "user2", "id_str": "200", "created_at": "2026-11-16 11:00:00 JST"},
+        ]
+
+        # 変更なし
+        same_tweets = [
+            {"username": "user1", "id_str": "100", "created_at": "2026-11-16 10:00:00 JST"},
+            {"username": "user2", "id_str": "200", "created_at": "2026-11-16 11:00:00 JST"},
+        ]
+        self.assertFalse(has_master_tweets_changed(initial_tweets, same_tweets, "user1"))
+
+        # id_str が更新された場合
+        updated_tweets = [
+            {"username": "user1", "id_str": "101", "created_at": "2026-11-17 12:00:00 JST"},
+            {"username": "user2", "id_str": "200", "created_at": "2026-11-16 11:00:00 JST"},
+        ]
+        self.assertTrue(has_master_tweets_changed(initial_tweets, updated_tweets, "user1"))
+
+        # 新規ユーザーのツイートが追加された場合
+        new_user_tweets = list(updated_tweets) + [
+            {"username": "new_user_xxx", "id_str": "300", "created_at": "2026-11-17 13:00:00 JST"}
+        ]
+        self.assertTrue(has_master_tweets_changed(initial_tweets, new_user_tweets, "new_user_xxx"))
+
     def test_has_user_gists_id_changed(self):
         initial_map = {
             "user1": "gist_aaa",

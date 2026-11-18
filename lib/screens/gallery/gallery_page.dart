@@ -962,40 +962,6 @@ class _GalleryPageState extends State<GalleryPage> {
     return idxB.compareTo(idxA);
   }
 
-  /// ユーザー名単体での比較用関数（UserGallerySwipePage等のスコープ生成用）
-  int _compareUserPriority(
-    String userA,
-    String userB,
-    Map<String, int> userPriorities,
-    Map<String, int> originalIndex, {
-    Map<String, List<TweetItem>>? grouped,
-  }) {
-    final isPinnedA = (userPriorities[userA] ?? 0) > 0;
-    final isPinnedB = (userPriorities[userB] ?? 0) > 0;
-
-    if (isPinnedA != isPinnedB) {
-      return isPinnedB ? 1 : -1;
-    }
-
-    if (grouped != null) {
-      final itemsA = grouped[userA] ?? [];
-      final itemsB = grouped[userB] ?? [];
-      final thumbA = _selectThumbnailItem(itemsA);
-      final thumbB = _selectThumbnailItem(itemsB);
-      final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
-      if (tweetCmp != 0) return tweetCmp;
-    }
-
-    final pA = userPriorities[userA] ?? 0;
-    final pB = userPriorities[userB] ?? 0;
-    final cmp = pB.compareTo(pA);
-    if (cmp != 0) return cmp;
-
-    final idxA = originalIndex[userA] ?? -1;
-    final idxB = originalIndex[userB] ?? -1;
-    return idxB.compareTo(idxA);
-  }
-
   /// ユーザーグループ化したグリッド（メイン / 候補ギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
@@ -1008,11 +974,17 @@ class _GalleryPageState extends State<GalleryPage> {
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
       final key = item.extractedUsername ?? '_unknown';
-      if (favoriteUsers.contains(key)) {
-        continue;
-      }
-      if (vm.isCandidate(key) != isCandidateView) {
-        continue;
+      if (!isCandidateView) {
+        if (vm.isCandidate(key)) {
+          continue;
+        }
+      } else {
+        if (favoriteUsers.contains(key)) {
+          continue;
+        }
+        if (!vm.isCandidate(key)) {
+          continue;
+        }
       }
       grouped.putIfAbsent(key, () => []).add(item);
     }
@@ -1028,8 +1000,12 @@ class _GalleryPageState extends State<GalleryPage> {
     final Set<String> addedUsers = {};
 
     for (final username in originalKeys) {
-      if (favoriteUsers.contains(username)) continue;
-      if (vm.isCandidate(username) != isCandidateView) continue;
+      if (!isCandidateView) {
+        if (vm.isCandidate(username)) continue;
+      } else {
+        if (favoriteUsers.contains(username)) continue;
+        if (!vm.isCandidate(username)) continue;
+      }
       final userItems = grouped[username] ?? [];
       entries.add(MapEntry(username, userItems));
       addedUsers.add(username);
@@ -1042,8 +1018,22 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    // ピン留めグループ・非ピン留めグループそれぞれ「ポストされた時刻の新しい順」でソート
-    entries.sort((a, b) => _compareUserEntries(a, b, userPriorities, originalIndex));
+    if (!isCandidateView) {
+      // Users ギャラリー: お気に入り登録・ピン留め問わず最新ポストの新しい順
+      entries.sort((a, b) {
+        final thumbA = _selectThumbnailItem(a.value);
+        final thumbB = _selectThumbnailItem(b.value);
+        final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
+        if (tweetCmp != 0) return tweetCmp;
+
+        final idxA = originalIndex[a.key] ?? -1;
+        final idxB = originalIndex[b.key] ?? -1;
+        return idxB.compareTo(idxA);
+      });
+    } else {
+      // 候補ギャラリー: ピン留めグループ・非ピン留めグループそれぞれ「ポストされた時刻の新しい順」でソート
+      entries.sort((a, b) => _compareUserEntries(a, b, userPriorities, originalIndex));
+    }
 
     final userUsernames = entries.map((e) => e.key).toList();
 
@@ -1214,8 +1204,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final vm = context.read<GalleryViewModel>();
     final usernames = _getAllUsernames(vm.items)
         .where(
-          (username) =>
-              !vm.favoriteUsers.contains(username) && !vm.isCandidate(username),
+          (username) => !vm.isCandidate(username),
         )
         .toList();
     if (usernames.isEmpty) {
@@ -1287,7 +1276,7 @@ class _GalleryPageState extends State<GalleryPage> {
       // お気に入りなど呼び出し元が既に順序を決めているケース
       sortedUsernames = scope;
     } else {
-      // グリッドと同じ優先順位降順（最新操作/登録順）でユーザー一覧を構築
+      // グリッドと同じ優先順位降順（最新ポスト順）でユーザー一覧を構築
       final originalKeys = vm.userGists.keys.toList();
       final Map<String, int> originalIndex = {};
       for (int i = 0; i < originalKeys.length; i++) {
@@ -1297,7 +1286,7 @@ class _GalleryPageState extends State<GalleryPage> {
       final Set<String> registered = {};
       final List<String> list = [];
       for (final u in originalKeys) {
-        if (!vm.favoriteUsers.contains(u)) {
+        if (!vm.isCandidate(u)) {
           list.add(u);
           registered.add(u);
         }
@@ -1306,13 +1295,24 @@ class _GalleryPageState extends State<GalleryPage> {
       for (final item in vm.items) {
         final key = item.extractedUsername ?? '_unknown';
         grouped.putIfAbsent(key, () => []).add(item);
-        if (!vm.favoriteUsers.contains(key) && !registered.contains(key)) {
+        if (!vm.isCandidate(key) && !registered.contains(key)) {
           list.add(key);
           registered.add(key);
         }
       }
 
-      list.sort((a, b) => _compareUserPriority(a, b, vm.userPriorities, originalIndex, grouped: grouped));
+      list.sort((a, b) {
+        final itemsA = grouped[a] ?? [];
+        final itemsB = grouped[b] ?? [];
+        final thumbA = _selectThumbnailItem(itemsA);
+        final thumbB = _selectThumbnailItem(itemsB);
+        final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
+        if (tweetCmp != 0) return tweetCmp;
+
+        final idxA = originalIndex[a] ?? -1;
+        final idxB = originalIndex[b] ?? -1;
+        return idxB.compareTo(idxA);
+      });
 
       sortedUsernames = list;
     }

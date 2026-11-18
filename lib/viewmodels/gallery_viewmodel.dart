@@ -148,6 +148,12 @@ class GalleryViewModel extends ChangeNotifier {
       _favoriteUsers = await _repository.loadFavoriteUsers();
       _status = GalleryStatus.authenticated;
       _errorMessage = '';
+
+      // 現在お気に入りになっているアカウントの candidate 属性を解除し、必要なら GIST を更新
+      await cleanupCandidateFlagsForFavorites();
+      if (_status == GalleryStatus.authenticated && _errorMessage.isNotEmpty) {
+        _errorMessage = '';
+      }
     } catch (e) {
       debugPrint("Load error: $e");
       _errorMessage = 'Network error or invalid ID';
@@ -290,6 +296,7 @@ class GalleryViewModel extends ChangeNotifier {
       _favoriteUsers = users;
       await _repository.saveFavoriteUsers(users);
       await _repository.saveFavoritesGistId(gistId);
+      await cleanupCandidateFlagsForFavorites();
       notifyListeners();
       return true;
     } catch (e) {
@@ -300,13 +307,72 @@ class GalleryViewModel extends ChangeNotifier {
 
   Future<String?> loadFavoritesGistId() => _repository.loadFavoritesGistId();
 
+  /// [JA] 現在お気に入り登録されているアカウントの candidate 属性を解除し、必要ならマスターGistを更新する
+  /// [EN] Removes candidate flag from all currently favorited users and persists to master Gist
+  Future<bool> cleanupCandidateFlagsForFavorites() async {
+    if (_favoriteUsers.isEmpty || _userGistEntries.isEmpty) {
+      return false;
+    }
+
+    final lowerFavs = _favoriteUsers.map((u) => u.toLowerCase()).toSet();
+    bool modified = false;
+    final updatedEntries = Map<String, UserGistEntry>.from(_userGistEntries);
+
+    for (final entry in _userGistEntries.entries) {
+      if (entry.value.isCandidate && lowerFavs.contains(entry.key.toLowerCase())) {
+        updatedEntries[entry.key] = entry.value.copyWith(isCandidate: false);
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      _userGistEntries = updatedEntries;
+      try {
+        return await _saveMasterGist();
+      } catch (e) {
+        debugPrint('cleanupCandidateFlagsForFavorites save error: $e');
+        return false;
+      }
+    }
+    return false;
+  }
+
   Future<void> toggleFavorite(String username) async {
-    if (_favoriteUsers.contains(username)) {
+    final isAdding = !_favoriteUsers.contains(username);
+    if (!isAdding) {
       _favoriteUsers = {..._favoriteUsers}..remove(username);
     } else {
       _favoriteUsers = {..._favoriteUsers, username};
     }
     await _repository.saveFavoriteUsers(_favoriteUsers);
+
+    // Candidateからお気に入りに移動した場合はcandidate属性を永続的に外してマスターGistを更新
+    if (isAdding && isCandidate(username)) {
+      final canonical = getCanonicalUsername(username) ?? username;
+      final lower = canonical.toLowerCase();
+      String? matchedKey;
+      for (final key in _userGistEntries.keys) {
+        if (key.toLowerCase() == lower) {
+          matchedKey = key;
+          break;
+        }
+      }
+      final targetKey = matchedKey ?? canonical;
+      final currentEntry = _userGistEntries[targetKey];
+      _userGistEntries = Map<String, UserGistEntry>.from(_userGistEntries)
+        ..[targetKey] = (currentEntry ??
+                UserGistEntry(
+                  gistId: _userGists[targetKey] ?? '',
+                  priorityUpdatedAt: _userPriorities[targetKey] ?? 0,
+                ))
+            .copyWith(isCandidate: false);
+      try {
+        await _saveMasterGist();
+      } catch (e) {
+        debugPrint('toggleFavorite save master gist error: $e');
+      }
+    }
+
     notifyListeners();
   }
 

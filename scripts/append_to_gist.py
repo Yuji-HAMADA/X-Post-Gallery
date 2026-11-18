@@ -171,6 +171,25 @@ def has_user_gists_id_changed(initial_gists_map, new_user_gists):
             return True
     return False
 
+def has_master_tweets_changed(initial_tweets, new_tweets, target_user):
+    """
+    MASTER_GIST 内の対象ユーザーの最新サムネイル（id_str または created_at）に変更があるかを判定する。
+    """
+    target_lower = target_user.lower() if target_user else ""
+    old_tweet = next((t for t in initial_tweets if extract_username(t).lower() == target_lower), None)
+    new_tweet = next((t for t in new_tweets if extract_username(t).lower() == target_lower), None)
+
+    if old_tweet is None and new_tweet is not None:
+        return True
+    if old_tweet is not None and new_tweet is None:
+        return True
+    if old_tweet and new_tweet:
+        if str(old_tweet.get("id_str", "")) != str(new_tweet.get("id_str", "")):
+            return True
+        if old_tweet.get("created_at") != new_tweet.get("created_at"):
+            return True
+    return False
+
 def get_user_tweets(data, user):
     """データからユーザのツイートを取得"""
     if is_master_gist_format(data):
@@ -665,11 +684,12 @@ def main():
                 write_fetch_result(args.user, 0, status="cancelled_user_deleted")
                 sys.exit(0)
 
-    # 所属 Gist ID の変化を検知するため更新前のマッピングを記録
+    # 所属 Gist ID の変化および最新サムネイルツイートの変化を検知するため更新前の状態を記録
     initial_user_gists = {
         u: get_gist_id_from_entry(e)
         for u, e in fresh_master_data.get("user_gists", {}).items()
     }
+    initial_master_tweets = list(fresh_master_data.get("tweets", []))
 
     final_output = process_multi_user_append(
         fresh_master_data, new_tweets, args.promote_gist_id, from_scratch=args.from_scratch, is_candidate=args.is_candidate,
@@ -679,12 +699,16 @@ def main():
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(final_output, f, ensure_ascii=False, indent=2)
 
-    # 所属 Gist ID に変更がある場合（新規ユーザー・新子Gist作成等）のみ MASTER_GIST を更新
-    if has_user_gists_id_changed(initial_user_gists, final_output.get("user_gists", {})):
+    # 所属 Gist ID に変更がある場合、または対象ユーザーの最新ツイート（サムネイル/日時）が更新された場合に MASTER_GIST を更新
+    gists_changed = has_user_gists_id_changed(initial_user_gists, final_output.get("user_gists", {}))
+    tweets_changed = bool(args.user and has_master_tweets_changed(initial_master_tweets, final_output.get("tweets", []), args.user))
+
+    if gists_changed or tweets_changed:
+        reason = "User Gist ID changed" if gists_changed else f"Latest thumbnail updated for @{args.user}"
         subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
-        print(f"✅ Master Gist updated!")
+        print(f"✅ Master Gist updated! ({reason})")
     else:
-        print(f"ℹ️ User Gist ID unchanged. Skipped Master Gist update.")
+        print(f"ℹ️ User Gist ID and latest thumbnail unchanged. Skipped Master Gist update.")
 
     write_fetch_result(args.user, len(new_tweets), status="success")
 
