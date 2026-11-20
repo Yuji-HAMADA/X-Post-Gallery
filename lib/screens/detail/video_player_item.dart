@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../utils/video_wakelock_manager.dart';
 
 /// 動画再生ウィジェット（再生/一時停止、シークバー、消音切り替え対応）
 class VideoPlayerItem extends StatefulWidget {
@@ -28,6 +29,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   bool _hasError = false;
   late bool _isMuted;
   bool _isDisposed = false;
+  bool _wasPlaying = false;
 
   @override
   void initState() {
@@ -74,6 +76,7 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
       }
       await controller.setVolume(_isMuted ? 0.0 : 1.0);
       await controller.setLooping(true);
+      controller.addListener(_onControllerUpdate);
       if (widget.autoPlay) {
         await controller.play();
       }
@@ -96,9 +99,20 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     }
   }
 
+  void _onControllerUpdate() {
+    if (_isDisposed || _controller == null) return;
+    final isPlaying = _controller!.value.isPlaying;
+    if (_wasPlaying != isPlaying) {
+      _wasPlaying = isPlaying;
+      VideoWakelockManager.onPlaybackStateChanged(this, isPlaying);
+    }
+  }
+
   @override
   void dispose() {
     _isDisposed = true;
+    _controller?.removeListener(_onControllerUpdate);
+    VideoWakelockManager.onDisposed(this);
     widget.muteNotifier?.removeListener(_handleMuteNotifierChanged);
     _controller?.dispose();
     _controller = null;
