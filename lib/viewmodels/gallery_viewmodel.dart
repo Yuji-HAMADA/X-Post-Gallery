@@ -28,6 +28,28 @@ class GalleryViewModel extends ChangeNotifier {
   GalleryStatus _status = GalleryStatus.initial;
   GalleryStatus get status => _status;
 
+  int _gridColumnCount = GalleryRepository.defaultGridColumnCount;
+  int get gridColumnCount => _gridColumnCount;
+
+  Future<void> loadGridColumnCount() async {
+    try {
+      final count = await _repository.loadGridColumnCount();
+      if (_gridColumnCount != count) {
+        _gridColumnCount = count;
+        notifyListeners();
+      }
+    } catch (_) {
+      // ユニットテスト等で Binding 未初期化の場合はフォールバック値を維持
+    }
+  }
+
+  Future<void> setGridColumnCount(int count) async {
+    if (_gridColumnCount == count) return;
+    _gridColumnCount = count;
+    notifyListeners();
+    await _repository.saveGridColumnCount(count);
+  }
+
   List<TweetItem> _items = [];
   List<TweetItem> get items => _items;
 
@@ -84,6 +106,8 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// 初期ロード：URLパラメータ → SharedPreferences → null（ダイアログ必要）
   Future<bool> handleInitialLoad() async {
+    await loadGridColumnCount();
+
     // 1. URLパラメータ
     final String? urlId = Uri.base.queryParameters['id'];
     if (urlId != null && urlId.isNotEmpty) {

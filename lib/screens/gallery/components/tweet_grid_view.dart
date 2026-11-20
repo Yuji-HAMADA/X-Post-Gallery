@@ -19,11 +19,13 @@ class TweetGridView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final columnCount =
+        context.watch<GalleryViewModel?>()?.gridColumnCount ?? 3;
     return GridView.builder(
       controller: scrollController,
       padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columnCount,
         crossAxisSpacing: 4,
         mainAxisSpacing: 4,
       ),

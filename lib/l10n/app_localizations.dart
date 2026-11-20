@@ -34,6 +34,9 @@ class AppLocalizations {
   String get reload => isJapanese ? '再読み込み' : 'Reload';
   String get add => isJapanese ? '追加' : 'Add';
   String get fetchImages => isJapanese ? '画像取得' : 'Fetch images';
+  String get gridColumnsLabel => isJapanese ? '列数' : 'Columns';
+  String columnsCount(int count) =>
+      isJapanese ? '$count列' : '$count Column${count > 1 ? 's' : ''}';
   String get back => isJapanese ? '戻る' : 'Back';
   String get show => isJapanese ? '表示' : 'Show';
 

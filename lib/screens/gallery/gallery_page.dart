@@ -709,6 +709,15 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'random_candidate':
                       _toggleCandidateRandomMode();
                       break;
+                    case 'grid_col_3':
+                      context.read<GalleryViewModel>().setGridColumnCount(3);
+                      break;
+                    case 'grid_col_2':
+                      context.read<GalleryViewModel>().setGridColumnCount(2);
+                      break;
+                    case 'grid_col_1':
+                      context.read<GalleryViewModel>().setGridColumnCount(1);
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
@@ -745,6 +754,22 @@ class _GalleryPageState extends State<GalleryPage> {
                       title: Text('Gist ID'),
                       dense: true,
                     ),
+                  ),
+                  const PopupMenuDivider(),
+                  CheckedPopupMenuItem<String>(
+                    value: 'grid_col_3',
+                    checked: vm.gridColumnCount == 3,
+                    child: Text(l10n.columnsCount(3)),
+                  ),
+                  CheckedPopupMenuItem<String>(
+                    value: 'grid_col_2',
+                    checked: vm.gridColumnCount == 2,
+                    child: Text(l10n.columnsCount(2)),
+                  ),
+                  CheckedPopupMenuItem<String>(
+                    value: 'grid_col_1',
+                    checked: vm.gridColumnCount == 1,
+                    child: Text(l10n.columnsCount(1)),
                   ),
                 ],
               ),
@@ -1048,11 +1073,12 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
+    final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
     return GridView.builder(
       controller: isCandidateView ? _candidateGridController : _gridController,
       padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columnCount,
         crossAxisSpacing: 4,
         mainAxisSpacing: 4,
       ),
@@ -1130,11 +1156,12 @@ class _GalleryPageState extends State<GalleryPage> {
     // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
     final favUsernames = entries.map((e) => e.key).toList();
 
+    final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
     return GridView.builder(
       controller: _favGridController,
       padding: const EdgeInsets.all(4),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columnCount,
         crossAxisSpacing: 4,
         mainAxisSpacing: 4,
       ),
