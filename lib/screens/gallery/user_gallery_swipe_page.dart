@@ -280,15 +280,43 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                   ),
                   onPressed: () => vm.toggleFavorite(username),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  tooltip: l10n.add,
-                  onPressed: () => _handleAppend(username),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.redAccent),
-                  tooltip: l10n.tooltipDeleteUser,
-                  onPressed: () => _confirmDeleteUser(username),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.menu),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'append':
+                        _handleAppend(username);
+                        break;
+                      case 'delete_user':
+                        _confirmDeleteUser(username);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'append',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.add),
+                          const SizedBox(width: 8),
+                          Text(l10n.fetchImages),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete_user',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.close, color: Colors.redAccent),
+                          const SizedBox(width: 8),
+                          Text(
+                            l10n.tooltipDeleteUser,
+                            style: const TextStyle(color: Colors.redAccent),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ],
