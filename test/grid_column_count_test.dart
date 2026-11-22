@@ -135,7 +135,12 @@ void main() {
       await tester.tap(menuButton);
       await tester.pumpAndSettle();
 
-      // 3列、2列、1列 の項目が存在すること
+      // メニュー内の「列数」をタップしてダイアログを開く
+      expect(find.text('列数'), findsOneWidget);
+      await tester.tap(find.text('列数'));
+      await tester.pumpAndSettle();
+
+      // ラジオボタン選択肢として 3列、2列、1列 がダイアログ内に存在すること
       expect(find.text('3列'), findsOneWidget);
       expect(find.text('2列'), findsOneWidget);
       expect(find.text('1列'), findsOneWidget);
@@ -190,7 +195,12 @@ void main() {
       await tester.tap(menuButton);
       await tester.pumpAndSettle();
 
-      // 3列、2列、1列 の項目が存在すること
+      // メニュー内の「列数」をタップしてダイアログを開く
+      expect(find.text('列数'), findsOneWidget);
+      await tester.tap(find.text('列数'));
+      await tester.pumpAndSettle();
+
+      // ラジオボタン選択肢として 3列、2列、1列 がダイアログ内に存在すること
       expect(find.text('3列'), findsOneWidget);
       expect(find.text('2列'), findsOneWidget);
       expect(find.text('1列'), findsOneWidget);

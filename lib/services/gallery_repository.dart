@@ -263,9 +263,13 @@ class GalleryRepository {
     final lowerPriorityMap = {
       for (final e in userPriorities.entries) e.key.toLowerCase(): e.value,
     };
+    final lowerEntryMap = {
+      for (final e in userGistEntries.entries) e.key.toLowerCase(): e.value,
+    };
     final Map<String, dynamic> formattedUserGists = {};
     for (final entry in userGists.entries) {
-      final existingEntry = userGistEntries[entry.key];
+      final existingEntry = userGistEntries[entry.key] ??
+          lowerEntryMap[entry.key.toLowerCase()];
       final priority = userPriorities[entry.key] ??
           lowerPriorityMap[entry.key.toLowerCase()] ??
           existingEntry?.priorityUpdatedAt ??

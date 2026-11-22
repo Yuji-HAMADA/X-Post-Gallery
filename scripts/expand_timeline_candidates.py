@@ -250,7 +250,11 @@ async def run_expansion_loop(args, gist_id):
     print(f"🚀 Launching browser for timeline candidate expansion loop...")
     current_user_gists = fetch_master_user_gists(gist_id)
     existing_users_lower = {k.lower(): k for k in current_user_gists.keys()}
-    processed_accounts_lower = set()
+    candidate_users_lower = {
+        k.lower() for k, v in current_user_gists.items()
+        if isinstance(v, dict) and v.get("is_candidate") is True
+    }
+    processed_accounts_lower = set(candidate_users_lower)
 
     cycle = 0
     total_processed = 0
@@ -295,6 +299,11 @@ async def run_expansion_loop(args, gist_id):
                     acc_lower = account.lower()
                     processed_accounts_lower.add(acc_lower)
 
+                    # すでに Candidate 扱いのアカウントは取得をスキップ
+                    if acc_lower in candidate_users_lower:
+                        print(f"\n⏭️ Skipping @{account}: Already registered in Candidate gallery.")
+                        continue
+
                     is_existing = acc_lower in existing_users_lower
                     fetch_num = args.num_existing if is_existing else args.num
                     print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
@@ -313,6 +322,7 @@ async def run_expansion_loop(args, gist_id):
                         total_processed += 1
                         if not is_existing:
                             existing_users_lower[acc_lower] = account
+                            candidate_users_lower.add(acc_lower)
 
                     # 連続アクセスによるレートリミットを予防するためのクールダウン
                     if args.account_cooldown > 0:

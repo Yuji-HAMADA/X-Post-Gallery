@@ -67,10 +67,19 @@ void main() {
     await tester.tap(menuButton);
     await tester.pumpAndSettle();
 
-    // メニュー項目として画像取得(Icons.add)とユーザー削除(Icons.close)が表示されていること
+    // メニュー項目として画像取得(Icons.add)、列数(Icons.grid_view)、ユーザー削除(Icons.close)が表示されていること
     expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byIcon(Icons.grid_view), findsOneWidget);
     expect(find.byIcon(Icons.close), findsOneWidget);
     expect(find.text('画像取得'), findsOneWidget);
+    expect(find.text('列数'), findsOneWidget);
     expect(find.text('ユーザーを削除'), findsOneWidget);
+
+    // 誤操作防止のためユーザー削除ボタンが最下部に配置されていること
+    final deletePos = tester.getCenter(find.text('ユーザーを削除'));
+    final colPos = tester.getCenter(find.text('列数'));
+    final addPos = tester.getCenter(find.text('画像取得'));
+    expect(addPos.dy < colPos.dy, isTrue);
+    expect(colPos.dy < deletePos.dy, isTrue);
   });
 }

@@ -290,17 +290,11 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                       case 'append':
                         _handleAppend(username);
                         break;
+                      case 'grid_columns':
+                        showGridColumnsDialog(context);
+                        break;
                       case 'delete_user':
                         _confirmDeleteUser(username);
-                        break;
-                      case 'grid_col_3':
-                        vm.setGridColumnCount(3);
-                        break;
-                      case 'grid_col_2':
-                        vm.setGridColumnCount(2);
-                        break;
-                      case 'grid_col_1':
-                        vm.setGridColumnCount(1);
                         break;
                     }
                   },
@@ -316,6 +310,17 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                       ),
                     ),
                     PopupMenuItem(
+                      value: 'grid_columns',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.grid_view),
+                          const SizedBox(width: 8),
+                          Text(l10n.gridColumnsLabel),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
                       value: 'delete_user',
                       child: Row(
                         children: [
@@ -327,22 +332,6 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                           ),
                         ],
                       ),
-                    ),
-                    const PopupMenuDivider(),
-                    CheckedPopupMenuItem<String>(
-                      value: 'grid_col_3',
-                      checked: vm.gridColumnCount == 3,
-                      child: Text(l10n.columnsCount(3)),
-                    ),
-                    CheckedPopupMenuItem<String>(
-                      value: 'grid_col_2',
-                      checked: vm.gridColumnCount == 2,
-                      child: Text(l10n.columnsCount(2)),
-                    ),
-                    CheckedPopupMenuItem<String>(
-                      value: 'grid_col_1',
-                      checked: vm.gridColumnCount == 1,
-                      child: Text(l10n.columnsCount(1)),
                     ),
                   ],
                 ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../viewmodels/gallery_viewmodel.dart';
 
@@ -140,3 +141,44 @@ Future<void> pinAccountToTop(
   String username,
 ) =>
     togglePinAccount(context, vm, username);
+
+/// [JA] 列数選択ダイアログ（ラジオボタン）を表示する
+/// [EN] Displays a dialog with radio buttons to select the grid column count
+Future<void> showGridColumnsDialog(BuildContext context) async {
+  final l10n = AppLocalizations.of(context);
+  final vm = context.read<GalleryViewModel>();
+  final current = vm.gridColumnCount;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(l10n.gridColumnsLabel),
+        contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [1, 2, 3].map((count) {
+            return RadioListTile<int>(
+              title: Text(l10n.columnsCount(count)),
+              value: count,
+              groupValue: current,
+              onChanged: (val) {
+                if (val != null) {
+                  vm.setGridColumnCount(val);
+                  Navigator.pop(dialogContext);
+                }
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(l10n.cancel),
+          ),
+        ],
+      );
+    },
+  );
+}
+

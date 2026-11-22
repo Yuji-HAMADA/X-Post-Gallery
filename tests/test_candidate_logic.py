@@ -178,6 +178,37 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertFalse(is_x_api_rate_limit("https://adservice.google.com/adsid/integrator.sync"))
         self.assertFalse(is_x_api_rate_limit("https://pbs.twimg.com/media/abc.jpg"))
 
+    def test_skip_already_registered_candidate_accounts(self):
+        # マスターGist内に既に candidate アカウントが存在する場合のスキップ抽出ロジック検証
+        current_user_gists = {
+            "regular_user": {"gist_id": "g1", "is_candidate": False},
+            "Candidate_User_1": {"gist_id": "g2", "is_candidate": True},
+            "legacy_user": "gist_legacy",
+        }
+        candidate_users_lower = {
+            k.lower() for k, v in current_user_gists.items()
+            if isinstance(v, dict) and v.get("is_candidate") is True
+        }
+
+        # Candidate_User_1 が小文字で含まれていること
+        self.assertIn("candidate_user_1", candidate_users_lower)
+        self.assertNotIn("regular_user", candidate_users_lower)
+        self.assertNotIn("legacy_user", candidate_users_lower)
+
+        # タイムラインで拾ったアカウントのスキップ判定
+        batch = ["Candidate_User_1", "regular_user", "brand_new_user"]
+        skipped = []
+        to_fetch = []
+        for u in batch:
+            if u.lower() in candidate_users_lower:
+                skipped.append(u)
+            else:
+                to_fetch.append(u)
+
+        self.assertEqual(skipped, ["Candidate_User_1"])
+        self.assertEqual(to_fetch, ["regular_user", "brand_new_user"])
+
+
     def test_extract_accounts_js_ad_filtering(self):
         """EXTRACT_ACCOUNTS_JS がタイムライン広告のプロモーションテキストを除外し、placementTracking を含む動画ポストのアカウントは正常に抽出すること"""
         import asyncio

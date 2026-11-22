@@ -372,24 +372,33 @@ class GalleryViewModel extends ChangeNotifier {
 
     // Candidateからお気に入りに移動した場合はcandidate属性を永続的に外してマスターGistを更新
     if (isAdding && isCandidate(username)) {
-      final canonical = getCanonicalUsername(username) ?? username;
-      final lower = canonical.toLowerCase();
-      String? matchedKey;
-      for (final key in _userGistEntries.keys) {
-        if (key.toLowerCase() == lower) {
-          matchedKey = key;
-          break;
+      final lower = username.toLowerCase();
+      final updatedEntries = Map<String, UserGistEntry>.from(_userGistEntries);
+      final updatedUserGists = Map<String, String>.from(_userGists);
+      bool found = false;
+
+      for (final entry in _userGistEntries.entries) {
+        if (entry.key.toLowerCase() == lower) {
+          updatedEntries[entry.key] = entry.value.copyWith(isCandidate: false);
+          found = true;
         }
       }
-      final targetKey = matchedKey ?? canonical;
-      final currentEntry = _userGistEntries[targetKey];
-      _userGistEntries = Map<String, UserGistEntry>.from(_userGistEntries)
-        ..[targetKey] = (currentEntry ??
-                UserGistEntry(
-                  gistId: _userGists[targetKey] ?? '',
-                  priorityUpdatedAt: _userPriorities[targetKey] ?? 0,
-                ))
-            .copyWith(isCandidate: false);
+
+      if (!found) {
+        final canonical = getCanonicalUsername(username) ?? username;
+        updatedEntries[canonical] = UserGistEntry(
+          gistId: _userGists[canonical] ?? '',
+          priorityUpdatedAt: _userPriorities[canonical] ?? 0,
+          isCandidate: false,
+        );
+        if (!updatedUserGists.containsKey(canonical)) {
+          updatedUserGists[canonical] = '';
+        }
+      }
+
+      _userGistEntries = updatedEntries;
+      _userGists = updatedUserGists;
+
       try {
         await _saveMasterGist();
       } catch (e) {

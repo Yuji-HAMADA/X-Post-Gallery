@@ -709,14 +709,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'random_candidate':
                       _toggleCandidateRandomMode();
                       break;
-                    case 'grid_col_3':
-                      context.read<GalleryViewModel>().setGridColumnCount(3);
-                      break;
-                    case 'grid_col_2':
-                      context.read<GalleryViewModel>().setGridColumnCount(2);
-                      break;
-                    case 'grid_col_1':
-                      context.read<GalleryViewModel>().setGridColumnCount(1);
+                    case 'grid_columns':
+                      showGridColumnsDialog(context);
                       break;
                   }
                 },
@@ -756,20 +750,13 @@ class _GalleryPageState extends State<GalleryPage> {
                     ),
                   ),
                   const PopupMenuDivider(),
-                  CheckedPopupMenuItem<String>(
-                    value: 'grid_col_3',
-                    checked: vm.gridColumnCount == 3,
-                    child: Text(l10n.columnsCount(3)),
-                  ),
-                  CheckedPopupMenuItem<String>(
-                    value: 'grid_col_2',
-                    checked: vm.gridColumnCount == 2,
-                    child: Text(l10n.columnsCount(2)),
-                  ),
-                  CheckedPopupMenuItem<String>(
-                    value: 'grid_col_1',
-                    checked: vm.gridColumnCount == 1,
-                    child: Text(l10n.columnsCount(1)),
+                  PopupMenuItem(
+                    value: 'grid_columns',
+                    child: ListTile(
+                      leading: const Icon(Icons.grid_view),
+                      title: Text(l10n.gridColumnsLabel),
+                      dense: true,
+                    ),
                   ),
                 ],
               ),

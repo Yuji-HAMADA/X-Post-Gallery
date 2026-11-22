@@ -119,6 +119,28 @@ void main() {
       expect(vm.isCandidate('cand_user'), isFalse);
     });
 
+    test('Candidate user with case difference clears candidate flag permanently on favorite and unfavorite', () async {
+      final repo = _MockRepoForCandidateTest();
+      final github = _MockGitHubServiceForCandidateTest();
+      final vm = GalleryViewModel(repository: repo, githubService: github);
+
+      await vm.loadGallery('master_123');
+
+      expect(vm.isCandidate('Cand_User'), isTrue);
+
+      // 大文字混じりでトグル
+      await vm.toggleFavorite('Cand_User');
+      expect(vm.isFavorite('Cand_User'), isTrue);
+      expect(vm.isCandidate('cand_user'), isFalse);
+      expect(vm.isCandidate('Cand_User'), isFalse);
+
+      // お気に入り解除
+      await vm.toggleFavorite('Cand_User');
+      expect(vm.isFavorite('Cand_User'), isFalse);
+      expect(vm.isCandidate('cand_user'), isFalse);
+      expect(vm.isCandidate('Cand_User'), isFalse);
+    });
+
     test('cleanupCandidateFlagsForFavorites clears isCandidate for existing favorite users on load and updates Gist', () async {
       final repo = _MockRepoForCandidateTest(initialFavorites: {'cand_user'});
       final github = _MockGitHubServiceForCandidateTest();
