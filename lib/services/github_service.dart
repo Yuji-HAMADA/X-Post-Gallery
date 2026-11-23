@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../l10n/app_localizations.dart';
 import '../utils/env_helper.dart';
 
 // クラスの外で定義し、const をつけるのがポイント
@@ -43,15 +44,30 @@ class _QueueSlots {
 }
 
 class GitHubService {
+  final http.Client _client;
+
   // Webビルド時のトークンを優先し、無ければ dotenv から取得
-  final String token = resolveEnv(_externalToken, 'GITHUB_TOKEN');
-  final String owner = resolveEnv(_externalGithubUsername, 'GITHUB_USERNAME');
+  final String token;
+  final String owner;
 
   /// キューGist ID
-  final String fetchQueueGistId = resolveEnv(
-    _externalFetchQueueGistId,
-    'FETCH_QUEUE_GIST_ID',
-  );
+  final String fetchQueueGistId;
+
+  String _lastErrorMessage = '';
+
+  /// 直近のAPI呼び出しで発生したエラーメッセージ（UI表示用）
+  String get lastErrorMessage => _lastErrorMessage;
+
+  GitHubService({
+    http.Client? client,
+    String? token,
+    String? owner,
+    String? fetchQueueGistId,
+  })  : _client = client ?? http.Client(),
+        token = token ?? resolveEnv(_externalToken, 'GITHUB_TOKEN'),
+        owner = owner ?? resolveEnv(_externalGithubUsername, 'GITHUB_USERNAME'),
+        fetchQueueGistId = fetchQueueGistId ??
+            resolveEnv(_externalFetchQueueGistId, 'FETCH_QUEUE_GIST_ID');
 
   // ヘッダーをゲッターで定義して、毎回新しいマップを返すようにする
   Map<String, String> get _headers => {
@@ -62,7 +78,7 @@ class GitHubService {
   /// Gist のメタデータ（存在確認 + updated_at）を取得する
   Future<Map<String, dynamic>> fetchGistMetadata(String gistId) async {
     final url = Uri.parse('https://api.github.com/gists/$gistId');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       return {'exists': true, 'updatedAt': data['updated_at'] as String?};
@@ -84,17 +100,32 @@ class GitHubService {
   }) async {
     debugPrint('GitHubService: updateGistFile gistId=$gistId, filename=$filename');
     final url = Uri.parse('https://api.github.com/gists/$gistId');
-    final response = await http.patch(
-      url,
-      headers: _headers,
-      body: jsonEncode({
-        'files': {
-          filename: {'content': content},
-        },
-      }),
-    );
-    debugPrint('GitHubService: updateGistFile response status=${response.statusCode}');
-    return response.statusCode == 200;
+    try {
+      final response = await _client.patch(
+        url,
+        headers: _headers,
+        body: jsonEncode({
+          'files': {
+            filename: {'content': content},
+          },
+        }),
+      );
+      debugPrint('GitHubService: updateGistFile response status=${response.statusCode}');
+      if (response.statusCode == 200) {
+        _lastErrorMessage = '';
+        return true;
+      }
+      _lastErrorMessage = _parseApiError(response);
+      debugPrint(
+        'GitHubService: updateGistFile failed: status=${response.statusCode}, '
+        'headers=${response.headers}, body=${response.body}',
+      );
+      return false;
+    } catch (e) {
+      _lastErrorMessage = AppLocalizations.current.networkError(e.toString());
+      debugPrint('GitHubService: updateGistFile exception: $e');
+      return false;
+    }
   }
 
   /// お気に入り用の新規 Gist を作成してIDを返す（secret）
@@ -104,28 +135,40 @@ class GitHubService {
     required String description,
   }) async {
     final url = Uri.parse('https://api.github.com/gists');
-    final response = await http.post(
-      url,
-      headers: _headers,
-      body: jsonEncode({
-        'description': description,
-        'public': false,
-        'files': {
-          filename: {'content': content},
-        },
-      }),
-    );
-    if (response.statusCode == 201) {
-      return (jsonDecode(response.body) as Map<String, dynamic>)['id']
-          as String?;
+    try {
+      final response = await _client.post(
+        url,
+        headers: _headers,
+        body: jsonEncode({
+          'description': description,
+          'public': false,
+          'files': {
+            filename: {'content': content},
+          },
+        }),
+      );
+      if (response.statusCode == 201) {
+        _lastErrorMessage = '';
+        return (jsonDecode(response.body) as Map<String, dynamic>)['id']
+            as String?;
+      }
+      _lastErrorMessage = _parseApiError(response);
+      debugPrint(
+        'GitHubService: createGist failed: status=${response.statusCode}, '
+        'headers=${response.headers}, body=${response.body}',
+      );
+      return null;
+    } catch (e) {
+      _lastErrorMessage = AppLocalizations.current.networkError(e.toString());
+      debugPrint('GitHubService: createGist exception: $e');
+      return null;
     }
-    return null;
   }
 
   /// Gist から指定ファイルのテキスト内容を取得する
   Future<String?> fetchGistContent(String gistId, String filename) async {
     final url = Uri.parse('https://api.github.com/gists/$gistId');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200) return null;
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final files = body['files'] as Map<String, dynamic>?;
@@ -138,7 +181,7 @@ class GitHubService {
 
     if (isTruncated && rawUrl != null) {
       // truncated されている場合は raw_url から直接取得する
-      final rawResponse = await http.get(Uri.parse(rawUrl), headers: _headers);
+      final rawResponse = await _client.get(Uri.parse(rawUrl), headers: _headers);
       if (rawResponse.statusCode == 200) {
         return rawResponse.body;
       }
@@ -146,6 +189,78 @@ class GitHubService {
     }
 
     return fileObj['content'] as String?;
+  }
+
+  /// APIレスポンスのエラー解析（システム設定言語に合わせて切り替え）
+  String _parseApiError(
+    http.Response response, {
+    String? defaultMsg,
+    AppLocalizations? localizations,
+  }) {
+    final l10n = localizations ?? AppLocalizations.current;
+    String? apiMessage;
+    try {
+      final json = jsonDecode(response.body);
+      if (json is Map<String, dynamic> && json['message'] is String) {
+        apiMessage = json['message'] as String;
+      }
+    } catch (_) {}
+
+    final remaining = response.headers['x-ratelimit-remaining'];
+    final resetHeader = response.headers['x-ratelimit-reset'];
+    final retryAfterHeader = response.headers['retry-after'];
+    final resource = response.headers['x-ratelimit-resource'];
+
+    final isRateLimit = response.statusCode == 429 ||
+        remaining == '0' ||
+        (apiMessage != null && apiMessage.toLowerCase().contains('rate limit'));
+
+    if (isRateLimit) {
+      String timeInfo = '';
+      if (resetHeader != null) {
+        final resetEpoch = int.tryParse(resetHeader);
+        if (resetEpoch != null) {
+          final resetTime = DateTime.fromMillisecondsSinceEpoch(
+            resetEpoch * 1000,
+            isUtc: false,
+          ).toLocal();
+          final now = DateTime.now();
+          final diff = resetTime.difference(now);
+          final minutes = diff.inMinutes;
+          final timeStr =
+              '${resetTime.hour.toString().padLeft(2, '0')}:${resetTime.minute.toString().padLeft(2, '0')}';
+          timeInfo = l10n.rateLimitResetTime(timeStr, minutes > 0 ? minutes : null);
+        }
+      } else if (retryAfterHeader != null) {
+        final retrySeconds = int.tryParse(retryAfterHeader);
+        if (retrySeconds != null) {
+          final mins = (retrySeconds / 60).ceil();
+          timeInfo = l10n.rateLimitRetryAfter(mins);
+        }
+      }
+
+      final resourceName = resource != null && resource.isNotEmpty ? ' ($resource)' : '';
+      return '${l10n.rateLimitExceeded}$resourceName$timeInfo';
+    }
+
+    if (response.statusCode == 401) {
+      return l10n.githubAuthFailed;
+    }
+
+    if (response.statusCode == 403) {
+      return l10n.githubAccessDenied(apiMessage);
+    }
+
+    if (response.statusCode == 404) {
+      return l10n.gistNotFound;
+    }
+
+    final fallback = defaultMsg ?? l10n.saveFailed;
+    if (apiMessage != null && apiMessage.isNotEmpty) {
+      return '$fallback: $apiMessage';
+    }
+
+    return fallback;
   }
 
   /// 2スロットリングバッファの読み込み

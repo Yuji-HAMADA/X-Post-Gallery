@@ -24,6 +24,13 @@ void main() {
       expect(l10n.stopOnExistingLabel, 'ストップオン');
       expect(l10n.skipExistingLabel, 'スキップ');
       expect(l10n.fromScratchLabel, '初めから');
+      expect(l10n.load, '読込');
+      expect(l10n.saveGistIdNote, 'Gist IDをメモしておくと再インストール後に復元できます：');
+      expect(l10n.rateLimitExceeded, 'GitHub APIのレート制限に達しました');
+      expect(l10n.rateLimitResetTime('18:30', 10), ' (解除予定: 18:30頃、約10分後)');
+      expect(l10n.githubAuthFailed, 'GitHubの認証に失敗しました。トークンを確認してください。');
+      expect(l10n.githubAccessDenied(null), 'GitHub APIのアクセスが拒否されました(HTTP 403)');
+      expect(l10n.gistNotFound, '指定されたGistが見つかりません。');
     });
 
     test('English locale returns accurate English strings', () {
@@ -45,6 +52,13 @@ void main() {
       expect(l10n.stopOnExistingLabel, 'Stop on Existing');
       expect(l10n.skipExistingLabel, 'Skip Existing');
       expect(l10n.fromScratchLabel, 'From Scratch');
+      expect(l10n.load, 'Load');
+      expect(l10n.saveGistIdNote, 'Save this Gist ID to restore your favorites after reinstallation:');
+      expect(l10n.rateLimitExceeded, 'GitHub API rate limit exceeded');
+      expect(l10n.rateLimitResetTime('18:30', 10), ' (Resets at ~18:30, in ~10 min)');
+      expect(l10n.githubAuthFailed, 'GitHub authentication failed. Please check your token.');
+      expect(l10n.githubAccessDenied(null), 'GitHub API access denied (HTTP 403)');
+      expect(l10n.gistNotFound, 'Specified Gist was not found.');
     });
 
     testWidgets('AppLocalizations.delegate automatically resolves system language', (tester) async {

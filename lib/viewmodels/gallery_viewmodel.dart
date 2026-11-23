@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import '../l10n/app_localizations.dart';
 import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
 import '../services/gallery_repository.dart';
@@ -290,7 +291,15 @@ class GalleryViewModel extends ChangeNotifier {
         filename: 'favorites.json',
         content: content,
       );
-      return success ? gistId : null;
+      if (success) {
+        _errorMessage = '';
+        return gistId;
+      } else {
+        _errorMessage = _githubService.lastErrorMessage.isNotEmpty
+            ? _githubService.lastErrorMessage
+            : AppLocalizations.current.saveFailed;
+        return null;
+      }
     } else {
       gistId = await _githubService.createGist(
         filename: 'favorites.json',
@@ -299,8 +308,12 @@ class GalleryViewModel extends ChangeNotifier {
       );
       if (gistId != null) {
         await _repository.saveFavoritesGistId(gistId);
+        _errorMessage = '';
         return gistId;
       }
+      _errorMessage = _githubService.lastErrorMessage.isNotEmpty
+          ? _githubService.lastErrorMessage
+          : AppLocalizations.current.saveFailed;
       return null;
     }
   }
@@ -430,12 +443,14 @@ class GalleryViewModel extends ChangeNotifier {
         notifyListeners();
         return remainingCount;
       } else {
-        _setError('Gist の更新に失敗しました');
+        _setError(_githubService.lastErrorMessage.isNotEmpty
+            ? _githubService.lastErrorMessage
+            : 'Gist の更新に失敗しました');
         return null;
       }
     } catch (e) {
       debugPrint('_deleteSelectedFromGist error: $e');
-      _setError('Gist の更新に失敗しました');
+      _setError('Gist の更新に失敗しました: $e');
       return null;
     }
   }
@@ -541,7 +556,9 @@ class GalleryViewModel extends ChangeNotifier {
       if (success) {
         await _repository.clearCache();
       } else {
-        _errorMessage = 'マスターGistの更新に失敗しました';
+        _errorMessage = _githubService.lastErrorMessage.isNotEmpty
+            ? _githubService.lastErrorMessage
+            : AppLocalizations.current.masterGistUpdateFailed(null);
       }
       return success;
     } catch (e) {

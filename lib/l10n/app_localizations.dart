@@ -23,6 +23,17 @@ class AppLocalizations {
         AppLocalizations(const Locale('en'));
   }
 
+  /// [JA] システム設定言語に基づくデフォルトの AppLocalizations インスタンスを取得
+  /// [EN] Obtains default AppLocalizations based on system locale
+  static AppLocalizations get current {
+    try {
+      final locale = WidgetsBinding.instance.platformDispatcher.locale;
+      return AppLocalizations(locale);
+    } catch (_) {
+      return AppLocalizations(const Locale('en'));
+    }
+  }
+
   bool get isJapanese => locale.languageCode == 'ja';
 
   // --- Common Actions & Buttons [JA: 共通アクション・ボタン / EN: Common Actions & Buttons] ---
@@ -33,6 +44,7 @@ class AppLocalizations {
   String get execute => isJapanese ? '実行' : 'Execute';
   String get reload => isJapanese ? '再読み込み' : 'Reload';
   String get add => isJapanese ? '追加' : 'Add';
+  String get load => isJapanese ? '読込' : 'Load';
   String get fetchImages => isJapanese ? '画像取得' : 'Fetch images';
   String get gridColumnsLabel => isJapanese ? '列数' : 'Columns';
   String columnsCount(int count) =>
@@ -131,6 +143,9 @@ class AppLocalizations {
       isJapanese ? '保存完了' : 'Save Completed';
   String get saveFailed =>
       isJapanese ? 'Gistへの保存に失敗しました' : 'Failed to save to Gist';
+  String get saveGistIdNote => isJapanese
+      ? 'Gist IDをメモしておくと再インストール後に復元できます：'
+      : 'Save this Gist ID to restore your favorites after reinstallation:';
   String get loadFromGistTitle =>
       isJapanese ? 'Gistから読込' : 'Load from Gist';
   String get loadingFromGist =>
@@ -145,6 +160,48 @@ class AppLocalizations {
       isJapanese ? '削除中...' : 'Deleting...';
   String get videoLoadFailed =>
       isJapanese ? '動画の読み込みに失敗しました' : 'Failed to load video';
+
+  // --- GitHub API & Rate Limit [JA: GitHub API & レート制限 / EN: GitHub API & Rate Limiting] ---
+
+  String get rateLimitExceeded =>
+      isJapanese ? 'GitHub APIのレート制限に達しました' : 'GitHub API rate limit exceeded';
+
+  String rateLimitResetTime(String timeStr, int? minutes) {
+    if (isJapanese) {
+      return minutes != null
+          ? ' (解除予定: $timeStr頃、約$minutes分後)'
+          : ' (解除予定: $timeStr頃)';
+    } else {
+      return minutes != null
+          ? ' (Resets at ~$timeStr, in ~$minutes min)'
+          : ' (Resets at ~$timeStr)';
+    }
+  }
+
+  String rateLimitRetryAfter(int minutes) =>
+      isJapanese ? ' (約$minutes分後に再試行可能)' : ' (Retry in ~$minutes min)';
+
+  String get githubAuthFailed => isJapanese
+      ? 'GitHubの認証に失敗しました。トークンを確認してください。'
+      : 'GitHub authentication failed. Please check your token.';
+
+  String githubAccessDenied(String? detail) {
+    final d = detail != null && detail.isNotEmpty ? ' ($detail)' : '';
+    return isJapanese
+        ? 'GitHub APIのアクセスが拒否されました(HTTP 403)$d'
+        : 'GitHub API access denied (HTTP 403)$d';
+  }
+
+  String get gistNotFound =>
+      isJapanese ? '指定されたGistが見つかりません。' : 'Specified Gist was not found.';
+
+  String networkError(String error) =>
+      isJapanese ? '通信エラーが発生しました: $error' : 'Network error: $error';
+
+  String masterGistUpdateFailed(String? detail) {
+    final d = detail != null && detail.isNotEmpty ? ': $detail' : '';
+    return isJapanese ? 'マスターGistの更新に失敗しました$d' : 'Failed to update Master Gist$d';
+  }
 }
 
 /// [JA] AppLocalizations のローダーデリゲート（システム言語自動追従）

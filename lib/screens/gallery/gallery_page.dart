@@ -181,16 +181,17 @@ class _GalleryPageState extends State<GalleryPage> {
   // --- お気に入り Gist 保存・読込 ---
 
   Future<void> _saveFavoritesToGist() async {
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const AlertDialog(
+      builder: (_) => AlertDialog(
         content: Row(
           children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('Gistに保存中...'),
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            Text(l10n.savingToGist),
           ],
         ),
       ),
@@ -204,12 +205,12 @@ class _GalleryPageState extends State<GalleryPage> {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('保存完了'),
+          title: Text(l10n.saveCompleted),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Gist IDをメモしておくと再インストール後に復元できます：'),
+              Text(l10n.saveGistIdNote),
               const SizedBox(height: 8),
               SelectableText(
                 gistId,
@@ -220,17 +221,21 @@ class _GalleryPageState extends State<GalleryPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+              child: Text(l10n.ok),
             ),
           ],
         ),
       );
     } else {
-      _showErrorSnackBar('Gistへの保存に失敗しました');
+      final msg = vm.errorMessage.isNotEmpty
+          ? vm.errorMessage
+          : l10n.saveFailed;
+      _showErrorSnackBar(msg);
     }
   }
 
   Future<void> _loadFavoritesFromGist() async {
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final savedId = await vm.loadFavoritesGistId();
 
@@ -239,7 +244,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final gistId = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Gistから読込'),
+        title: Text(l10n.loadFromGistTitle),
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
@@ -251,11 +256,11 @@ class _GalleryPageState extends State<GalleryPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
+            child: Text(l10n.cancel),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('読込'),
+            child: Text(l10n.load),
           ),
         ],
       ),
@@ -266,12 +271,12 @@ class _GalleryPageState extends State<GalleryPage> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const AlertDialog(
+      builder: (_) => AlertDialog(
         content: Row(
           children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('読込中...'),
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            Text(l10n.loadingFromGist),
           ],
         ),
       ),
@@ -283,13 +288,13 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('お気に入りを読み込みました'),
+        SnackBar(
+          content: Text(l10n.loadedFavoritesSuccess),
           backgroundColor: Colors.green,
         ),
       );
     } else {
-      _showErrorSnackBar('読込に失敗しました。Gist IDを確認してください');
+      _showErrorSnackBar(l10n.loadFailedCheckId);
     }
   }
 

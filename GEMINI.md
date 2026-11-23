@@ -76,7 +76,12 @@ bash tests/test_crawler_delete_defense.sh
 - **`adaptive_skip.py`**: 更新がないアカウントの巡回頻度を段階的に抑制するアダプティブ・スキップ管理。
 
 ## Key Conventions & Standards
-- コメントおよびUI文字列は日本語を使用する。
+- **多言語対応（日本語・英語双方の完全対応）:**
+  - アプリ内のUI文字列、ダイアログ、ボタン、ツールチップ、SnackBar通知、API/通信エラーメッセージ等の表示テキストは、コード内に直接文字列をハードコードしてはならない。
+  - 必ず `lib/l10n/app_localizations.dart`（`AppLocalizations`）に定義し、日本語（`ja`）および英語（`en`）双方のテキストを漏れなく定義すること。
+  - UI層（Widget）では `AppLocalizations.of(context)`、BuildContext のない層（Service / ViewModel）では `AppLocalizations.current` を利用すること。
+  - 新規メッセージ追加時は `test/l10n_test.dart` に日本語・英語のテストケースを必ず追加すること。
+- **コード内コメント:** 日本語（または `[JA]` / `[EN]` 併記）を使用する。
 - Gist の正準ファイル名は `data.json`（後方互換用 `gallary_data.json` も考慮）。
 - GitHub トークンは `.env`（開発時）または `--dart-define=GITHUB_TOKEN`（Webビルド時）から供給。
 - ユーザー削除処理では、子Gist、マスターGist、キューGist（`fetch_queue.json`）、お気に入りリストから漏れなく完全に除外すること。
