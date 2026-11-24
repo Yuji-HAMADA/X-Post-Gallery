@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:x_post_gallery/l10n/app_localizations.dart';
 import 'package:x_post_gallery/models/tweet_item.dart';
+import 'package:x_post_gallery/screens/gallery/components/aspect_ratio_grid_view.dart';
 import 'package:x_post_gallery/screens/gallery/gallery_page.dart';
 import 'package:x_post_gallery/screens/gallery/user_gallery_swipe_page.dart';
 import 'package:x_post_gallery/services/gallery_repository.dart';
@@ -124,11 +125,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // 初期状態のグリッドは3列
-      final gridFinder = find.byType(GridView);
+      final gridFinder = find.byType(AspectRatioGridView<TweetItem>);
       expect(gridFinder, findsOneWidget);
-      final gridWidget = tester.widget<GridView>(gridFinder);
-      final delegate = gridWidget.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-      expect(delegate.crossAxisCount, 3);
+      final gridWidget = tester.widget<AspectRatioGridView<TweetItem>>(gridFinder);
+      expect(gridWidget.columnCount, 3);
 
       // ハンバーガーメニューを開く
       final menuButton = find.byIcon(Icons.menu);
@@ -150,9 +150,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // グリッドが2列に切り替わっていること
-      final updatedGridWidget = tester.widget<GridView>(gridFinder);
-      final updatedDelegate = updatedGridWidget.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-      expect(updatedDelegate.crossAxisCount, 2);
+      final updatedGridWidget = tester.widget<AspectRatioGridView<TweetItem>>(gridFinder);
+      expect(updatedGridWidget.columnCount, 2);
       expect(vm.gridColumnCount, 2);
     });
 

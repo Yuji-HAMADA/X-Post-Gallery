@@ -6,6 +6,7 @@ import '../../models/tweet_item.dart';
 import '../../utils/date_helper.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
+import 'components/aspect_ratio_grid_view.dart';
 import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
 import 'components/user_card.dart';
@@ -1083,19 +1084,17 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
-    return GridView.builder(
-      controller: isCandidateView ? _candidateGridController : _gridController,
+    return AspectRatioGridView<MapEntry<String, List<TweetItem>>>(
+      scrollController:
+          isCandidateView ? _candidateGridController : _gridController,
       physics: const AlwaysScrollableScrollPhysics(),
+      columnCount: columnCount,
       padding: const EdgeInsets.all(4),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columnCount,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final username = entries[index].key;
-        final userItems = entries[index].value;
+      items: entries,
+      getImageUrl: (entry) => _selectThumbnailItem(entry.value).thumbnailUrl,
+      itemBuilder: (context, entry, index) {
+        final username = entry.key;
+        final userItems = entry.value;
         final thumbItem = _selectThumbnailItem(userItems);
         final isPinned = (userPriorities[username] ?? 0) > 0;
         return UserCard(
@@ -1175,19 +1174,16 @@ class _GalleryPageState extends State<GalleryPage> {
     final favUsernames = entries.map((e) => e.key).toList();
 
     final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
-    return GridView.builder(
-      controller: _favGridController,
+    return AspectRatioGridView<MapEntry<String, List<TweetItem>>>(
+      scrollController: _favGridController,
       physics: const AlwaysScrollableScrollPhysics(),
+      columnCount: columnCount,
       padding: const EdgeInsets.all(4),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columnCount,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final username = entries[index].key;
-        final userItems = entries[index].value;
+      items: entries,
+      getImageUrl: (entry) => _selectThumbnailItem(entry.value).thumbnailUrl,
+      itemBuilder: (context, entry, index) {
+        final username = entry.key;
+        final userItems = entry.value;
         final thumbItem = _selectThumbnailItem(userItems);
         final isPinned = (userPriorities[username] ?? 0) > 0;
         return UserCard(
