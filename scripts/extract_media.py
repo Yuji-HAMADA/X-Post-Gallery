@@ -18,20 +18,36 @@ RESUME_DIR = os.path.join(DATA_DIR, "resume")
 RESUME_TTL_SECONDS = 24 * 3600  # 再開データの有効期限（24時間）
 JST = timezone(timedelta(hours=9))
 
+BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
+
 def to_jst_timestamp(ts_str):
-    """タイムスタンプ文字列を東京ローカルタイム（JST: YYYY-MM-DD HH:mm:ss JST）に変換"""
+    """タイムスタンプ文字列（ISO-8601 または Twitter RFC 2822 形式）を東京ローカルタイム（JST: YYYY-MM-DD HH:mm:ss JST）に変換"""
     if not ts_str:
         return ts_str
+    cleaned = ts_str.strip()
+    if cleaned.endswith("JST"):
+        return cleaned
     try:
-        cleaned = ts_str.strip()
-        if cleaned.endswith("JST"):
-            return cleaned
-        cleaned = cleaned.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(cleaned)
-        jst_dt = dt.astimezone(JST)
-        return jst_dt.strftime("%Y-%m-%d %H:%M:%S JST")
+        dt = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+        return dt.astimezone(JST).strftime("%Y-%m-%d %H:%M:%S JST")
+    except Exception:
+        pass
+    try:
+        dt = datetime.strptime(cleaned, "%a %b %d %H:%M:%S %z %Y")
+        return dt.astimezone(JST).strftime("%Y-%m-%d %H:%M:%S JST")
     except Exception:
         return ts_str
+
+
+async def enable_fast_resource_blocking(context):
+    """帯域・CPU・RAM削減のため、画像・動画・フォント実バイナリのDLを遮断する"""
+    async def _route_handler(route):
+        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await context.route("**/*", _route_handler)
 
 def write_crawl_result(user, tweets_saved, status="ok"):
     """クローラーの取得結果（保存ツイート数など）をメタデータファイルに書き出す"""
@@ -158,14 +174,16 @@ def apply_resume_state(resume_state, skip_ids):
     resume_cursor = resume_state.get("cursor")
     return restored_tweets, resumed_ids, resume_cursor
 
+USER_TIMELINE_GRAPHQL_ENDPOINTS = ("/UserTweets", "/UserOriginalsTimeline")
+
 def is_user_tweets_graphql_url(url):
-    """X の UserTweets GraphQL エンドポイント URL かどうかを判定する"""
+    """X のプロフィール投稿 GraphQL エンドポイント (UserTweets / UserOriginalsTimeline) かどうかを判定する"""
     if not url:
         return False
     try:
         parsed = urlsplit(url)
         path = parsed.path.rstrip("/")
-        return "/i/api/graphql/" in path and path.endswith("/UserTweets")
+        return "/i/api/graphql/" in path and any(path.endswith(ep) for ep in USER_TIMELINE_GRAPHQL_ENDPOINTS)
     except Exception:
         return False
 
@@ -273,6 +291,206 @@ def extract_user_tweets_page_info(payload):
                             tweet_ids.append(str(rest_id))
 
     return tweet_ids, bottom_cursor
+
+def _build_archive_item_from_graphql_result(tweet_res, is_pinned=False, fallback_user=""):
+    """
+    UserTweets / UserOriginalsTimeline の tweet_results.result から
+    (tid, is_pinned, archive_item_or_None) を構築する。
+    リポスト・プロモーションは None を返す。動画MP4 URLも GraphQL JSON から直接抽出する。
+    """
+    if not isinstance(tweet_res, dict):
+        return None
+    if tweet_res.get("__typename") == "TweetWithVisibilityResults" and isinstance(tweet_res.get("tweet"), dict):
+        tweet_res = tweet_res["tweet"]
+
+    legacy = tweet_res.get("legacy")
+    if not isinstance(legacy, dict):
+        return None
+
+    # リポストは除外（post_only 固定仕様）
+    if legacy.get("retweeted_status_result") or legacy.get("retweeted_status_id_str"):
+        return None
+
+    tid = str(tweet_res.get("rest_id") or legacy.get("id_str") or "")
+    if not tid or not tid.isdigit():
+        return None
+
+    user_res = tweet_res.get("core", {}).get("user_results", {}).get("result", {})
+    origin_user = (
+        (user_res.get("core", {}).get("screen_name") if isinstance(user_res, dict) else None)
+        or (user_res.get("legacy", {}).get("screen_name") if isinstance(user_res, dict) else None)
+        or fallback_user
+        or "unknown"
+    )
+    raw_text = legacy.get("full_text") or ""
+    created_at = to_jst_timestamp(legacy.get("created_at") or "")
+
+    raw_media = (
+        legacy.get("extended_entities", {}).get("media")
+        or legacy.get("entities", {}).get("media")
+        or []
+    )
+    media_urls = []
+    vid_index = 0
+    for m in raw_media:
+        if not isinstance(m, dict):
+            continue
+        m_type = m.get("type")
+        if m_type == "photo":
+            src = m.get("media_url_https") or ""
+            if not src or "name=120x120" in src or "name=240x240" in src:
+                continue
+            src = src.split("&name=")[0]
+            media_urls.append({
+                "media_url_https": src,
+                "type": "photo",
+                "expanded_url": m.get("expanded_url") or f"https://x.com/{origin_user}/status/{tid}/photo/1",
+            })
+        elif m_type in ("video", "animated_gif"):
+            variants = m.get("video_info", {}).get("variants", [])
+            mp4_variants = [
+                v for v in variants
+                if isinstance(v, dict) and (v.get("content_type") == "video/mp4" or v.get("type") == "video/mp4")
+            ]
+            if mp4_variants:
+                best_mp4 = max(
+                    mp4_variants,
+                    key=lambda x: int(x.get("bitrate", 0) if x.get("bitrate") is not None else 0),
+                )
+                best_url = best_mp4.get("url") or best_mp4.get("src")
+                if best_url:
+                    vid_index += 1
+                    media_urls.append({
+                        "media_url_https": (m.get("media_url_https") or "").split("&name=")[0],
+                        "type": "video",
+                        "video_info": {
+                            "variants": [{
+                                "url": best_url,
+                                "content_type": "video/mp4",
+                                "bitrate": best_mp4.get("bitrate", 0),
+                            }]
+                        },
+                        "expanded_url": m.get("expanded_url") or f"https://x.com/{origin_user}/status/{tid}/video/{vid_index}",
+                    })
+
+    if not media_urls:
+        return (tid, is_pinned, None)
+
+    archive_item = {
+        "tweet": {
+            "id_str": tid,
+            "full_text": f"@{origin_user}: {raw_text}",
+            "created_at": created_at,
+            "entities": {"media": media_urls},
+            "extended_entities": {"media": media_urls},
+        },
+        "is_pinned": is_pinned,
+    }
+    return (tid, is_pinned, archive_item)
+
+
+def extract_tweets_from_graphql_payload(payload, fallback_user=""):
+    """
+    UserTweets / UserOriginalsTimeline レスポンスから
+    (records: list[(tid, is_pinned, archive_item_or_None)], tweet_ids: list[str], bottom_cursor: str|None)
+    を一括抽出する（DOM評価・Syndication API 呼び出し不要）。
+    """
+    if not isinstance(payload, dict):
+        return [], [], None
+
+    user_result = payload.get("data", {}).get("user", {}).get("result", {})
+    if not isinstance(user_result, dict):
+        return [], [], None
+    timeline_obj = (
+        user_result.get("timeline_v2", {}).get("timeline")
+        or user_result.get("timeline", {}).get("timeline")
+        or {}
+    )
+    instructions = timeline_obj.get("instructions", [])
+    if not isinstance(instructions, list):
+        return [], [], None
+
+    records = []
+    tweet_ids = []
+    bottom_cursor = None
+
+    for inst in instructions:
+        if not isinstance(inst, dict):
+            continue
+        inst_type = inst.get("type")
+
+        # 1. 固定ツイート (TimelinePinEntry)
+        if inst_type == "TimelinePinEntry":
+            entry = inst.get("entry")
+            if isinstance(entry, dict):
+                content = entry.get("content", {})
+                if isinstance(content, dict) and not content.get("itemContent", {}).get("promotedMetadata"):
+                    tr = content.get("itemContent", {}).get("tweet_results", {}).get("result", {})
+                    rec = _build_archive_item_from_graphql_result(tr, is_pinned=True, fallback_user=fallback_user)
+                    if rec:
+                        records.append(rec)
+            continue
+
+        if inst_type != "TimelineAddEntries":
+            continue
+
+        entries = inst.get("entries", [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("entryId", ""))
+            content = entry.get("content", {})
+            if not isinstance(content, dict):
+                continue
+
+            if content.get("cursorType") == "Bottom" and content.get("value"):
+                bottom_cursor = str(content["value"])
+                continue
+
+            # プロモーション投稿は除外
+            if entry_id.startswith("promoted-tweet-") or content.get("itemContent", {}).get("promotedMetadata"):
+                continue
+
+            # 通常ツイート
+            tr = content.get("itemContent", {}).get("tweet_results", {}).get("result")
+            if isinstance(tr, dict):
+                rec = _build_archive_item_from_graphql_result(tr, is_pinned=False, fallback_user=fallback_user)
+                if rec:
+                    records.append(rec)
+                    tweet_ids.append(rec[0])
+                continue
+
+            # entryId フォールバック（モック等の最小ペイロード向け）
+            if entry_id.startswith("tweet-"):
+                tid = entry_id[len("tweet-"):]
+                if tid.isdigit():
+                    tweet_ids.append(tid)
+                    continue
+
+            # スレッドモジュール（TimelineTimelineModule）内のツイート
+            items = content.get("items")
+            if isinstance(items, list):
+                for sub in items:
+                    if not isinstance(sub, dict):
+                        continue
+                    sub_ic = sub.get("item", {}).get("itemContent", {})
+                    if not isinstance(sub_ic, dict) or sub_ic.get("promotedMetadata"):
+                        continue
+                    sub_res = sub_ic.get("tweet_results", {}).get("result")
+                    if isinstance(sub_res, dict):
+                        rec = _build_archive_item_from_graphql_result(sub_res, is_pinned=False, fallback_user=fallback_user)
+                        if rec:
+                            records.append(rec)
+                            tweet_ids.append(rec[0])
+                        else:
+                            rest_id = sub_res.get("rest_id") or sub_res.get("tweet", {}).get("rest_id")
+                            if rest_id and str(rest_id).isdigit():
+                                tweet_ids.append(str(rest_id))
+
+    return records, tweet_ids, bottom_cursor
+
 
 def select_resume_cursor(last_non_pinned_id, tweet_page_cursor, fallback_cursor=None):
     """中断直前の非固定ツイートが含まれていたページの要求カーソルを選択する（取りこぼし防止）"""
@@ -840,6 +1058,7 @@ async def run():
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 900},
         )
+        await enable_fast_resource_blocking(context)
         page = await context.new_page()
 
         # navigator.webdriver を隠蔽
@@ -854,6 +1073,8 @@ async def run():
         first_user_tweets_resp_seen = False
         cursor_injection_failed = False
         tweet_page_cursor = {}
+        graphql_records_queue = []
+        graphql_mode_active = False
 
         async def handle_user_tweets_route(route):
             nonlocal injected_resume_cursor
@@ -868,10 +1089,10 @@ async def run():
             await route.continue_()
 
         if active_resume_cursor:
-            await page.route("**/i/api/graphql/**/UserTweets*", handle_user_tweets_route)
+            await page.route("**/i/api/graphql/**/User*", handle_user_tweets_route)
 
         async def handle_response(response):
-            nonlocal rate_limit_hit, first_user_tweets_resp_seen, cursor_injection_failed
+            nonlocal rate_limit_hit, first_user_tweets_resp_seen, cursor_injection_failed, graphql_mode_active
             if response.status == 429:
                 res_url = response.url.lower()
                 # X (Twitter) の コア API エンドポイント (/i/api/ や api.x.com / api.twitter.com) の 429 のみを対象にする
@@ -894,9 +1115,15 @@ async def run():
                         req_cursor = extract_cursor_from_graphql_url(response.url)
                         if req_cursor is None and injected_resume_cursor and is_first:
                             req_cursor = active_resume_cursor
-                        page_tids, _ = extract_user_tweets_page_info(payload)
+                        gql_records, page_tids, _ = extract_tweets_from_graphql_payload(
+                            payload,
+                            fallback_user=args.user,
+                        )
                         for ptid in page_tids:
                             tweet_page_cursor[ptid] = req_cursor
+                        if gql_records:
+                            graphql_mode_active = True
+                            graphql_records_queue.extend(gql_records)
                     except Exception:
                         pass
 
@@ -931,7 +1158,7 @@ async def run():
         if injected_resume_cursor and not rate_limit_hit and (cursor_injection_failed or timeline_empty or not articles_ready):
             print("⚠️ Resuming with GraphQL cursor yielded no timeline. Falling back to top-of-timeline scroll...")
             try:
-                await page.unroute("**/i/api/graphql/**/UserTweets*", handle_user_tweets_route)
+                await page.unroute("**/i/api/graphql/**/User*", handle_user_tweets_route)
             except Exception:
                 pass
             active_resume_cursor = None
@@ -1062,63 +1289,105 @@ async def run():
         while len(new_tweets) < args.num and not hit_existing and not rate_limit_hit:
             prev_new_count = len(new_tweets)
             saw_resumed_in_scroll = False
-            articles = await page.query_selector_all('article')
-            if not articles:
-                articles = await page.query_selector_all('[data-testid="tweet"]')
-            if articles:
-                total_articles_detected += len(articles)
             prev_seen = len(seen_ids)
-            for article in articles:
-                try:
-                    raw_info = await article.evaluate(EXTRACT_ARTICLE_JS)
-                except Exception:
-                    continue
-                if not raw_info: continue
 
-                tid = raw_info["origin_status_id"]
-                if tid in seen_ids: continue
-                seen_ids.add(tid)
+            if graphql_mode_active:
+                # --- 高速経路: GraphQL レスポンス直接抽出（DOM評価 & Syndication API 不要） ---
+                while graphql_records_queue and len(new_tweets) < args.num and not hit_existing:
+                    tid, is_pinned, data = graphql_records_queue.pop(0)
+                    total_articles_detected += 1
+                    if tid in seen_ids:
+                        continue
+                    seen_ids.add(tid)
 
-                is_pinned = raw_info.get("is_pinned", False)
+                    if tid in resumed_ids:
+                        saw_resumed_in_scroll = True
+                        if not is_pinned and injected_resume_cursor:
+                            last_non_pinned_seen_id = tid
+                        continue
 
-                # 再開チェックポイントで既に処理済みのIDはスキップ（--stop-on-existing 誤発火防止）
-                if tid in resumed_ids:
-                    saw_resumed_in_scroll = True
-                    if not is_pinned and injected_resume_cursor:
+                    if not is_pinned:
                         last_non_pinned_seen_id = tid
-                    continue
 
-                if not is_pinned:
-                    last_non_pinned_seen_id = tid
-
-                # 固定ツイート（Pinned）は重複停止判定から除外・スキップ
-                if is_pinned:
-                    if tid in skip_ids:
-                        skipped_count += 1
-                    else:
-                        data = await build_tweet_data_from_raw(page, raw_info)
-                        if data:
+                    if is_pinned:
+                        if tid in skip_ids:
+                            skipped_count += 1
+                        elif data:
                             new_tweets.append(data)
                             print(f"  [{len(new_tweets)}] Saved (Pinned): @{tid}")
-                    continue
+                        continue
 
-                if tid in skip_ids:
-                    skipped_count += 1
-                    # 1個の既存IDを検出した時点で即時停止
-                    if args.stop_on_existing:
-                        print(f"🛑 Existing tweet ID detected (@{tid}). Stopping.")
-                        hit_existing = True
+                    if tid in skip_ids:
+                        skipped_count += 1
+                        if args.stop_on_existing:
+                            print(f"🛑 Existing tweet ID detected (@{tid}). Stopping.")
+                            hit_existing = True
+                            break
+                        continue
+
+                    if not data:
+                        continue
+
+                    new_tweets.append(data)
+                    print(f"  [{len(new_tweets)}] Saved: @{tid}")
+            else:
+                # --- フォールバック経路: DOM (article) 抽出 ---
+                articles = await page.query_selector_all('article')
+                if not articles:
+                    articles = await page.query_selector_all('[data-testid="tweet"]')
+                if articles:
+                    total_articles_detected += len(articles)
+                for article in articles:
+                    try:
+                        raw_info = await article.evaluate(EXTRACT_ARTICLE_JS)
+                    except Exception:
+                        continue
+                    if not raw_info: continue
+
+                    tid = raw_info["origin_status_id"]
+                    if tid in seen_ids: continue
+                    seen_ids.add(tid)
+
+                    is_pinned = raw_info.get("is_pinned", False)
+
+                    # 再開チェックポイントで既に処理済みのIDはスキップ（--stop-on-existing 誤発火防止）
+                    if tid in resumed_ids:
+                        saw_resumed_in_scroll = True
+                        if not is_pinned and injected_resume_cursor:
+                            last_non_pinned_seen_id = tid
+                        continue
+
+                    if not is_pinned:
+                        last_non_pinned_seen_id = tid
+
+                    # 固定ツイート（Pinned）は重複停止判定から除外・スキップ
+                    if is_pinned:
+                        if tid in skip_ids:
+                            skipped_count += 1
+                        else:
+                            data = await build_tweet_data_from_raw(page, raw_info)
+                            if data:
+                                new_tweets.append(data)
+                                print(f"  [{len(new_tweets)}] Saved (Pinned): @{tid}")
+                        continue
+
+                    if tid in skip_ids:
+                        skipped_count += 1
+                        # 1個の既存IDを検出した時点で即時停止
+                        if args.stop_on_existing:
+                            print(f"🛑 Existing tweet ID detected (@{tid}). Stopping.")
+                            hit_existing = True
+                            break
+                        continue
+
+                    data = await build_tweet_data_from_raw(page, raw_info)
+                    if not data: continue
+
+                    new_tweets.append(data)
+                    print(f"  [{len(new_tweets)}] Saved: @{tid}")
+
+                    if len(new_tweets) >= args.num:
                         break
-                    continue
-
-                data = await build_tweet_data_from_raw(page, raw_info)
-                if not data: continue
-
-                new_tweets.append(data)
-                print(f"  [{len(new_tweets)}] Saved: @{tid}")
-
-                if len(new_tweets) >= args.num:
-                    break
 
             if len(new_tweets) >= args.num or hit_existing or rate_limit_hit: break
 
@@ -1150,11 +1419,14 @@ async def run():
                     break
 
             scroll_count += 1
-            # 1000pxずつスムーズにスクロールしてバーチャルスクロールによる取りこぼしを防止
+            # GraphQL直接抽出時は最下部へ一気にスクロールして次ページ取得、DOMフォールバック時は1000px刻み
             try:
-                await page.evaluate("window.scrollBy(0, 1000)")
+                if graphql_mode_active:
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                else:
+                    await page.evaluate("window.scrollBy(0, 1000)")
             except Exception:
-                await page.mouse.wheel(0, 1000)
+                await page.mouse.wheel(0, 2000 if graphql_mode_active else 1000)
 
             # ストール発生時のみモーダル解除を試行
             if stall_count > 0:
@@ -1164,11 +1436,11 @@ async def run():
             try:
                 spinner = await page.query_selector('div[role="progressbar"]')
                 if spinner:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.8)
             except Exception:
                 pass
 
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(0.9 if graphql_mode_active else 1.2)
 
         if skipped_count:
             print(f"⏭️ Skipped {skipped_count} already-known posts.")

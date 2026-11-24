@@ -33,6 +33,18 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
+
+
+async def enable_fast_resource_blocking(context):
+    """帯域・CPU・RAM削減のため、画像・動画・フォント実バイナリのDLを遮断する"""
+    async def _route_handler(route):
+        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await context.route("**/*", _route_handler)
 
 
 def parse_args():
@@ -550,6 +562,7 @@ async def run():
             viewport={"width": 1280, "height": 900},
             locale="ja-JP",
         )
+        await enable_fast_resource_blocking(context)
         page = await context.new_page()
         await page.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
 

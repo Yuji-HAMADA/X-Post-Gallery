@@ -24,7 +24,8 @@ IG_TWEETS_JS = os.path.join(DATA_DIR, "instagram_tweets.js")
 RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
 IG_RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result_instagram.json")
 GIST_MAX_TWEETS = 2000  # 移動先Gistの上限
-IG_URL_REFRESH_BUFFER_SECONDS = 48 * 3600  # Instagram署名URLの事前リフレッシュ閾値（48時間）
+IG_URL_REFRESH_BUFFER_SECONDS = 24 * 3600        # Instagram画像署名URL (寿命~4日) の事前リフレッシュ閾値（残り24時間）
+IG_VIDEO_URL_REFRESH_BUFFER_SECONDS = 6 * 3600   # Instagram動画署名URL (寿命~24時間) の事前リフレッシュ閾値（残り6時間）
 USER_PATTERN = re.compile(r"^@([^:]+):")
 
 def get_result_file_for_platform(platform="x"):
@@ -130,20 +131,34 @@ def extract_instagram_url_expiry(url):
         return None
     return None
 
-def needs_instagram_url_refresh(tweets, buffer_seconds=IG_URL_REFRESH_BUFFER_SECONDS, now=None):
-    """既存投稿内に有効期限切れ間近（buffer_seconds 以内）の Instagram CDN URL があるか判定する"""
+def needs_instagram_url_refresh(
+    tweets,
+    buffer_seconds=IG_URL_REFRESH_BUFFER_SECONDS,
+    video_buffer_seconds=IG_VIDEO_URL_REFRESH_BUFFER_SECONDS,
+    check_limit=None,
+    now=None,
+):
+    """
+    既存投稿（check_limit 指定時は先頭 check_limit 件）内に有効期限切れ間近の Instagram CDN URL があるか判定する。
+    ※画像URL（寿命~4日）と動画URL（寿命~24時間）で別々の閾値を適用し、直近取得済み動画による毎回フル再取得を防止する。
+    """
     if not tweets:
         return False
     cur = time.time() if now is None else float(now)
-    for t in tweets:
+    target_tweets = tweets[:check_limit] if check_limit and check_limit > 0 else tweets
+    for t in target_tweets:
         if not isinstance(t, dict):
             continue
-        urls = list(t.get("media_urls") or []) + list(t.get("video_urls") or [])
-        if t.get("video_url"):
-            urls.append(t["video_url"])
-        for u in urls:
+        for u in (t.get("media_urls") or []):
             exp = extract_instagram_url_expiry(u)
             if exp is not None and (exp - cur) <= buffer_seconds:
+                return True
+        v_urls = list(t.get("video_urls") or [])
+        if t.get("video_url"):
+            v_urls.append(t["video_url"])
+        for u in v_urls:
+            exp = extract_instagram_url_expiry(u)
+            if exp is not None and (exp - cur) <= video_buffer_seconds:
                 return True
     return False
 
@@ -810,7 +825,7 @@ def main():
             existing = get_user_tweets(p_data, args.user)
         else:
             existing = []
-        if args.platform == "instagram" and needs_instagram_url_refresh(existing):
+        if args.platform == "instagram" and needs_instagram_url_refresh(existing, check_limit=args.num):
             print(f"🔄 [Instagram] Expiring signed CDN URLs detected for @{args.user}. Refreshing URLs in-place...")
             refresh_urls = True
             args.stop_on_existing = False

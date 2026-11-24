@@ -254,6 +254,7 @@ class TestExtractMediaResumeFlow(unittest.TestCase):
         browser = MagicMock()
         browser.close = AsyncMock()
         context = MagicMock()
+        context.route = AsyncMock()
         context.new_page = AsyncMock(return_value=page)
         browser.new_context = AsyncMock(return_value=context)
 

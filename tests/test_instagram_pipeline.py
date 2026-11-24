@@ -108,10 +108,14 @@ class TestInstagramPipeline(unittest.TestCase):
     def test_instagram_url_expiry_and_inplace_refresh(self):
         """oe= 有効期限切れ間近の検知と、既存投稿URLのインプレースリフレッシュが動作すること"""
         now_ts = 1795500000
-        # 10時間後に期限切れ (buffer 48h 以内 -> 要リフレッシュ)
+        # 10時間後に期限切れ (画像 buffer 24h 以内 -> 要リフレッシュ)
         expiring_hex = format(now_ts + 10 * 3600, "X")
-        # 72時間後に期限切れ (buffer 48h 超 -> 不要)
+        # 72時間後に期限切れ (画像 buffer 24h 超 -> 不要)
         fresh_hex = format(now_ts + 72 * 3600, "X")
+        # 動画URL: 残り20時間 (動画 buffer 6h 超 -> リフレッシュ不要で毎回再取得を防止)
+        video_fresh_hex = format(now_ts + 20 * 3600, "X")
+        # 動画URL: 残り3時間 (動画 buffer 6h 以内 -> 要リフレッシュ)
+        video_expiring_hex = format(now_ts + 3 * 3600, "X")
 
         existing = [
             {
@@ -120,7 +124,24 @@ class TestInstagramPipeline(unittest.TestCase):
                 "media_urls": [f"https://scontent.cdninstagram.com/a.jpg?oe={expiring_hex}"],
             }
         ]
-        self.assertTrue(append_to_gist.needs_instagram_url_refresh(existing, buffer_seconds=48 * 3600, now=now_ts))
+        self.assertTrue(append_to_gist.needs_instagram_url_refresh(existing, buffer_seconds=24 * 3600, now=now_ts))
+
+        # 動画寿命(~24h)の取得直後(残り20h)はリフレッシュ不要、残り3hなら要リフレッシュ
+        video_ok_post = [{
+            "id_str": "2001",
+            "media_urls": [f"https://scontent.cdninstagram.com/p.jpg?oe={fresh_hex}"],
+            "video_urls": [f"https://scontent.cdninstagram.com/v.mp4?oe={video_fresh_hex}"],
+        }]
+        self.assertFalse(append_to_gist.needs_instagram_url_refresh(video_ok_post, now=now_ts))
+        video_soon_post = [{
+            "id_str": "2002",
+            "media_urls": [f"https://scontent.cdninstagram.com/p.jpg?oe={fresh_hex}"],
+            "video_urls": [f"https://scontent.cdninstagram.com/v.mp4?oe={video_expiring_hex}"],
+        }]
+        self.assertTrue(append_to_gist.needs_instagram_url_refresh(video_soon_post, now=now_ts))
+
+        # check_limit より後ろの古い投稿は無視して無限リフレッシュを防止
+        self.assertFalse(append_to_gist.needs_instagram_url_refresh(video_ok_post + existing, check_limit=1, now=now_ts))
 
         refreshed_input = [
             {

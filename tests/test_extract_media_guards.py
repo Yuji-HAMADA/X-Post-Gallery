@@ -104,9 +104,133 @@ class TestExtractMediaGuards(unittest.TestCase):
     def test_to_jst_timestamp(self):
         """to_jst_timestamp が ISO UTC 文字列を JST に変換すること"""
         self.assertEqual(extract_media.to_jst_timestamp("2026-11-10T15:30:00.000Z"), "2026-11-11 00:30:00 JST")
+        self.assertEqual(extract_media.to_jst_timestamp("Tue Nov 24 22:04:39 +0000 2026"), "2026-11-25 07:04:39 JST")
         self.assertEqual(extract_media.to_jst_timestamp("2026-11-10 09:00:00 JST"), "2026-11-10 09:00:00 JST")
         self.assertEqual(extract_media.to_jst_timestamp(""), "")
         self.assertEqual(extract_media.to_jst_timestamp("invalid_date"), "invalid_date")
+
+    def test_extract_tweets_from_graphql_payload(self):
+        """UserOriginalsTimeline / UserTweets GraphQL から画像・動画・固定を抽出しRT/広告を除外すること"""
+        self.assertTrue(extract_media.is_user_tweets_graphql_url(
+            "https://x.com/i/api/graphql/ZFKu1DFS63hgrkLzR3Hsdw/UserOriginalsTimeline?variables=%7B%7D"
+        ))
+        payload = {
+            "data": {
+                "user": {
+                    "result": {
+                        "timeline": {
+                            "timeline": {
+                                "instructions": [
+                                    {
+                                        "type": "TimelinePinEntry",
+                                        "entry": {
+                                            "entryId": "tweet-100",
+                                            "content": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "100",
+                                                            "core": {"user_results": {"result": {"core": {"screen_name": "creator_x"}}}},
+                                                            "legacy": {
+                                                                "full_text": "pinned photo",
+                                                                "created_at": "Tue Nov 24 00:00:00 +0000 2026",
+                                                                "extended_entities": {
+                                                                    "media": [{"type": "photo", "media_url_https": "https://pbs.twimg.com/media/pin.jpg&name=small"}]
+                                                                },
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        },
+                                    },
+                                    {
+                                        "type": "TimelineAddEntries",
+                                        "entries": [
+                                            {
+                                                "entryId": "tweet-200",
+                                                "content": {
+                                                    "itemContent": {
+                                                        "tweet_results": {
+                                                            "result": {
+                                                                "rest_id": "200",
+                                                                "core": {"user_results": {"result": {"core": {"screen_name": "creator_x"}}}},
+                                                                "legacy": {
+                                                                    "full_text": "video post",
+                                                                    "created_at": "Tue Nov 24 15:00:00 +0000 2026",
+                                                                    "extended_entities": {
+                                                                        "media": [{
+                                                                            "type": "video",
+                                                                            "media_url_https": "https://pbs.twimg.com/media/poster.jpg",
+                                                                            "video_info": {
+                                                                                "variants": [
+                                                                                    {"content_type": "video/mp4", "bitrate": 832000, "url": "https://video.twimg.com/low.mp4"},
+                                                                                    {"content_type": "video/mp4", "bitrate": 2176000, "url": "https://video.twimg.com/hi.mp4"},
+                                                                                ]
+                                                                            },
+                                                                        }]
+                                                                    },
+                                                                },
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                            },
+                                            {
+                                                "entryId": "tweet-300",
+                                                "content": {
+                                                    "itemContent": {
+                                                        "tweet_results": {
+                                                            "result": {
+                                                                "rest_id": "300",
+                                                                "core": {"user_results": {"result": {"core": {"screen_name": "creator_x"}}}},
+                                                                "legacy": {
+                                                                    "full_text": "RT @other: skip me",
+                                                                    "retweeted_status_result": {"result": {}},
+                                                                    "extended_entities": {"media": [{"type": "photo", "media_url_https": "https://pbs.twimg.com/media/rt.jpg"}]},
+                                                                },
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                            },
+                                            {
+                                                "entryId": "promoted-tweet-400",
+                                                "content": {"itemContent": {"promotedMetadata": {}, "tweet_results": {"result": {"rest_id": "400"}}}},
+                                            },
+                                            {
+                                                "entryId": "cursor-bottom-1",
+                                                "content": {"cursorType": "Bottom", "value": "CUR_NEXT"},
+                                            },
+                                        ],
+                                    },
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        records, tids, cursor = extract_media.extract_tweets_from_graphql_payload(payload, fallback_user="creator_x")
+        self.assertEqual(cursor, "CUR_NEXT")
+        self.assertEqual(tids, ["200"])
+        self.assertEqual(len(records), 2)
+        # 1. Pinned photo
+        tid0, pin0, item0 = records[0]
+        self.assertEqual(tid0, "100")
+        self.assertTrue(pin0)
+        self.assertEqual(item0["tweet"]["created_at"], "2026-11-24 09:00:00 JST")
+        self.assertEqual(item0["tweet"]["entities"]["media"][0]["media_url_https"], "https://pbs.twimg.com/media/pin.jpg")
+        # 2. Video (highest bitrate MP4 directly from GraphQL)
+        tid1, pin1, item1 = records[1]
+        self.assertEqual(tid1, "200")
+        self.assertFalse(pin1)
+        self.assertEqual(item1["tweet"]["created_at"], "2026-11-25 00:00:00 JST")
+        self.assertEqual(
+            item1["tweet"]["extended_entities"]["media"][0]["video_info"]["variants"][0]["url"],
+            "https://video.twimg.com/hi.mp4",
+        )
 
     def test_build_tweet_data_from_raw_no_media(self):
         """メディアがない場合は None が返ること"""

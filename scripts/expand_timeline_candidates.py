@@ -252,25 +252,8 @@ def process_account(gist_id, username, num, is_existing, platform="x"):
     return res.returncode
 
 
-async def collect_instagram_batch_accounts(page, ig_feed_usernames, scroll_batch_size=10, excluded_accounts_lower=None):
-    """Instagram ホームフィードの SSR JSON + GraphQL 応答からアカウントを収集する"""
-    excluded = excluded_accounts_lower or set()
-    batch_accounts = []
-    batch_set = set()
-
-    def _drain():
-        added = 0
-        while ig_feed_usernames:
-            acc = ig_feed_usernames.pop(0).strip().lstrip("@")
-            acc_lower = acc.lower()
-            if acc and acc_lower not in excluded and acc_lower not in batch_set:
-                batch_set.add(acc_lower)
-                batch_accounts.append(acc)
-                added += 1
-                print(f"  🎯 Found Instagram account: @{acc} (Batch total: {len(batch_accounts)})")
-        return added
-
-    # 初期 SSR JSON からもユーザー名を回収
+async def _collect_instagram_ssr_usernames(page, ig_feed_usernames):
+    """初期HTML内の Relay SSR JSON からユーザー名を回収して ig_feed_usernames へ追記する"""
     try:
         ssr_texts = await page.evaluate("""() => {
             const out = [];
@@ -291,17 +274,71 @@ async def collect_instagram_batch_accounts(page, ig_feed_usernames, scroll_batch
                 pass
     except Exception:
         pass
-    _drain()
 
+
+async def collect_instagram_batch_accounts(page, ig_feed_usernames, scroll_batch_size=10, excluded_accounts_lower=None):
+    """Instagram ホームフィードの SSR JSON + GraphQL 応答からアカウントを収集する"""
+    excluded = excluded_accounts_lower or set()
+    batch_accounts = []
+    batch_set = set()
+
+    def _drain():
+        raw_seen = 0
+        added = 0
+        while ig_feed_usernames:
+            raw_seen += 1
+            acc = ig_feed_usernames.pop(0).strip().lstrip("@")
+            acc_lower = acc.lower()
+            if acc and acc_lower not in excluded and acc_lower not in batch_set:
+                batch_set.add(acc_lower)
+                batch_accounts.append(acc)
+                added += 1
+                print(f"  🎯 Found Instagram account: @{acc} (Batch total: {len(batch_accounts)})")
+        return raw_seen, added
+
+    # 初期 SSR JSON からもユーザー名を回収
+    await _collect_instagram_ssr_usernames(page, ig_feed_usernames)
+    init_raw, _ = _drain()
+
+    # ホームフィードが Instagram 側の一時エラー (500 / エラー画面) で空の場合、?variant=following へ自動フォールバック
+    if init_raw == 0:
+        try:
+            body_text = await page.inner_text("body")
+        except Exception:
+            body_text = ""
+        has_feed_error = any(
+            msg in body_text
+            for msg in ("エラーが発生しました", "ページを読み込めませんでした", "Something went wrong", "Couldn't load")
+        )
+        if has_feed_error and "variant=following" not in page.url:
+            print("⚠️ Instagram home feed returned an error page. Falling back to Following feed (?variant=following)...")
+            ig_feed_usernames.clear()
+            try:
+                await page.goto("https://www.instagram.com/?variant=following", wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(4000)
+                await _collect_instagram_ssr_usernames(page, ig_feed_usernames)
+                _drain()
+            except Exception as e:
+                print(f"⚠️ Following feed fallback warning: {e}")
+
+    stalls = 0
+    MAX_STALLS = 3
     for scroll_idx in range(1, scroll_batch_size + 1):
         prev_scroll_y = await page.evaluate("window.scrollY")
-        await page.evaluate("window.scrollBy(0, 1800)")
+        prev_scroll_h = await page.evaluate("document.body.scrollHeight")
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         await asyncio.sleep(2.5)
         curr_scroll_y = await page.evaluate("window.scrollY")
-        new_count = _drain()
-        if curr_scroll_y == prev_scroll_y and new_count == 0:
-            print(f"⏳ Cannot scroll Instagram feed further at scroll {scroll_idx}/{scroll_batch_size}.")
-            break
+        curr_scroll_h = await page.evaluate("document.body.scrollHeight")
+        raw_seen, _ = _drain()
+
+        if curr_scroll_y == prev_scroll_y and curr_scroll_h == prev_scroll_h and raw_seen == 0:
+            stalls += 1
+            if stalls >= MAX_STALLS:
+                print(f"⏳ Cannot scroll Instagram feed further at scroll {scroll_idx}/{scroll_batch_size} (after {MAX_STALLS} stalls).")
+                break
+        else:
+            stalls = 0
 
     return batch_accounts
 
@@ -438,7 +475,7 @@ async def run_expansion_loop(args, gist_id):
                         print(f"🛑 Reached maximum total accounts limit ({args.max_total_accounts}).")
                         break
             else:
-                print("ℹ️ No new accounts found in this 10-scroll batch.")
+                print(f"ℹ️ No new accounts found in this {args.scroll_batch_size}-scroll batch.")
 
             if args.max_total_accounts and total_processed >= args.max_total_accounts:
                 break
