@@ -1,87 +1,59 @@
 # GEMINI.md
 
-This file provides project-level instructions, conventions, and guidelines for Gemini CLI.
+Project instructions for Gemini CLI / Antigravity CLI (`x_post_gallery`).
 
-## Project Overview
+## Overview
+PostViewer (`x_post_gallery`): Flutter gallery app syncing scraped X media via GitHub Gist, paired with a local crawler pipeline.
 
-PostViewer (package name: `x_post_gallery`) は、X（旧Twitter）からスクレイピングしたメディアをGitHub Gist経由で同期・表示するFlutter製ギャラリーアプリ、およびローカル常駐クローラーパイプラインです。
+## Core Rules
+1. **Token Economy (Highest Priority)**a
+   - Output only essentials, diffs, and commands; omit greetings, preambles, postscripts, and fluff.
+   - Prefer careful reasoning over trial-and-error turns; minimize tool calls and context bloat.
+   - Use targeted reads (line ranges, grep) instead of reading whole files unnecessarily.
+2. **No Hardcoding & Secrets Prohibition**
+   - Avoid hardcoding magic numbers, configs, or URLs unless it clearly improves readability/maintainability.
+   - **Strictly forbidden** to hardcode account/screen names, Gist IDs, tokens, or secrets in code exposed to GitHub. Load via `.env`, env vars (`resolveEnv` / `--dart-define`), or runtime config.
+3. **Python Environment**
+   - Always run Python scripts and tests via `./venv/bin/python` (never global `python3`).
 
-## Core Mandates & Rules
-
-### 1. 【トークン節約の方針】（最優先）
-- **出力の最小化:** 挨拶、前置き、後置き、過剰な解説・お世辞は一切排除し、要点・差分・実行コマンドのみを極力簡潔に出力すること。
-- **思考・検証プロセスの重視:** トークン節約のためであれば、処理やコード生成に時間がかかることは許容される。試行錯誤による手戻りターンを減らし、最小限のツール呼び出しと的確なコンテキスト操作で確実に完遂すること。
-- **コンテキスト効率:** ファイル全体を不用意に読み込まず、`grep_search` や行番号範囲指定の `read_file` を活用してトークン消費を抑制すること。
-
-### 2. 【ハードコード原則禁止のルール】
-- **原則禁止:** マジックナンバーや設定値・URLなどのハードコードは原則禁止とする。ただし、ハードコードした方がコード全体が直感的かつシンプルになり、可読性・保守性が向上する場合に限り、例外的に許容する。
-- **【厳禁事項】固有情報・機密情報のハードコード絶対禁止:**
-  - X（旧Twitter）のアカウント名/スクリーンネーム、Gist ID、アクセストークン等の固有情報・機密情報を、**GitHub等に露出する形でコード内に絶対にハードコードしてはならない**。
-  - 必ず `.env` ファイル、環境変数（`resolveEnv` / `--dart-define`）、または動的設定ファイルから安全に取得・注入すること。
-
-### 3. 【Python実行環境（venv利用必須）】
-- **仮想環境の利用:** Pythonスクリプトやテストの実行時は、Playwright等の依存ライブラリが整備されているプロジェクト直下の仮想環境（`./venv/bin/python`）を必ず使用すること。グローバルの `python3` を直接実行してはならない。
-
-## Common Commands & Workflows
-
-### Flutter App (`lib/`)
+## Commands
+### Flutter (`lib/`)
 ```bash
-flutter run                      # デフォルトデバイスで実行
-flutter analyze                  # Dart静的解析 (flutter_lints)
-flutter test                     # 単体テスト・ウィジェットテスト実行
-# pub upgrade や依存更新後は必ず analyze と test を通して健全性を確認すること
+flutter run
+flutter analyze
+flutter test
+# Always run analyze & test after pub upgrade or dependency changes
 ```
 
-### Scraping & Crawler Pipeline (`scripts/`)
+### Crawler & Tests (`scripts/`, `tests/`)
 ```bash
-# Python 単体抽出 (data/auth.json のクッキーが必要、必ず venv の python を使用)
-./venv/bin/python scripts/extract_media.py -u <username> -n 100
-
-# Gist へのアペンド実行
+./venv/bin/python scripts/extract_media.py -u <username> -n 100   # requires data/auth.json
 ./append_gist.sh -g <master_gist_id> -u <username> -n 100 -s
-
-# ローカル常駐マスターループ (お気に入り巡回とキュー巡回を交互実行)
 ./scripts/run_master_local.sh
-
-# スケジュール巡回単体実行 (アダプティブ・スキップ対応)
 ./scripts/run_scheduled_fetch_local.sh
-
-# タイムラインからの Candidate アカウント自動収集・ギャラリー拡張実行
 ./scripts/run_expand_timeline_local.sh
 
-# テスト実行
 ./venv/bin/python -m unittest discover tests
 bash tests/test_crawler_adaptive_skip.sh
 bash tests/test_crawler_delete_defense.sh
 ```
 
 ## Architecture
+- `lib/main.dart`: Entry point (`.env`, dark theme, Provider setup).
+- `lib/viewmodels/gallery_viewmodel.dart`: App state (`ChangeNotifier`: load, delete user, pin/priority, queue).
+- `lib/services/gallery_repository.dart`: Gist fetch/parse, cache, `SharedPreferences` persistence.
+- `lib/services/github_service.dart`: GitHub Gist API & 2-slot throttling queue.
+- `lib/screens/gallery/` & `lib/screens/detail/`: Gallery/swipe view & full-screen pan/zoom viewer.
+- `lib/models/tweet_item.dart`, `lib/models/user_gist_entry.dart`: Data models.
+- `scripts/run_master_local.sh`: Master loop.
+- `scripts/run_scheduled_fetch_local.sh` & `scripts/adaptive_skip.py`: 2-slot scheduled crawler with adaptive skip backoff.
+- `scripts/run_fetch_favorites_local.sh`: Favorites crawler.
+- `scripts/run_expand_timeline_local.sh`: Timeline candidate discovery & gallery expansion.
+- `scripts/append_to_gist.py` / `append_gist.sh`: Append to child/master Gists (dedup, slimming, conflict/delete protection).
+- `scripts/extract_media.py`: Playwright X media scraper.
 
-### Flutter App (`lib/`)
-- **`main.dart`**: エントリポイント。`.env` のロード、ダークテーマ設定、Provider の初期化。
-- **`viewmodels/gallery_viewmodel.dart`**: アプリ状態管理（`ChangeNotifier`）。ギャラリーのロード、ユーザー削除、優先度更新（ピン留め）、キュー追加等を統括。
-- **`services/gallery_repository.dart`**: Gist データの取得・パース、キャッシュ管理、SharedPreferences によるローカル永続化。
-- **`services/github_service.dart`**: GitHub API クライアント。Gist ファイル更新、キュー（2スロットリングバッファ）操作。
-- **`screens/gallery/`**: メインギャラリー画面（お気に入り・ユーザー一覧、スワイプビュー）。
-- **`screens/detail/`**: フルスクリーン画像ビューア（拡大・縮小、パン操作）。
-- **`models/tweet_item.dart`**, **`models/user_gist_entry.dart`**: データモデル。
-
-### Local Crawler Pipeline (`scripts/`)
-- **`run_master_local.sh`**: 常駐マスターループ。
-- **`run_scheduled_fetch_local.sh`**: 2スロットリングバッファ対応の巡回クローラー（アダプティブ・スキップバックオフ機能付き）。
-- **`run_fetch_favorites_local.sh`**: お気に入り巡回スクリプト。
-- **`run_expand_timeline_local.sh`**: タイムライン巡回・Candidateアカウント自動収集・ギャラリー拡張スクリプト。
-- **`append_to_gist.py` / `append_gist.sh`**: 抽出したツイートを子GistおよびマスターGistへアペンド（重複除外、スリム化、上書き競合・削除防御付き）。
-- **`extract_media.py`**: Playwright による X メディア抽出。
-- **`adaptive_skip.py`**: 更新がないアカウントの巡回頻度を段階的に抑制するアダプティブ・スキップ管理。
-
-## Key Conventions & Standards
-- **多言語対応（日本語・英語双方の完全対応）:**
-  - アプリ内のUI文字列、ダイアログ、ボタン、ツールチップ、SnackBar通知、API/通信エラーメッセージ等の表示テキストは、コード内に直接文字列をハードコードしてはならない。
-  - 必ず `lib/l10n/app_localizations.dart`（`AppLocalizations`）に定義し、日本語（`ja`）および英語（`en`）双方のテキストを漏れなく定義すること。
-  - UI層（Widget）では `AppLocalizations.of(context)`、BuildContext のない層（Service / ViewModel）では `AppLocalizations.current` を利用すること。
-  - 新規メッセージ追加時は `test/l10n_test.dart` に日本語・英語のテストケースを必ず追加すること。
-- **コード内コメント:** 日本語（または `[JA]` / `[EN]` 併記）を使用する。
-- Gist の正準ファイル名は `data.json`（後方互換用 `gallary_data.json` も考慮）。
-- GitHub トークンは `.env`（開発時）または `--dart-define=GITHUB_TOKEN`（Webビルド時）から供給。
-- ユーザー削除処理では、子Gist、マスターGist、キューGist（`fetch_queue.json`）、お気に入りリストから漏れなく完全に除外すること。
+## Conventions
+- **i18n (`ja` & `en` required):** Never hardcode UI, dialog, button, tooltip, SnackBar, or network/API error strings. Define both `ja` and `en` in `lib/l10n/app_localizations.dart` (`AppLocalizations.of(context)` in UI; `AppLocalizations.current` in non-context layers) and add `ja`/`en` tests in `test/l10n_test.dart`.
+- **Comments:** Japanese (or `[JA]` / `[EN]`).
+- **Gist files & Auth:** Canonical file is `data.json` (also support legacy `gallary_data.json`). Supply GitHub token via `.env` (dev) or `--dart-define=GITHUB_TOKEN` (web build).
+- **User deletion:** Remove from child Gist, master Gist, queue Gist (`fetch_queue.json`), and favorites completely.
