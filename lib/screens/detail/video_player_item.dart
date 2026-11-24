@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../l10n/app_localizations.dart';
 import '../../utils/video_wakelock_manager.dart';
 
 /// 動画再生ウィジェット（再生/一時停止、シークバー、消音切り替え対応）
@@ -149,19 +150,20 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
     final screenHeight = MediaQuery.of(context).size.height;
 
     if (_hasError) {
+      final l10n = AppLocalizations.of(context);
       return Container(
         width: screenWidth,
         height: 240,
         color: Colors.black,
         alignment: Alignment.center,
-        child: const Column(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
-            SizedBox(height: 8),
+            const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+            const SizedBox(height: 8),
             Text(
-              '動画の読み込みに失敗しました',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+              l10n.videoLoadFailed,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
           ],
         ),

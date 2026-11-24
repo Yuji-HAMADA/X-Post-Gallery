@@ -24,10 +24,10 @@ class TestVerifyAndRepairGists(unittest.TestCase):
         self.assertIsNone(get_gist_id_from_entry(None))
 
     def test_verify_single_gist_multi_user_case_insensitive(self):
-        # 子Gistには 'xaid_AI_illust' で保存されており、マスターGistからは 'xaid_ai_illust' で照会
+        # 子Gistには 'MixedCase_User' で保存されており、マスターGistからは 'mixedcase_user' で照会
         child_gist_data = {
             "users": {
-                "xaid_AI_illust": {
+                "MixedCase_User": {
                     "tweets": [{"id_str": "123", "media_urls": ["http://example.com/1.jpg"]}]
                 },
                 "EmptyUser": {
@@ -37,12 +37,12 @@ class TestVerifyAndRepairGists(unittest.TestCase):
         }
 
         with patch("verify_and_repair_gists.download_gist_content", return_value=(200, child_gist_data, "OK")):
-            res = verify_single_gist("gist_test", ["xaid_ai_illust", "EmptyUser", "NotFoundUser"], {})
+            res = verify_single_gist("gist_test", ["mixedcase_user", "EmptyUser", "NotFoundUser"], {})
 
         results = res["results"]
         # 大文字小文字違いでもツイートがあれば Valid (True)
-        self.assertTrue(results["xaid_ai_illust"][0])
-        self.assertIn("Valid", results["xaid_ai_illust"][1])
+        self.assertTrue(results["mixedcase_user"][0])
+        self.assertIn("Valid", results["mixedcase_user"][1])
 
         # ツイートが0件の場合は Invalid (False)
         self.assertFalse(results["EmptyUser"][0])

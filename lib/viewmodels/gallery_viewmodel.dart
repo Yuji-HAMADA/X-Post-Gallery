@@ -195,7 +195,7 @@ class GalleryViewModel extends ChangeNotifier {
       if (!kIsWeb) {
         final meta = await _githubService.fetchGistMetadata(gistId);
         if (!(meta['exists'] as bool)) {
-          throw Exception('Invalid Password (ID)');
+          throw Exception(AppLocalizations.current.invalidGistIdError);
         }
         remoteUpdatedAt = meta['updatedAt'] as String?;
       }
@@ -228,7 +228,7 @@ class GalleryViewModel extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint("Load error: $e");
-      _errorMessage = 'Network error or invalid ID';
+      _errorMessage = AppLocalizations.current.networkOrInvalidIdError;
       _status = GalleryStatus.error;
     }
     notifyListeners();
@@ -492,12 +492,12 @@ class GalleryViewModel extends ChangeNotifier {
       } else {
         _setError(_githubService.lastErrorMessage.isNotEmpty
             ? _githubService.lastErrorMessage
-            : 'Gist の更新に失敗しました');
+            : AppLocalizations.current.gistUpdateFailed(null));
         return null;
       }
     } catch (e) {
       debugPrint('_deleteSelectedFromGist error: $e');
-      _setError('Gist の更新に失敗しました: $e');
+      _setError(AppLocalizations.current.gistUpdateFailed(e.toString()));
       return null;
     }
   }
@@ -582,7 +582,7 @@ class GalleryViewModel extends ChangeNotifier {
     }
     if (masterGistId.isEmpty) {
       debugPrint('_saveMasterGist: masterGistId is empty, skipping update');
-      _errorMessage = 'マスターGist IDが設定されていません';
+      _errorMessage = AppLocalizations.current.masterGistIdNotSet;
       return false;
     }
 

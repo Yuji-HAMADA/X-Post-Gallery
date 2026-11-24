@@ -34,6 +34,36 @@ void main() {
       expect(l10n.githubAuthFailed, 'GitHubの認証に失敗しました。トークンを確認してください。');
       expect(l10n.githubAccessDenied(null), 'GitHub APIのアクセスが拒否されました(HTTP 403)');
       expect(l10n.gistNotFound, '指定されたGistが見つかりません。');
+      expect(l10n.unlock, '解除');
+      expect(l10n.unlockGalleryTitle, 'ギャラリーのロック解除');
+      expect(l10n.enterGistIdPrompt, 'Gist IDを入力してください:');
+      expect(l10n.enterGistIdError, 'Gist IDを入力してください');
+      expect(l10n.gistIdLabel, 'Gist ID');
+      expect(l10n.userIdLabel, 'ユーザーID');
+      expect(l10n.waitingForAuthentication, '認証待ち...');
+      expect(l10n.deleteAllDataWarning, '全てのデータが削除されます');
+      expect(l10n.deleteFailedGeneric, '削除に失敗しました');
+      expect(l10n.deleteUserConfirmTitle('user1'), 'ユーザー @user1 を削除しますか？');
+      expect(l10n.linkOpenError('err'), 'リンクを開けませんでした: err');
+      expect(
+        l10n.failedToLoadImagesCheckUser,
+        '画像を読み込めませんでした。\n対象ユーザーが存在するか確認してください。',
+      );
+      expect(l10n.tooltipMute, '消音');
+      expect(l10n.tooltipUnmute, '消音解除');
+      expect(l10n.tooltipOpenOriginalPost, '元の投稿を開く');
+      expect(l10n.videoLoadFailed, '動画の読み込みに失敗しました');
+      expect(l10n.invalidGistIdError, '無効なパスワード（Gist ID）です');
+      expect(l10n.networkOrInvalidIdError, '通信エラーまたは無効なIDです');
+      expect(l10n.gistUpdateFailed(null), 'Gist の更新に失敗しました');
+      expect(l10n.gistUpdateFailed('timeout'), 'Gist の更新に失敗しました: timeout');
+      expect(l10n.masterGistIdNotSet, 'マスターGist IDが設定されていません');
+      expect(l10n.failedToLoadUserGallery('g1'), 'ユーザーギャラリーの読み込みに失敗しました (g1)');
+      expect(l10n.failedToLoadGist('g1'), 'Gistの読み込みに失敗しました (g1)');
+      expect(l10n.failedToFetchBatchGist('g1'), 'バッチGistの取得に失敗しました (g1)');
+      expect(l10n.columnsCount(2), '2列');
+      expect(l10n.networkError('err'), '通信エラーが発生しました: err');
+      expect(l10n.masterGistUpdateFailed(null), 'マスターGistの更新に失敗しました');
     });
 
     test('English locale returns accurate English strings', () {
@@ -65,6 +95,37 @@ void main() {
       expect(l10n.githubAuthFailed, 'GitHub authentication failed. Please check your token.');
       expect(l10n.githubAccessDenied(null), 'GitHub API access denied (HTTP 403)');
       expect(l10n.gistNotFound, 'Specified Gist was not found.');
+      expect(l10n.unlock, 'Unlock');
+      expect(l10n.unlockGalleryTitle, 'Unlock Gallery');
+      expect(l10n.enterGistIdPrompt, 'Please enter Gist ID:');
+      expect(l10n.enterGistIdError, 'Please enter Gist ID');
+      expect(l10n.gistIdLabel, 'Gist ID');
+      expect(l10n.userIdLabel, 'User ID');
+      expect(l10n.waitingForAuthentication, 'Waiting for authentication...');
+      expect(l10n.deleteAllDataWarning, 'All data will be deleted');
+      expect(l10n.deleteFailedGeneric, 'Failed to delete');
+      expect(l10n.deleteUserConfirmTitle('user1'), 'Delete user @user1?');
+      expect(l10n.linkOpenError('err'), 'Failed to open link: err');
+      expect(
+        l10n.failedToLoadImagesCheckUser,
+        'Failed to load images.\nPlease check if the target user exists.',
+      );
+      expect(l10n.tooltipMute, 'Mute');
+      expect(l10n.tooltipUnmute, 'Unmute');
+      expect(l10n.tooltipOpenOriginalPost, 'Open original post');
+      expect(l10n.videoLoadFailed, 'Failed to load video');
+      expect(l10n.invalidGistIdError, 'Invalid Password (ID)');
+      expect(l10n.networkOrInvalidIdError, 'Network error or invalid ID');
+      expect(l10n.gistUpdateFailed(null), 'Failed to update Gist');
+      expect(l10n.gistUpdateFailed('timeout'), 'Failed to update Gist: timeout');
+      expect(l10n.masterGistIdNotSet, 'Master Gist ID is not set');
+      expect(l10n.failedToLoadUserGallery('g1'), 'Failed to load user gallery (g1)');
+      expect(l10n.failedToLoadGist('g1'), 'Failed to load gist (g1)');
+      expect(l10n.failedToFetchBatchGist('g1'), 'Failed to fetch batch gist (g1)');
+      expect(l10n.columnsCount(1), '1 Column');
+      expect(l10n.columnsCount(2), '2 Columns');
+      expect(l10n.networkError('err'), 'Network error: err');
+      expect(l10n.masterGistUpdateFailed(null), 'Failed to update Master Gist');
     });
 
     testWidgets('AppLocalizations.delegate automatically resolves system language', (tester) async {

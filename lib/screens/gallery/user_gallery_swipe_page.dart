@@ -232,7 +232,12 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
         await launchUrl(url, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
-      if (mounted) showErrorSnackBar(context, 'Link error: $e');
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          AppLocalizations.of(context).linkOpenError(e.toString()),
+        );
+      }
     }
   }
 

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_image_item.dart';
@@ -132,7 +133,9 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
           await launchUrl(url, mode: LaunchMode.externalApplication);
         }
       } catch (e) {
-        _showError('リンクを開けませんでした: $e');
+        if (mounted) {
+          _showError(AppLocalizations.of(context).linkOpenError(e.toString()));
+        }
       }
     }
   }
@@ -211,6 +214,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     if (!_initialized) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -235,11 +239,11 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
           foregroundColor: Colors.white,
           title: Text(widget.title),
         ),
-        body: const Center(
+        body: Center(
           child: Text(
-            '画像を読み込めませんでした。\n対象ユーザーが存在するか確認してください。',
+            l10n.failedToLoadImagesCheckUser,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+            style: const TextStyle(color: Colors.grey),
           ),
         ),
       );
@@ -294,7 +298,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
               if (currentItem != null)
                 IconButton(
                   icon: const Icon(Icons.open_in_new),
-                  tooltip: '元の投稿を開く',
+                  tooltip: l10n.tooltipOpenOriginalPost,
                   onPressed: () => _launchTweet(currentItem),
                 ),
             ],

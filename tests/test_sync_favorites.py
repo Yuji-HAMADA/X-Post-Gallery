@@ -20,7 +20,7 @@ class TestSyncFavorites(unittest.TestCase):
                 "default_count": 500,
                 "users": [
                     {"user": "Alice", "done": True, "skip_count": 1},
-                    {"user": "kira_kira0nly1", "done": True, "skip_count": 2}, # 解除済み
+                    {"user": "RemovedFavUser", "done": True, "skip_count": 2}, # 解除済み
                     {"user": "PendingUser", "done": False}, # アプリからの未処理リクエスト
                 ]
             }
@@ -41,8 +41,8 @@ class TestSyncFavorites(unittest.TestCase):
         alice_entry = next(u for u in updated_users if u["user"] == "Alice")
         self.assertEqual(alice_entry["skip_count"], 1)
 
-        # kira_kira0nly1: お気に入り解除済み（除外）
-        self.assertNotIn("kira_kira0nly1", user_names)
+        # RemovedFavUser: お気に入り解除済み（除外）
+        self.assertNotIn("RemovedFavUser", user_names)
 
         # PendingUser: 未処理（done: false）のアプリリクエスト（保護）
         self.assertIn("PendingUser", user_names)

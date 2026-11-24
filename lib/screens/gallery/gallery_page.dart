@@ -124,6 +124,7 @@ class _GalleryPageState extends State<GalleryPage> {
   // --- ダイアログ系（BuildContext必要なのでウィジェットに残す） ---
 
   void _showPasswordDialog({bool canCancel = false}) {
+    final l10n = AppLocalizations.of(context);
     String gistIdInput = "";
 
     void handleUnlock() {
@@ -131,7 +132,7 @@ class _GalleryPageState extends State<GalleryPage> {
       if (gistIdInput.isNotEmpty) {
         _loadAndRestore(gistIdInput);
       } else {
-        _showErrorSnackBar('Gist IDを入力してください');
+        _showErrorSnackBar(l10n.enterGistIdError);
         if (mounted) _showPasswordDialog(canCancel: canCancel);
       }
     }
@@ -140,16 +141,16 @@ class _GalleryPageState extends State<GalleryPage> {
       context: context,
       barrierDismissible: canCancel,
       builder: (context) => AlertDialog(
-        title: const Text("Unlock Gallery"),
+        title: Text(l10n.unlockGalleryTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Gist IDを入力してください:"),
+            Text(l10n.enterGistIdPrompt),
             const SizedBox(height: 10),
             TextField(
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: "Gist ID",
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                labelText: l10n.gistIdLabel,
               ),
               onChanged: (value) => gistIdInput = value,
               onSubmitted: (_) => handleUnlock(),
@@ -160,9 +161,9 @@ class _GalleryPageState extends State<GalleryPage> {
           if (canCancel)
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
+              child: Text(l10n.cancel),
             ),
-          TextButton(onPressed: handleUnlock, child: const Text("Unlock")),
+          TextButton(onPressed: handleUnlock, child: Text(l10n.unlock)),
         ],
       ),
     );
@@ -248,9 +249,9 @@ class _GalleryPageState extends State<GalleryPage> {
         title: Text(l10n.loadFromGistTitle),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Gist ID',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10n.gistIdLabel,
+            border: const OutlineInputBorder(),
           ),
           onSubmitted: (_) => Navigator.pop(context, controller.text),
         ),
@@ -340,23 +341,24 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _showDeleteConfirmDialog() async {
+    final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final count = vm.selectedCount;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('削除確認'),
-        content: Text('$count 件の画像を削除しますか？'),
+        title: Text(l10n.deleteConfirmTitle),
+        content: Text(l10n.deleteImagesConfirmMessage(count)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
+            child: Text(l10n.cancel),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除'),
+            child: Text(l10n.delete),
           ),
         ],
       ),
@@ -369,13 +371,13 @@ class _GalleryPageState extends State<GalleryPage> {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const AlertDialog(
+        builder: (context) => AlertDialog(
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('削除中...'),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(l10n.deletingProgress),
             ],
           ),
         ),
@@ -413,7 +415,7 @@ class _GalleryPageState extends State<GalleryPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$count 件を削除しました'),
+            content: Text(l10n.deletedCount(count)),
             backgroundColor: Colors.green,
           ),
         );
@@ -435,19 +437,20 @@ class _GalleryPageState extends State<GalleryPage> {
     required Future<bool> Function() onDelete,
     required String successMessage,
   }) async {
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: const Text('全てのデータが削除されます'),
+        content: Text(l10n.deleteAllDataWarning),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('キャンセル'),
+            child: Text(l10n.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('削除', style: TextStyle(color: Colors.red)),
+            child: Text(l10n.delete, style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -462,16 +465,19 @@ class _GalleryPageState extends State<GalleryPage> {
       if (success) {
         showSuccessSnackBar(context, successMessage);
       } else {
-        showErrorSnackBar(context, '削除に失敗しました');
+        showErrorSnackBar(context, l10n.deleteFailedGeneric);
       }
     }
   }
 
-  Future<void> _confirmDeleteUser(String username) => _confirmDelete(
-    title: 'ユーザー @$username を削除しますか？',
-    onDelete: () => context.read<GalleryViewModel>().deleteUser(username),
-    successMessage: '@$username を削除しました',
-  );
+  Future<void> _confirmDeleteUser(String username) {
+    final l10n = AppLocalizations.of(context);
+    return _confirmDelete(
+      title: l10n.deleteUserConfirmTitle(username),
+      onDelete: () => context.read<GalleryViewModel>().deleteUser(username),
+      successMessage: l10n.deletedUserSuccess(username),
+    );
+  }
 
   Future<void> _handleSearchUser() async {
     final userIdInput = await showDialog<String>(
@@ -520,18 +526,19 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     // 3. 見つからない場合 → Xで存在確認して新規追加
+    final l10n = AppLocalizations.of(context);
     final username = inputTrimmed;
     if (mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (_) => const AlertDialog(
+        builder: (_) => AlertDialog(
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Xで確認中...'),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(l10n.verifyingOnX),
             ],
           ),
         ),
@@ -543,7 +550,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (!mounted) return;
 
     if (!exists) {
-      _showErrorSnackBar('ユーザー @$username は見つかりませんでした');
+      _showErrorSnackBar(l10n.userNotFoundOnX(username));
       return;
     }
 
@@ -598,7 +605,9 @@ class _GalleryPageState extends State<GalleryPage> {
         await launchUrl(url, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
-      _showErrorSnackBar("Link error: $e");
+      if (mounted) {
+        _showErrorSnackBar(AppLocalizations.of(context).linkOpenError(e.toString()));
+      }
     }
   }
 
@@ -752,9 +761,9 @@ class _GalleryPageState extends State<GalleryPage> {
                   ),
                   PopupMenuItem(
                     value: 'key',
-                    child: const ListTile(
-                      leading: Icon(Icons.vpn_key_outlined),
-                      title: Text('Gist ID'),
+                    child: ListTile(
+                      leading: const Icon(Icons.vpn_key_outlined),
+                      title: Text(l10n.gistIdLabel),
                       dense: true,
                     ),
                   ),
@@ -767,7 +776,7 @@ class _GalleryPageState extends State<GalleryPage> {
           ],
         ),
         body: !isAuthenticated
-            ? const Center(child: Text('Waiting for authentication...'))
+            ? Center(child: Text(l10n.waitingForAuthentication))
             : vm.items.isEmpty
             ? const Center(child: CircularProgressIndicator())
             : PageView.builder(
@@ -930,7 +939,7 @@ class _GalleryPageState extends State<GalleryPage> {
         ],
       ),
       body: !isAuthenticated
-          ? const Center(child: Text("Waiting for authentication..."))
+          ? Center(child: Text(l10n.waitingForAuthentication))
           : (items.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : TweetGridView(

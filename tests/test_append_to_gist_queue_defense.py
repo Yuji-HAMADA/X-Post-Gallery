@@ -42,7 +42,7 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
                 }
             elif gist_id == "slot1_gist":
                 return {
-                    "users": [{"user": "YunaElegant"}, {"user": "Bob"}]
+                    "users": [{"user": "TestTargetUser"}, {"user": "Bob"}]
                 }
             return None
 
@@ -51,7 +51,7 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
         users = append_to_gist.fetch_all_queue_users()
         self.assertIsNotNone(users)
         self.assertIn("alice", users)
-        self.assertIn("yunaelegant", users)
+        self.assertIn("testtargetuser", users)
         self.assertIn("bob", users)
 
     @patch("append_to_gist.fetch_queue_data")
@@ -92,7 +92,7 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
         """Slot 1 に登録されているユーザーがクロール中も存在し続ける場合、正常に処理が進むこと"""
         args = MagicMock()
         args.gist_id = "master_gist"
-        args.user = "yunaelegant"
+        args.user = "testtargetuser"
         args.from_scratch = False
         args.stop_on_existing = True
         args.promote_gist_id = None
@@ -105,8 +105,8 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
         mock_fetch_gist_data.return_value = ("data.json", master_data)
         mock_write_skip_ids_file.return_value = "/tmp/dummy_skip_ids.txt"
 
-        # クロール前もクロール後も Slot 1 に yunaelegant が存在している
-        mock_fetch_all_queue_users.return_value = {"yunaelegant", "other_user"}
+        # クロール前もクロール後も Slot 1 に testtargetuser が存在している
+        mock_fetch_all_queue_users.return_value = {"testtargetuser", "other_user"}
         mock_parse_tweets_js.return_value = [
             {"id_str": "123", "full_text": "hello", "media_urls": ["http://example.com/1.jpg"]}
         ]
@@ -114,11 +114,11 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
         with patch("append_to_gist.process_multi_user_append") as mock_append, \
              patch("append_to_gist.has_user_gists_id_changed", return_value=False), \
              patch("os.unlink"), patch("builtins.open", unittest.mock.mock_open()):
-            mock_append.return_value = {"user_gists": {"yunaelegant": "child_1"}, "tweets": []}
+            mock_append.return_value = {"user_gists": {"testtargetuser": "child_1"}, "tweets": []}
             append_to_gist.main()
 
         # 中断されずに success が書き込まれていること
-        mock_write_fetch_result.assert_called_with("yunaelegant", 1, status="success")
+        mock_write_fetch_result.assert_called_with("testtargetuser", 1, status="success")
 
     @patch("append_to_gist.write_fetch_result")
     @patch("append_to_gist.fetch_all_queue_users")
@@ -140,7 +140,7 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
         """Slot 1 に登録されていたユーザーがクロール中にキューから削除された場合、中断されること"""
         args = MagicMock()
         args.gist_id = "master_gist"
-        args.user = "yunaelegant"
+        args.user = "testtargetuser"
         args.from_scratch = False
         args.stop_on_existing = True
         args.promote_gist_id = None
@@ -159,7 +159,7 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return {"yunaelegant"} # クロール前
+                return {"testtargetuser"} # クロール前
             else:
                 return set() # クロール後（削除された）
 
@@ -173,7 +173,7 @@ class TestAppendToGistQueueDefense(unittest.TestCase):
 
         self.assertEqual(cm.exception.code, 0)
         # cancelled_user_deleted が書き込まれていること
-        mock_write_fetch_result.assert_called_with("yunaelegant", 0, status="cancelled_user_deleted")
+        mock_write_fetch_result.assert_called_with("testtargetuser", 0, status="cancelled_user_deleted")
 
     @patch("append_to_gist.write_fetch_result")
     @patch("append_to_gist.fetch_all_queue_users")

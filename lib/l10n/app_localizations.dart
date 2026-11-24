@@ -57,6 +57,7 @@ class AppLocalizations {
       isJapanese ? '最大縦幅' : 'Maximum Height';
   String get back => isJapanese ? '戻る' : 'Back';
   String get show => isJapanese ? '表示' : 'Show';
+  String get unlock => isJapanese ? '解除' : 'Unlock';
 
   // --- Tooltips [JA: ツールチップ / EN: Tooltips] ---
 
@@ -71,6 +72,8 @@ class AppLocalizations {
   String get tooltipDeleteUser => isJapanese ? 'ユーザーを削除' : 'Delete user';
   String get tooltipOpenOriginalPost =>
       isJapanese ? '元の投稿を開く' : 'Open original post';
+  String get tooltipMute => isJapanese ? '消音' : 'Mute';
+  String get tooltipUnmute => isJapanese ? '消音解除' : 'Unmute';
 
   // --- Gallery & Navigation [JA: ギャラリー・ナビゲーション / EN: Gallery & Navigation] ---
 
@@ -108,8 +111,15 @@ class AppLocalizations {
       isJapanese ? '@$username を削除しました' : 'Deleted user @$username';
   String deleteFailed(String error) =>
       isJapanese ? '削除失敗: $error' : 'Failed to delete: $error';
+  String get deleteFailedGeneric =>
+      isJapanese ? '削除に失敗しました' : 'Failed to delete';
   String userNotFoundOnX(String username) =>
       isJapanese ? 'ユーザー @$username は見つかりませんでした' : 'User @$username was not found on X';
+  String linkOpenError(String error) =>
+      isJapanese ? 'リンクを開けませんでした: $error' : 'Failed to open link: $error';
+  String get failedToLoadImagesCheckUser => isJapanese
+      ? '画像を読み込めませんでした。\n対象ユーザーが存在するか確認してください。'
+      : 'Failed to load images.\nPlease check if the target user exists.';
 
   // --- Dialogs [JA: ダイアログ / EN: Dialogs] ---
 
@@ -117,8 +127,12 @@ class AppLocalizations {
       isJapanese ? '削除確認' : 'Confirm Delete';
   String deleteImagesConfirmMessage(int count) =>
       isJapanese ? '$count 件の画像を削除しますか？' : 'Delete $count image(s)?';
+  String get deleteAllDataWarning =>
+      isJapanese ? '全てのデータが削除されます' : 'All data will be deleted';
   String get deleteUserTitle =>
       isJapanese ? 'ユーザー削除' : 'Delete User';
+  String deleteUserConfirmTitle(String username) =>
+      isJapanese ? 'ユーザー @$username を削除しますか？' : 'Delete user @$username?';
   String deleteUserConfirmMessage(String username) => isJapanese
       ? 'ユーザー @$username と、そのすべてのポストをマスターGistおよびローカルキャッシュから完全に削除しますか？\n(Gist自体の削除ではなく、インデックスからの除外です)'
       : 'Permanently remove @$username and all posts from Master Gist and local cache?\n(Removes from gallery index; does not delete the Gist itself)';
@@ -127,6 +141,17 @@ class AppLocalizations {
       isJapanese ? 'User IDを入力' : 'Enter User ID';
   String get inputUserIdHint =>
       isJapanese ? 'User IDを入力してください' : 'Please enter User ID';
+  String get userIdLabel => isJapanese ? 'ユーザーID' : 'User ID';
+  String get userIdHintExample => 'example_user';
+  String get unlockGalleryTitle =>
+      isJapanese ? 'ギャラリーのロック解除' : 'Unlock Gallery';
+  String get enterGistIdPrompt =>
+      isJapanese ? 'Gist IDを入力してください:' : 'Please enter Gist ID:';
+  String get enterGistIdError =>
+      isJapanese ? 'Gist IDを入力してください' : 'Please enter Gist ID';
+  String get gistIdLabel => 'Gist ID';
+  String get waitingForAuthentication =>
+      isJapanese ? '認証待ち...' : 'Waiting for authentication...';
 
   String get appendConfigTitle =>
       isJapanese ? '追加設定' : 'Fetch Settings';
@@ -208,6 +233,34 @@ class AppLocalizations {
     final d = detail != null && detail.isNotEmpty ? ': $detail' : '';
     return isJapanese ? 'マスターGistの更新に失敗しました$d' : 'Failed to update Master Gist$d';
   }
+
+  String gistUpdateFailed(String? detail) {
+    final d = detail != null && detail.isNotEmpty ? ': $detail' : '';
+    return isJapanese ? 'Gist の更新に失敗しました$d' : 'Failed to update Gist$d';
+  }
+
+  String get masterGistIdNotSet => isJapanese
+      ? 'マスターGist IDが設定されていません'
+      : 'Master Gist ID is not set';
+
+  String get invalidGistIdError =>
+      isJapanese ? '無効なパスワード（Gist ID）です' : 'Invalid Password (ID)';
+
+  String get networkOrInvalidIdError => isJapanese
+      ? '通信エラーまたは無効なIDです'
+      : 'Network error or invalid ID';
+
+  String failedToLoadUserGallery(String gistId) => isJapanese
+      ? 'ユーザーギャラリーの読み込みに失敗しました ($gistId)'
+      : 'Failed to load user gallery ($gistId)';
+
+  String failedToLoadGist(String gistId) => isJapanese
+      ? 'Gistの読み込みに失敗しました ($gistId)'
+      : 'Failed to load gist ($gistId)';
+
+  String failedToFetchBatchGist(String gistId) => isJapanese
+      ? 'バッチGistの取得に失敗しました ($gistId)'
+      : 'Failed to fetch batch gist ($gistId)';
 }
 
 /// [JA] AppLocalizations のローダーデリゲート（システム言語自動追従）

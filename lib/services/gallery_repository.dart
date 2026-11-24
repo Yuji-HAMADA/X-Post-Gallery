@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../l10n/app_localizations.dart';
 import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
 import '../utils/date_helper.dart';
@@ -108,7 +109,7 @@ class GalleryRepository {
       final galleryData = _parseGalleryData(jsonStr);
       return await _mergeLocalPriorities(galleryData);
     } else {
-      throw Exception('Invalid Password (ID)');
+      throw Exception(AppLocalizations.current.invalidGistIdError);
     }
   }
 
@@ -215,7 +216,7 @@ class GalleryRepository {
       return [];
     }
 
-    throw Exception('Failed to load user gallery ($gistId)');
+    throw Exception(AppLocalizations.current.failedToLoadUserGallery(gistId));
   }
 
   /// Gist内の全ユーザーのツイートを結合して返す（キーワード検索用）
@@ -223,7 +224,7 @@ class GalleryRepository {
     final response = await _fetchGistRaw(gistId);
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to load gist ($gistId)');
+      throw Exception(AppLocalizations.current.failedToLoadGist(gistId));
     }
 
     final data = json.decode(utf8.decode(response.bodyBytes));
@@ -308,7 +309,7 @@ class GalleryRepository {
       Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to fetch batch gist ($gistId)');
+      throw Exception(AppLocalizations.current.failedToFetchBatchGist(gistId));
     }
     final data =
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;

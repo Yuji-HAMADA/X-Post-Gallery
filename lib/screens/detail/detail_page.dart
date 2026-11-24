@@ -122,7 +122,9 @@ class _DetailPageState extends State<DetailPage> {
                     isMuted ? Icons.volume_off : Icons.volume_up,
                     color: Colors.white,
                   ),
-                  tooltip: isMuted ? '消音解除' : '消音',
+                  tooltip: isMuted
+                      ? AppLocalizations.of(context).tooltipUnmute
+                      : AppLocalizations.of(context).tooltipMute,
                   onPressed: () {
                     _firstVideoMutedNotifier.value =
                         !_firstVideoMutedNotifier.value;

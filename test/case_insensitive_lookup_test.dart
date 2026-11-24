@@ -24,7 +24,7 @@ class MockGalleryRepoForLookup extends GalleryRepository {
       userName: 'test_user',
       items: [],
       userGists: {
-        'xaid_AI_illust': 'child_gist_xaid',
+        'MixedCase_User': 'child_gist_mixed',
         'OtherUser': 'child_gist_other',
       },
       userPriorities: {},
@@ -64,32 +64,32 @@ void main() {
     });
 
     test('getGistIdForUser retrieves gistId regardless of case', () {
-      expect(vm.getGistIdForUser('xaid_AI_illust'), equals('child_gist_xaid'));
-      expect(vm.getGistIdForUser('xaid_ai_illust'), equals('child_gist_xaid'));
-      expect(vm.getGistIdForUser('XAID_AI_ILLUST'), equals('child_gist_xaid'));
+      expect(vm.getGistIdForUser('MixedCase_User'), equals('child_gist_mixed'));
+      expect(vm.getGistIdForUser('mixedcase_user'), equals('child_gist_mixed'));
+      expect(vm.getGistIdForUser('MIXEDCASE_USER'), equals('child_gist_mixed'));
       expect(vm.getGistIdForUser('otheruser'), equals('child_gist_other'));
       expect(vm.getGistIdForUser('nonexistent'), isNull);
     });
 
     test('getCanonicalUsername returns exact original key case', () {
-      expect(vm.getCanonicalUsername('xaid_ai_illust'), equals('xaid_AI_illust'));
-      expect(vm.getCanonicalUsername('XAID_AI_ILLUST'), equals('xaid_AI_illust'));
+      expect(vm.getCanonicalUsername('mixedcase_user'), equals('MixedCase_User'));
+      expect(vm.getCanonicalUsername('MIXEDCASE_USER'), equals('MixedCase_User'));
       expect(vm.getCanonicalUsername('otheruser'), equals('OtherUser'));
       expect(vm.getCanonicalUsername('unknown'), isNull);
     });
 
     test('fetchUserItems queries child gist with canonical name when searched with lower case', () async {
-      repo.userItems['xaid_ai_illust'] = [
+      repo.userItems['mixedcase_user'] = [
         const TweetItem(
           id: '123',
-          fullText: '@xaid_AI_illust: test tweet',
+          fullText: '@MixedCase_User: test tweet',
           createdAt: '',
           mediaUrls: ['https://example.com/img.jpg'],
         ),
       ];
 
       // 小文字でリクエストしても正しく取得できること
-      final items = await vm.fetchUserItems('xaid_ai_illust');
+      final items = await vm.fetchUserItems('mixedcase_user');
       expect(items.length, equals(1));
       expect(items.first.id, equals('123'));
     });
