@@ -41,8 +41,10 @@ def load_token():
 
 
 def load_master_gist_id():
-    """環境変数または.envファイルからMASTER_GIST_IDを取得"""
-    gid = os.environ.get("MASTER_GIST_ID")
+    """環境変数または.envファイルから MASTER_GIST_ID (Instagram時は IG_MASTER_GIST_ID) を取得"""
+    platform = os.environ.get("PLATFORM", "x").strip().lower()
+    target_key = "IG_MASTER_GIST_ID" if platform == "instagram" else "MASTER_GIST_ID"
+    gid = os.environ.get("MASTER_GIST_ID") or os.environ.get(target_key)
     if gid:
         return gid.strip()
     env_paths = [".env", os.path.join(os.path.dirname(__file__), "..", ".env")]
@@ -52,7 +54,7 @@ def load_master_gist_id():
                 with open(ep, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
-                        if line.startswith("MASTER_GIST_ID="):
+                        if line.startswith(f"{target_key}="):
                             return line.split("=", 1)[1].strip().strip('"').strip("'")
             except Exception:
                 pass
@@ -135,12 +137,25 @@ def snowflake_to_jst_str(snowflake_id):
     return ""
 
 
+def is_instagram_tweet(tweet):
+    """投稿オブジェクトが Instagram 由来かどうかを判定する"""
+    if not isinstance(tweet, dict):
+        return False
+    post_url = str(tweet.get("post_url") or "")
+    if "instagram.com/" in post_url:
+        return True
+    for u in tweet.get("media_urls") or []:
+        if "cdninstagram.com" in str(u):
+            return True
+    return False
+
+
 def get_tweet_sort_key(tweet):
     """ツイートの投稿時刻ソートキー（ミリ秒タイムスタンプ）を算出"""
     if not tweet or not isinstance(tweet, dict):
         return 0
     id_str = str(tweet.get("id_str") or tweet.get("id") or "")
-    if id_str.isdigit():
+    if not is_instagram_tweet(tweet) and id_str.isdigit():
         val = int(id_str)
         # Snowflake ID のタイムスタンプ部分を抽出 (41 bits)
         if val > 100000000000:
@@ -361,9 +376,13 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
                 "username": u,
                 "media_urls": latest.get("media_urls", [])[:1],
             }
-            created_at = latest.get("created_at") or snowflake_to_jst_str(master_entry["id_str"])
+            created_at = latest.get("created_at") or (
+                "" if is_instagram_tweet(latest) else snowflake_to_jst_str(master_entry["id_str"])
+            )
             if created_at:
                 master_entry["created_at"] = created_at
+            if latest.get("post_url"):
+                master_entry["post_url"] = latest["post_url"]
             if latest.get("video_url"):
                 master_entry["video_url"] = latest["video_url"]
             if latest.get("video_urls"):

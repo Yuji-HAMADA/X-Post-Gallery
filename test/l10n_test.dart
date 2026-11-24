@@ -64,6 +64,17 @@ void main() {
       expect(l10n.columnsCount(2), '2列');
       expect(l10n.networkError('err'), '通信エラーが発生しました: err');
       expect(l10n.masterGistUpdateFailed(null), 'マスターGistの更新に失敗しました');
+      expect(l10n.dataSourceLabel, '取得元');
+      expect(l10n.tooltipSwitchDataSource, '取得元を切り替え (X / Instagram)');
+      expect(l10n.verifyingOnSource('Instagram'), 'Instagramで確認中...');
+      expect(
+        l10n.userNotFoundOnSource('user1', 'Instagram'),
+        '@user1 はInstagramで見つかりませんでした',
+      );
+      expect(
+        l10n.switchedDataSource('Instagram'),
+        '取得元を Instagram に切り替えました',
+      );
     });
 
     test('English locale returns accurate English strings', () {
@@ -126,6 +137,17 @@ void main() {
       expect(l10n.columnsCount(2), '2 Columns');
       expect(l10n.networkError('err'), 'Network error: err');
       expect(l10n.masterGistUpdateFailed(null), 'Failed to update Master Gist');
+      expect(l10n.dataSourceLabel, 'Source');
+      expect(l10n.tooltipSwitchDataSource, 'Switch source (X / Instagram)');
+      expect(l10n.verifyingOnSource('Instagram'), 'Verifying on Instagram...');
+      expect(
+        l10n.userNotFoundOnSource('user1', 'Instagram'),
+        '@user1 was not found on Instagram',
+      );
+      expect(
+        l10n.switchedDataSource('Instagram'),
+        'Switched source to Instagram',
+      );
     });
 
     testWidgets('AppLocalizations.delegate automatically resolves system language', (tester) async {

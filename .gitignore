@@ -47,14 +47,20 @@ app.*.map.json
 venv/
 .venv/
 data/auth.json
+data/instagram_auth.json
 data/debug_screen.png
 data/known_ids.txt
 data/tweets.js
+data/instagram_tweets.js
+data/poc_instagram_media.json
 data/cleanup_dead_links_state.json
 data/adaptive_skip_state.json
+data/instagram_adaptive_skip_state.json
 data/.last_fetch_result.json
+data/.last_fetch_result_instagram.json
 data/resume/
 assets/data/data.json
+assets/data/data_instagram.json
 
 scripts/split_gist_by_user.py
 

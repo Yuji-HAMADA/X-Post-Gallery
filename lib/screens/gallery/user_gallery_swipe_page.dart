@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/data_source.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/append_config_dialog.dart';
@@ -226,7 +227,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
   }
 
   Future<void> _launchX(String username) async {
-    final url = Uri.parse('https://x.com/$username');
+    final source = context.read<GalleryViewModel>().currentSource;
+    final url = Uri.parse(source.profileUrl(username));
     try {
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);

@@ -261,6 +261,18 @@ class AppLocalizations {
   String failedToFetchBatchGist(String gistId) => isJapanese
       ? 'バッチGistの取得に失敗しました ($gistId)'
       : 'Failed to fetch batch gist ($gistId)';
+
+  // --- データ取得元切替 (X / Instagram) ---
+  String get dataSourceLabel => isJapanese ? '取得元' : 'Source';
+  String get tooltipSwitchDataSource =>
+      isJapanese ? '取得元を切り替え (X / Instagram)' : 'Switch source (X / Instagram)';
+  String verifyingOnSource(String source) =>
+      isJapanese ? '$sourceで確認中...' : 'Verifying on $source...';
+  String userNotFoundOnSource(String username, String source) => isJapanese
+      ? '@$username は$sourceで見つかりませんでした'
+      : '@$username was not found on $source';
+  String switchedDataSource(String source) =>
+      isJapanese ? '取得元を $source に切り替えました' : 'Switched source to $source';
 }
 
 /// [JA] AppLocalizations のローダーデリゲート（システム言語自動追従）

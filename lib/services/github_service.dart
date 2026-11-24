@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../l10n/app_localizations.dart';
+import '../models/data_source.dart';
 import '../utils/env_helper.dart';
 
 // クラスの外で定義し、const をつけるのがポイント
@@ -11,6 +12,9 @@ const String _externalGithubUsername = String.fromEnvironment(
 );
 const String _externalFetchQueueGistId = String.fromEnvironment(
   'FETCH_QUEUE_GIST_ID',
+);
+const String _externalIgFetchQueueGistId = String.fromEnvironment(
+  'IG_FETCH_QUEUE_GIST_ID',
 );
 
 /// fetch_queue.json の2スロットリングバッファの読み込み結果
@@ -50,8 +54,19 @@ class GitHubService {
   final String token;
   final String owner;
 
-  /// キューGist ID
+  /// キューGist ID（X用 / Instagram用）
   final String fetchQueueGistId;
+  final String igFetchQueueGistId;
+
+  DataSource _source = DataSource.x;
+  DataSource get source => _source;
+  void setSource(DataSource newSource) {
+    _source = newSource;
+  }
+
+  /// 選択中プラットフォームのキューGist ID
+  String get activeFetchQueueGistId =>
+      _source == DataSource.instagram ? igFetchQueueGistId : fetchQueueGistId;
 
   String _lastErrorMessage = '';
 
@@ -63,11 +78,14 @@ class GitHubService {
     String? token,
     String? owner,
     String? fetchQueueGistId,
+    String? igFetchQueueGistId,
   })  : _client = client ?? http.Client(),
         token = token ?? resolveEnv(_externalToken, 'GITHUB_TOKEN'),
         owner = owner ?? resolveEnv(_externalGithubUsername, 'GITHUB_USERNAME'),
         fetchQueueGistId = fetchQueueGistId ??
-            resolveEnv(_externalFetchQueueGistId, 'FETCH_QUEUE_GIST_ID');
+            resolveEnv(_externalFetchQueueGistId, 'FETCH_QUEUE_GIST_ID'),
+        igFetchQueueGistId = igFetchQueueGistId ??
+            resolveEnv(_externalIgFetchQueueGistId, 'IG_FETCH_QUEUE_GIST_ID');
 
   // ヘッダーをゲッターで定義して、毎回新しいマップを返すようにする
   Map<String, String> get _headers => {
@@ -265,13 +283,14 @@ class GitHubService {
 
   /// 2スロットリングバッファの読み込み
   Future<_QueueSlots?> _loadQueueSlots() async {
-    if (fetchQueueGistId.isEmpty) {
-      debugPrint('FETCH_QUEUE_GIST_ID is not set');
+    final queueGistId = activeFetchQueueGistId;
+    if (queueGistId.isEmpty) {
+      debugPrint('FETCH_QUEUE_GIST_ID is not set for ${_source.displayName}');
       return null;
     }
 
     final slot0Content = await fetchGistContent(
-      fetchQueueGistId,
+      queueGistId,
       'fetch_queue.json',
     );
     if (slot0Content == null) return null;
@@ -327,7 +346,7 @@ class GitHubService {
       return false;
     }
 
-    final target = slots.writeTarget(fetchQueueGistId);
+    final target = slots.writeTarget(activeFetchQueueGistId);
 
     if (_isDuplicateInTarget(target.users, username)) {
       debugPrint('GitHubService: addUserToFetchQueue DUPLICATE found for $username in target slot');
@@ -371,7 +390,7 @@ class GitHubService {
     if (slots.slot0Users.length != initialCount0) {
       slots.slot0Data['users'] = slots.slot0Users;
       await updateGistFile(
-        gistId: fetchQueueGistId,
+        gistId: activeFetchQueueGistId,
         filename: 'fetch_queue.json',
         content: jsonEncode(slots.slot0Data),
       );

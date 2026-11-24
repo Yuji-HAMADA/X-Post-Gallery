@@ -16,18 +16,30 @@ import subprocess
 import tempfile
 import time
 from datetime import datetime, timezone, timedelta
+from urllib.parse import parse_qs, urlsplit
 
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
+IG_TWEETS_JS = os.path.join(DATA_DIR, "instagram_tweets.js")
 RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
+IG_RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result_instagram.json")
 GIST_MAX_TWEETS = 2000  # 移動先Gistの上限
+IG_URL_REFRESH_BUFFER_SECONDS = 48 * 3600  # Instagram署名URLの事前リフレッシュ閾値（48時間）
 USER_PATTERN = re.compile(r"^@([^:]+):")
 
-def write_fetch_result(user, tweets_saved, status="ok"):
+def get_result_file_for_platform(platform="x"):
+    return IG_RESULT_FILE if platform == "instagram" else RESULT_FILE
+
+def get_tweets_js_for_platform(platform="x"):
+    return IG_TWEETS_JS if platform == "instagram" else TWEETS_JS
+
+def write_fetch_result(user, tweets_saved, status="ok", platform=None):
     """クローラーの取得結果（保存ツイート数など）をメタデータファイルに書き出す"""
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
-        with open(RESULT_FILE, "w", encoding="utf-8") as f:
+        resolved_platform = platform or os.environ.get("PLATFORM", "x").lower()
+        result_path = get_result_file_for_platform(resolved_platform)
+        with open(result_path, "w", encoding="utf-8") as f:
             json.dump({
                 "user": user,
                 "tweets_saved": tweets_saved,
@@ -49,6 +61,8 @@ def parse_args():
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
                         help="移動先Gist IDを手動指定")
+    parser.add_argument("--platform", choices=["x", "instagram"], default=os.environ.get("PLATFORM", "x").lower(),
+                        help="取得元プラットフォーム (x または instagram, default: x)")
     parser.add_argument("--max-no-new-scrolls", type=int, default=None, help="新規未検出連続スクロール上限（未指定時はextract_media.py既定値）")
     parser.add_argument("--max-runtime", type=int, default=None, help="最大実行秒数（未指定時はextract_media.py既定値）")
     args = parser.parse_args()
@@ -91,12 +105,55 @@ def snowflake_to_jst_str(snowflake_id):
         pass
     return ""
 
+def is_instagram_tweet(tweet):
+    """ツイート/投稿オブジェクトが Instagram 由来かどうかを判定する"""
+    if not isinstance(tweet, dict):
+        return False
+    post_url = str(tweet.get("post_url") or "")
+    if "instagram.com/" in post_url:
+        return True
+    for u in tweet.get("media_urls") or []:
+        if "cdninstagram.com" in str(u):
+            return True
+    return False
+
+def extract_instagram_url_expiry(url):
+    """Instagram 署名付き CDN URL の oe= (16進Unix秒) 有効期限を返す"""
+    if not url or "cdninstagram.com" not in str(url):
+        return None
+    try:
+        qs = parse_qs(urlsplit(str(url)).query)
+        oe_hex = qs.get("oe", [None])[0]
+        if oe_hex:
+            return int(oe_hex, 16)
+    except Exception:
+        return None
+    return None
+
+def needs_instagram_url_refresh(tweets, buffer_seconds=IG_URL_REFRESH_BUFFER_SECONDS, now=None):
+    """既存投稿内に有効期限切れ間近（buffer_seconds 以内）の Instagram CDN URL があるか判定する"""
+    if not tweets:
+        return False
+    cur = time.time() if now is None else float(now)
+    for t in tweets:
+        if not isinstance(t, dict):
+            continue
+        urls = list(t.get("media_urls") or []) + list(t.get("video_urls") or [])
+        if t.get("video_url"):
+            urls.append(t["video_url"])
+        for u in urls:
+            exp = extract_instagram_url_expiry(u)
+            if exp is not None and (exp - cur) <= buffer_seconds:
+                return True
+    return False
+
 def get_tweet_sort_key(tweet):
     """ツイートの投稿時刻ソートキー（ミリ秒タイムスタンプ）を返す"""
     if not tweet or not isinstance(tweet, dict):
         return 0
     id_str = str(tweet.get("id_str") or tweet.get("id") or "")
-    if id_str.isdigit():
+    # Instagram の 19桁 pk は Twitter Snowflake ではないため created_at を優先する
+    if not is_instagram_tweet(tweet) and id_str.isdigit():
         val = int(id_str)
         if val > 100000000000:
             return (val >> 22) + 1288834974650
@@ -204,6 +261,8 @@ def has_master_tweets_changed(initial_tweets, new_tweets, target_user):
         if str(old_tweet.get("id_str", "")) != str(new_tweet.get("id_str", "")):
             return True
         if old_tweet.get("created_at") != new_tweet.get("created_at"):
+            return True
+        if old_tweet.get("media_urls") != new_tweet.get("media_urls"):
             return True
     return False
 
@@ -339,12 +398,23 @@ def write_skip_ids_file(ordered_ids):
     return path
 
 def run_extraction(args, skip_ids_file):
+    platform = getattr(args, "platform", "x") or "x"
+    extractor_script = (
+        "scripts/extract_instagram_media.py"
+        if platform == "instagram"
+        else "scripts/extract_media.py"
+    )
     cmd = [
-        sys.executable, "scripts/extract_media.py",
+        sys.executable, extractor_script,
         "--mode", "post_only",
         "-n", str(args.num),
         "--skip-ids-file", skip_ids_file,
     ]
+    if platform == "instagram":
+        cmd.extend([
+            "--output", get_tweets_js_for_platform("instagram"),
+            "--result-file", get_result_file_for_platform("instagram"),
+        ])
     if args.user:
         cmd.extend(["-u", args.user])
     if args.stop_on_existing:
@@ -371,14 +441,15 @@ def convert_raw_tweets_to_gist_format(raw_tweets):
         if not media_list:
             continue
         media_urls = [m.get('media_url_https', '') for m in media_list if m.get('media_url_https')]
-        if not media_urls:
-            continue
-        post_url = ''
+        post_url = tweet.get('post_url', '') or ''
         video_urls = []
         for m in media_list:
             eu = m.get('expanded_url', '')
-            if '/status/' in eu and not post_url:
-                post_url = re.sub(r'/(photo|video)/\d+$', '', eu)
+            if not post_url:
+                if '/status/' in eu:
+                    post_url = re.sub(r'/(photo|video)/\d+$', '', eu)
+                elif 'instagram.com/' in eu:
+                    post_url = eu
             if m.get('type') == 'video':
                 variants = m.get('video_info', {}).get('variants', [])
                 mp4_variants = [v for v in variants if v.get('content_type') == 'video/mp4' or v.get('type') == 'video/mp4']
@@ -387,6 +458,8 @@ def convert_raw_tweets_to_gist_format(raw_tweets):
                     v_url = best.get('url') or best.get('src')
                     if v_url and v_url not in video_urls:
                         video_urls.append(v_url)
+        if not media_urls and not video_urls:
+            continue
         tweet_obj = {
             'full_text': tweet.get('full_text', ''),
             'created_at': tweet.get('created_at', ''),
@@ -400,24 +473,58 @@ def convert_raw_tweets_to_gist_format(raw_tweets):
         converted.append(tweet_obj)
     return converted
 
-def parse_tweets_js():
-    if not os.path.exists(TWEETS_JS):
+def parse_tweets_js(platform="x"):
+    tweets_path = get_tweets_js_for_platform(platform)
+    if not os.path.exists(tweets_path):
         return []
-    with open(TWEETS_JS, 'r', encoding='utf-8') as f:
+    with open(tweets_path, 'r', encoding='utf-8') as f:
         content = f.read()
     json_str = re.sub(r'^window\.YTD\.tweets\.part0\s*=\s*', '', content)
     raw_tweets = json.loads(json_str)
     return convert_raw_tweets_to_gist_format(raw_tweets)
 
-def append_tweets(existing_tweets, new_tweets):
+def append_tweets(existing_tweets, new_tweets, refresh_urls=False):
     if not new_tweets:
         return existing_tweets
+    new_by_id = {t.get("id_str"): t for t in new_tweets if t.get("id_str")}
     existing_ids = {t.get("id_str") for t in existing_tweets if t.get("id_str")}
     unique_new = [t for t in new_tweets if t.get("id_str") not in existing_ids]
-    if not unique_new:
+
+    updated_existing = existing_tweets
+    refreshed_count = 0
+    if refresh_urls:
+        updated_existing = []
+        for t in existing_tweets:
+            tid = t.get("id_str")
+            fresh = new_by_id.get(tid) if tid else None
+            if fresh:
+                changed = (
+                    t.get("media_urls") != fresh.get("media_urls")
+                    or t.get("video_url") != fresh.get("video_url")
+                    or t.get("video_urls") != fresh.get("video_urls")
+                )
+                if changed:
+                    nt = dict(t)
+                    if fresh.get("media_urls"):
+                        nt["media_urls"] = fresh["media_urls"]
+                    if fresh.get("video_url"):
+                        nt["video_url"] = fresh["video_url"]
+                    if fresh.get("video_urls"):
+                        nt["video_urls"] = fresh["video_urls"]
+                    if fresh.get("post_url") and not nt.get("post_url"):
+                        nt["post_url"] = fresh["post_url"]
+                    updated_existing.append(nt)
+                    refreshed_count += 1
+                    continue
+            updated_existing.append(t)
+
+    if not unique_new and refreshed_count == 0:
         return existing_tweets
-    print(f"✨ Appended: {len(unique_new)} new tweets")
-    return unique_new + existing_tweets
+    if unique_new:
+        print(f"✨ Appended: {len(unique_new)} new tweets")
+    if refreshed_count:
+        print(f"🔄 Refreshed signed media URLs for {refreshed_count} existing posts")
+    return unique_new + updated_existing
 
 # ---------------------------------------------------------------------------
 # Gist作成・移動 (インメモリ更新)
@@ -480,7 +587,7 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
 # メイン
 # ---------------------------------------------------------------------------
 
-def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False, is_candidate=False):
+def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False, is_candidate=False, refresh_urls=False):
     user_groups = group_tweets_by_user(new_tweets)
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
@@ -496,7 +603,7 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
                 master_tweets = [t for t in master_tweets if extract_username(t) != "Unknown"]
                 master_tweets = tweets + master_tweets
             else:
-                master_tweets = append_tweets(master_tweets, tweets)
+                master_tweets = append_tweets(master_tweets, tweets, refresh_urls=refresh_urls)
             continue
 
         print(f"--- @{user} ---")
@@ -531,10 +638,10 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             master_tweets = [t for t in master_tweets if extract_username(t).lower() != user.lower()]
         else:
             existing = get_user_tweets(p_data, user)
-            merged = append_tweets(existing, tweets)
-            if len(merged) == len(existing):
+            merged = append_tweets(existing, tweets, refresh_urls=refresh_urls)
+            if merged == existing:
                 continue
-            migrated_count += len(merged) - len(existing)
+            migrated_count += max(len(merged) - len(existing), 0)
 
         # メモリ上でデータを更新
         final_id, updated_data = update_or_migrate_user_gist_in_memory(
@@ -581,9 +688,13 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             "username": user,
             "media_urls": latest.get("media_urls", [])[:1],
         }
-        created_at = latest.get("created_at") or snowflake_to_jst_str(master_entry["id_str"])
+        created_at = latest.get("created_at") or (
+            "" if is_instagram_tweet(latest) else snowflake_to_jst_str(master_entry["id_str"])
+        )
         if created_at:
             master_entry["created_at"] = created_at
+        if latest.get("post_url"):
+            master_entry["post_url"] = latest["post_url"]
         if latest.get("video_url"):
             master_entry["video_url"] = latest["video_url"]
         if latest.get("video_urls"):
@@ -642,7 +753,8 @@ def main():
         print(f"❌ Error: {args.gist_id} is not a Master Gist.")
         sys.exit(1)
 
-    # skip_ids 作成
+    # skip_ids 作成（Instagram 定期URLリフレッシュ判定含む）
+    refresh_urls = False
     if args.from_scratch:
         args.stop_on_existing = False
         skip_ids_file = write_skip_ids_file([])
@@ -653,7 +765,13 @@ def main():
             existing = get_user_tweets(p_data, args.user)
         else:
             existing = []
-        skip_ids_file = write_skip_ids_file(get_existing_ids_ordered(existing))
+        if args.platform == "instagram" and needs_instagram_url_refresh(existing):
+            print(f"🔄 [Instagram] Expiring signed CDN URLs detected for @{args.user}. Refreshing URLs in-place...")
+            refresh_urls = True
+            args.stop_on_existing = False
+            skip_ids_file = write_skip_ids_file([])
+        else:
+            skip_ids_file = write_skip_ids_file(get_existing_ids_ordered(existing))
     else:
         skip_ids_file = write_skip_ids_file(
             get_existing_ids_ordered(full_data.get("tweets", []))
@@ -673,12 +791,18 @@ def main():
         else False
     )
 
+    platform = getattr(args, "platform", "x")
+    if platform not in ("x", "instagram"):
+        platform = "x"
+    if platform == "instagram":
+        os.environ["PLATFORM"] = "instagram"
+
     try:
         run_extraction(args, skip_ids_file)
     finally:
         os.unlink(skip_ids_file)
 
-    new_tweets = parse_tweets_js()
+    new_tweets = parse_tweets_js(platform=platform) if platform == "instagram" else parse_tweets_js()
     if not new_tweets:
         print("✅ No new tweets.")
         write_fetch_result(args.user, 0, status="no_new_tweets")
@@ -716,9 +840,14 @@ def main():
     initial_master_tweets = list(fresh_master_data.get("tweets", []))
 
     final_output = process_multi_user_append(
-        fresh_master_data, new_tweets, args.promote_gist_id, from_scratch=args.from_scratch, is_candidate=args.is_candidate,
+        fresh_master_data,
+        new_tweets,
+        args.promote_gist_id,
+        from_scratch=args.from_scratch,
+        is_candidate=args.is_candidate,
+        refresh_urls=refresh_urls,
     )
-    output_file = "assets/data/data.json"
+    output_file = "assets/data/data_instagram.json" if platform == "instagram" else "assets/data/data.json"
     os.makedirs("assets/data", exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(final_output, f, ensure_ascii=False, indent=2)

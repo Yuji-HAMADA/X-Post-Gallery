@@ -10,6 +10,7 @@ FORCE_EMPTY=""
 PROMOTE_GIST_ID=""
 FROM_SCRATCH=""
 IS_CANDIDATE=""
+PLATFORM_ARG="${PLATFORM:-x}"
 
 # --- 引数の解析 ---
 while [ $# -gt 0 ]; do
@@ -46,8 +47,12 @@ while [ $# -gt 0 ]; do
       IS_CANDIDATE="--is-candidate"
       shift
       ;;
+    --platform)
+      PLATFORM_ARG="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch] [--is-candidate]"
+      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch] [--is-candidate] [--platform x|instagram]"
       exit 1
       ;;
   esac
@@ -65,6 +70,7 @@ fi
 
 echo "=========================================="
 echo "Append to Gist"
+echo "  Platform         : $PLATFORM_ARG"
 echo "  Gist ID          : $GIST_ID"
 echo "  Target           : @$USER"
 echo "  Mode             : $MODE (fixed)"
@@ -87,6 +93,7 @@ if [ -d "$PROJECT_DIR/venv" ]; then
 fi
 
 python3 scripts/append_to_gist.py \
+  --platform "$PLATFORM_ARG" \
   -g "$GIST_ID" \
   -u "$USER" \
   -n "$NUM" \

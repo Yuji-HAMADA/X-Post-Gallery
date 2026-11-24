@@ -11,6 +11,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
+source "$SCRIPT_DIR/platform_env.sh"
+load_project_env "$PROJECT_DIR"
+resolve_platform_env "$PROJECT_DIR"
+
 # 実行インターバル（デフォルト: 10秒）
 LOOP_INTERVAL="${LOOP_INTERVAL:-10}"
 # レートリミット（exit 42）発生時の待機時間（秒、デフォルト: 900秒 = 15分）
@@ -19,7 +23,7 @@ RATE_LIMIT_WAIT="${RATE_LIMIT_WAIT:-900}"
 ERROR_WAIT="${ERROR_WAIT:-60}"
 
 # --- 二重起動防止ロック ---
-LOCKFILE="/tmp/master_local.lock"
+LOCKFILE="/tmp/master_local${PLATFORM_LOCK_SUFFIX}.lock"
 exec 200>"$LOCKFILE"
 if ! flock -n 200; then
   echo "⚠️ [$(date '+%Y-%m-%d %H:%M:%S')] Another instance of master crawler is already running. Exiting."

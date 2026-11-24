@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/data_source.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_image_item.dart';
@@ -123,7 +124,8 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     if (urlStr == null || urlStr.isEmpty) {
       final username = item.extractedUsername;
       if (username != null && username.isNotEmpty && item.id.isNotEmpty) {
-        urlStr = 'https://x.com/$username/status/${item.id}';
+        final source = context.read<GalleryViewModel>().currentSource;
+        urlStr = source.fallbackPostUrl(username, item.id);
       }
     }
     if (urlStr != null && urlStr.isNotEmpty) {

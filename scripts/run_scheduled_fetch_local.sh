@@ -7,7 +7,8 @@ set -euo pipefail
 # ==============================================================================
 
 # --- 1. ディレクトリ移動と仮想環境の有効化 ---
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 if [ -d "$PROJECT_DIR/venv" ]; then
@@ -17,55 +18,7 @@ else
   exit 1
 fi
 
-# --- 2. 二重起動防止ロック ---
-LOCKFILE="/tmp/scheduled_fetch_local.lock"
-exec 200>"$LOCKFILE"
-if ! flock -n 200; then
-  echo "⚠️ [$(date '+%Y-%m-%d %H:%M:%S')] Another instance of scheduled fetch is already running. Exiting."
-  exit 0
-fi
-
-# --- 3. .env の読み込みと環境変数の検証（既存の環境変数は上書きしない） ---
-if [ -f "$PROJECT_DIR/.env" ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [[ "$line" =~ ^# ]] && continue
-    [[ "$line" != *"="* ]] && continue
-    key="${line%%=*}"
-    val="${line#*=}"
-    key=$(echo "$key" | tr -d '[:space:]')
-    val=$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
-    if [ -n "$key" ] && [ -z "${!key+x}" ]; then
-      export "$key=$val"
-    fi
-  done < "$PROJECT_DIR/.env"
-fi
-
-# GITHUB_TOKEN から GH_TOKEN へのフォールバック
-export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-
-for var in GH_TOKEN FETCH_QUEUE_GIST_ID; do
-  if [ -z "${!var:-}" ]; then
-    echo "❌ Error: Required environment variable '$var' is missing in .env or environment."
-    exit 1
-  fi
-done
-
-# data/auth.json のチェック（未生成かつ AUTH_JSON があれば生成）
-if [ ! -s "$PROJECT_DIR/data/auth.json" ] && [ -n "${AUTH_JSON:-}" ]; then
-  mkdir -p "$PROJECT_DIR/data"
-  printf "%s" "$AUTH_JSON" > "$PROJECT_DIR/data/auth.json"
-fi
-
-if [ ! -s "$PROJECT_DIR/data/auth.json" ]; then
-  echo "❌ Error: $PROJECT_DIR/data/auth.json is missing or empty."
-  exit 1
-fi
-
-# 実行権限の確認
-chmod +x "$PROJECT_DIR/append_gist.sh"
-
-# --- 引数の解析 ---
+# --- 引数の先読み（--platform 対応） ---
 TARGET_SLOT="auto"
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -73,11 +26,49 @@ while [[ $# -gt 0 ]]; do
       TARGET_SLOT="$2"
       shift 2
       ;;
+    --platform)
+      export PLATFORM="$2"
+      shift 2
+      ;;
     *)
       shift
       ;;
   esac
 done
+
+# --- 2. .env 読み込み & プラットフォーム解決 ---
+source "$SCRIPT_DIR/platform_env.sh"
+load_project_env "$PROJECT_DIR"
+resolve_platform_env "$PROJECT_DIR"
+
+# --- 3. 二重起動防止ロック ---
+LOCKFILE="/tmp/scheduled_fetch_local${PLATFORM_LOCK_SUFFIX}.lock"
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+  echo "⚠️ [$(date '+%Y-%m-%d %H:%M:%S')] Another instance of scheduled fetch ($PLATFORM_LABEL) is already running. Exiting."
+  exit 0
+fi
+
+for var in GH_TOKEN FETCH_QUEUE_GIST_ID; do
+  if [ -z "${!var:-}" ]; then
+    echo "❌ Error: Required environment variable '$var' is missing in .env or environment (platform=$PLATFORM)."
+    exit 1
+  fi
+done
+
+# 認証ファイルのチェック（未生成かつ環境変数があれば生成）
+if [ ! -s "$PLATFORM_AUTH_PATH" ] && [ -n "${PLATFORM_AUTH_ENV:-}" ]; then
+  mkdir -p "$PROJECT_DIR/data"
+  printf "%s" "$PLATFORM_AUTH_ENV" > "$PLATFORM_AUTH_PATH"
+fi
+
+if [ ! -s "$PLATFORM_AUTH_PATH" ]; then
+  echo "❌ Error: $PLATFORM_AUTH_PATH is missing or empty."
+  exit 1
+fi
+
+# 実行権限の確認
+chmod +x "$PROJECT_DIR/append_gist.sh"
 
 CONSECUTIVE_ERRORS=0
 
@@ -275,7 +266,7 @@ process_slot() {
     # ※ Slot 0（定期巡回枠）かつ from_scratch でない場合のみ適用。
     # ※ Slot 1（ユーザーリクエスト枠）は明示的なオンデマンド実行のためスキップせず即時実行
     if [ "$slot_num" -eq 0 ] && [ "$FROM_SCRATCH" != "true" ]; then
-      local SHOULD_SKIP_ARGS=(should-skip -u "$USER")
+      local SHOULD_SKIP_ARGS=(should-skip --state-file "$PLATFORM_ADAPTIVE_STATE" -u "$USER")
       [ -n "$SKIP_COUNT" ] && SHOULD_SKIP_ARGS+=(--queue-count "$SKIP_COUNT")
       [ -n "$SKIP_REMAINING" ] && SHOULD_SKIP_ARGS+=(--queue-remaining "$SKIP_REMAINING")
 
@@ -319,15 +310,20 @@ process_slot() {
 
     # --- クロール実行 ---
     echo ""
-    echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (count=$COUNT, stop_on_existing=$STOP, from_scratch=$FROM_SCRATCH)"
-    rm -f "$PROJECT_DIR/data/.last_fetch_result.json"
+    echo "▶️ Slot $slot_num [$((i+1))/$entry_count]: @$USER (platform=$PLATFORM, count=$COUNT, stop_on_existing=$STOP, from_scratch=$FROM_SCRATCH)"
+    rm -f "$PLATFORM_RESULT_FILE"
+
+    local PLATFORM_FLAGS=()
+    if [ "$PLATFORM" = "instagram" ]; then
+      PLATFORM_FLAGS=(--platform instagram)
+    fi
 
     if [ "$FROM_SCRATCH" = "true" ]; then
-      ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" --from-scratch || EXIT_CODE=$?
+      ./append_gist.sh "${PLATFORM_FLAGS[@]}" -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" --from-scratch || EXIT_CODE=$?
     elif [ "$STOP" = "true" ]; then
-      ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
+      ./append_gist.sh "${PLATFORM_FLAGS[@]}" -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" -s || EXIT_CODE=$?
     else
-      ./append_gist.sh -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
+      ./append_gist.sh "${PLATFORM_FLAGS[@]}" -g "$MASTER_GIST_ID" -u "$USER" -n "$COUNT" || EXIT_CODE=$?
     fi
 
     # レートリミット (42) 検知
@@ -414,7 +410,7 @@ process_slot() {
     # 保存されたツイート数の取得
     local SAVED_COUNT=0
     local FETCH_STATUS=""
-    local RESULT_FILE="$PROJECT_DIR/data/.last_fetch_result.json"
+    local RESULT_FILE="$PLATFORM_RESULT_FILE"
     if [ -f "$RESULT_FILE" ]; then
       SAVED_COUNT=$(jq -r '.tweets_saved // 0' "$RESULT_FILE" 2>/dev/null || echo 0)
       FETCH_STATUS=$(jq -r '.status // empty' "$RESULT_FILE" 2>/dev/null || echo "")
@@ -427,7 +423,7 @@ process_slot() {
     fi
 
     # アダプティブ・スキップ結果の記録・更新
-    local RECORD_ARGS=(record -u "$USER" -s "$SAVED_COUNT")
+    local RECORD_ARGS=(record --state-file "$PLATFORM_ADAPTIVE_STATE" -u "$USER" -s "$SAVED_COUNT")
     [ -n "$SKIP_COUNT" ] && RECORD_ARGS+=(--queue-count "$SKIP_COUNT")
 
     local RECORD_OUTPUT

@@ -160,16 +160,23 @@ def sync_favorites_to_queue(fav_gist_id, queue_gist_id, slot1_gist_id=None, dry_
 
     # アダプティブ・スキップのローカル状態からも除外
     if removed_from_queue and not dry_run:
-        cleanup_adaptive_skip_state(removed_from_queue)
+        state_path = os.environ.get("PLATFORM_ADAPTIVE_STATE", "data/adaptive_skip_state.json")
+        cleanup_adaptive_skip_state(removed_from_queue, state_path=state_path)
 
     return True
 
 
 def main():
     load_env()
-    fav_id = os.environ.get("FAVORITE_GIST_ID")
-    q0_id = os.environ.get("FETCH_QUEUE_GIST_ID")
-    q1_id = os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID")
+    platform = os.environ.get("PLATFORM", "x").strip().lower()
+    if platform == "instagram":
+        fav_id = os.environ.get("FAVORITE_GIST_ID") or os.environ.get("IG_FAVORITE_GIST_ID")
+        q0_id = os.environ.get("FETCH_QUEUE_GIST_ID") or os.environ.get("IG_FETCH_QUEUE_GIST_ID")
+        q1_id = os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID") or os.environ.get("IG_FETCH_QUEUE_SLOT1_GIST_ID")
+    else:
+        fav_id = os.environ.get("FAVORITE_GIST_ID")
+        q0_id = os.environ.get("FETCH_QUEUE_GIST_ID")
+        q1_id = os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID")
 
     dry_run = "--dry-run" in sys.argv
 
@@ -177,7 +184,7 @@ def main():
         print("❌ Error: FAVORITE_GIST_ID and FETCH_QUEUE_GIST_ID must be set in .env")
         sys.exit(1)
 
-    print(f"🔄 Starting favorites synchronization (dry_run={dry_run})...")
+    print(f"🔄 Starting favorites synchronization (platform={platform}, dry_run={dry_run})...")
     ok = sync_favorites_to_queue(fav_id, q0_id, slot1_gist_id=q1_id, dry_run=dry_run)
     if not ok:
         sys.exit(1)

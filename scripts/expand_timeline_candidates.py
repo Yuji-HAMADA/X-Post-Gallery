@@ -11,6 +11,7 @@
 4. 画像収集が完了したらホーム画面をリロードし、再び10スクロールのアカウント収集へ戻ってループを継続。
 """
 
+import re
 import asyncio
 import json
 import os
@@ -21,6 +22,7 @@ from playwright.async_api import async_playwright
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from extract_media import AUTH_PATH, DATA_DIR, dismiss_modals
+from extract_instagram_media import AUTH_PATH as IG_AUTH_PATH, extract_posts_from_payload as extract_ig_posts_from_payload
 
 EXTRACT_ACCOUNTS_JS = """() => {
     const articles = document.querySelectorAll('article');
@@ -157,9 +159,11 @@ def fetch_master_user_gists(gist_id):
 def parse_args():
     parser = argparse.ArgumentParser(description="Timeline Candidate Account Collector")
     parser.add_argument("-g", "--gist-id", default=None, help="Master Gist ID (defaults to MASTER_GIST_ID env)")
+    parser.add_argument("--platform", choices=["x", "instagram"], default=os.environ.get("PLATFORM", "x").lower(),
+                        help="Platform to crawl: x or instagram (default: x)")
     parser.add_argument("-n", "--num", type=int, default=300, help="Number of tweets to fetch for new accounts (default: 300)")
     parser.add_argument("--num-existing", type=int, default=500, help="Number of tweets to fetch for existing accounts (default: 500)")
-    parser.add_argument("--timeline-url", default="https://x.com/home", help="Timeline URL to scrape")
+    parser.add_argument("--timeline-url", default=None, help="Timeline URL to scrape (defaults to x.com/home or instagram.com/)")
     parser.add_argument("--scroll-batch-size", type=int, default=10, help="Number of scrolls per collection batch (default: 10)")
     parser.add_argument("--max-cycles", type=int, default=None, help="Maximum number of reload-and-collect cycles (default: unlimited)")
     parser.add_argument("--max-total-accounts", type=int, default=None, help="Max total accounts to process")
@@ -168,7 +172,10 @@ def parse_args():
     parser.add_argument("--account-cooldown", type=int, default=3,
                         help="Cooldown seconds between processing accounts (default: 3s)")
     parser.add_argument("--no-headless", action="store_true", help="Run browser in headful mode")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.timeline_url:
+        args.timeline_url = "https://www.instagram.com/" if args.platform == "instagram" else "https://x.com/home"
+    return args
 
 async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_lower=None):
     """10スクロール分のアカウントを広告除外しながら収集して返す"""
@@ -222,7 +229,7 @@ async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_l
 
     return batch_accounts
 
-def process_account(gist_id, username, num, is_existing):
+def process_account(gist_id, username, num, is_existing, platform="x"):
     """
     既存/新規アカウントに応じて append_to_gist.py を呼び出す。
     - 既存アカウント: --stop-on-existing (既存ギャラリー所属維持)
@@ -232,6 +239,8 @@ def process_account(gist_id, username, num, is_existing):
     append_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "append_to_gist.py")
 
     cmd = [python_bin, append_script, "-g", gist_id, "-u", username, "-n", str(num)]
+    if platform == "instagram":
+        cmd.extend(["--platform", "instagram"])
     if is_existing:
         print(f"\n📂 Processing EXISTING account: @{username} (Stop on existing: Yes, Keep Gallery: Yes)")
         cmd.append("-s")
@@ -242,12 +251,69 @@ def process_account(gist_id, username, num, is_existing):
     res = subprocess.run(cmd)
     return res.returncode
 
+
+async def collect_instagram_batch_accounts(page, ig_feed_usernames, scroll_batch_size=10, excluded_accounts_lower=None):
+    """Instagram ホームフィードの SSR JSON + GraphQL 応答からアカウントを収集する"""
+    excluded = excluded_accounts_lower or set()
+    batch_accounts = []
+    batch_set = set()
+
+    def _drain():
+        added = 0
+        while ig_feed_usernames:
+            acc = ig_feed_usernames.pop(0).strip().lstrip("@")
+            acc_lower = acc.lower()
+            if acc and acc_lower not in excluded and acc_lower not in batch_set:
+                batch_set.add(acc_lower)
+                batch_accounts.append(acc)
+                added += 1
+                print(f"  🎯 Found Instagram account: @{acc} (Batch total: {len(batch_accounts)})")
+        return added
+
+    # 初期 SSR JSON からもユーザー名を回収
+    try:
+        ssr_texts = await page.evaluate("""() => {
+            const out = [];
+            for (const s of document.querySelectorAll('script[type="application/json"]')) {
+                const t = s.textContent || '';
+                if (t.includes('"image_versions2"') || t.includes('"carousel_media"') || t.includes('"display_uri"')) {
+                    out.push(t);
+                }
+            }
+            return out;
+        }""")
+        for ssr_t in ssr_texts:
+            try:
+                for post in extract_ig_posts_from_payload(json.loads(ssr_t), source="ssr_json"):
+                    if post.get("username"):
+                        ig_feed_usernames.append(post["username"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+    _drain()
+
+    for scroll_idx in range(1, scroll_batch_size + 1):
+        prev_scroll_y = await page.evaluate("window.scrollY")
+        await page.evaluate("window.scrollBy(0, 1800)")
+        await asyncio.sleep(2.5)
+        curr_scroll_y = await page.evaluate("window.scrollY")
+        new_count = _drain()
+        if curr_scroll_y == prev_scroll_y and new_count == 0:
+            print(f"⏳ Cannot scroll Instagram feed further at scroll {scroll_idx}/{scroll_batch_size}.")
+            break
+
+    return batch_accounts
+
+
 async def run_expansion_loop(args, gist_id):
-    if not os.path.exists(AUTH_PATH):
-        print(f"❌ Error: Auth credentials not found at {AUTH_PATH}")
+    platform = getattr(args, "platform", "x") or "x"
+    auth_path = IG_AUTH_PATH if platform == "instagram" else AUTH_PATH
+    if not os.path.exists(auth_path):
+        print(f"❌ Error: Auth credentials not found at {auth_path}")
         sys.exit(1)
 
-    print(f"🚀 Launching browser for timeline candidate expansion loop...")
+    print(f"🚀 Launching browser for timeline candidate expansion loop (platform={platform})...")
     current_user_gists = fetch_master_user_gists(gist_id)
     existing_users_lower = {k.lower(): k for k in current_user_gists.keys()}
     candidate_users_lower = {
@@ -262,38 +328,78 @@ async def run_expansion_loop(args, gist_id):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=not args.no_headless)
         context = await browser.new_context(
-            storage_state=AUTH_PATH,
+            storage_state=auth_path,
             viewport={"width": 1280, "height": 900},
         )
         page = await context.new_page()
 
+        ig_feed_usernames = []
+        if platform == "instagram":
+            async def _on_ig_response(response):
+                r_url = response.url
+                if "instagram.com" not in r_url or response.status != 200:
+                    return
+                if not any(tok in r_url for tok in ("/api/v1/", "/graphql/query", "/api/graphql")):
+                    return
+                try:
+                    raw = await response.text()
+                except Exception:
+                    return
+                cleaned = re.sub(r"^\s*for\s*\(\s*;\s*;\s*\)\s*;", "", raw).strip()
+                payloads = []
+                try:
+                    payloads.append(json.loads(cleaned))
+                except Exception:
+                    for line in cleaned.splitlines():
+                        line = line.strip()
+                        if line:
+                            try:
+                                payloads.append(json.loads(line))
+                            except Exception:
+                                pass
+                for pl in payloads:
+                    for post in extract_ig_posts_from_payload(pl, source="api_graphql"):
+                        if post.get("username"):
+                            ig_feed_usernames.append(post["username"])
+
+            page.on("response", _on_ig_response)
+
         while True:
             cycle += 1
             print("\n==================================================")
-            print(f"🔄 Starting Cycle {cycle}: Loading / Reloading Timeline")
+            print(f"🔄 Starting Cycle {cycle}: Loading / Reloading Timeline ({platform})")
             print(f"  URL: {args.timeline_url}")
             print(f"  Scroll Batch Size: {args.scroll_batch_size} scrolls")
             print(f"  Total Processed so far: {total_processed}")
             print("==================================================")
 
             # 3. ホーム画面のリロード（初回は通常遷移）
+            ig_feed_usernames.clear()
             try:
                 await page.goto(args.timeline_url, wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(4000)
             except Exception as e:
                 print(f"⚠️ Page load warning: {e}")
 
-            # 1. 10スクロールでアカウント収集
-            print(f"\n📜 [Cycle {cycle}] Collecting accounts (10 scrolls limit)...")
-            batch_accounts = await collect_batch_accounts(
-                page,
-                scroll_batch_size=args.scroll_batch_size,
-                excluded_accounts_lower=processed_accounts_lower,
-            )
+            # 1. スクロールでアカウント収集
+            print(f"\n📜 [Cycle {cycle}] Collecting accounts ({args.scroll_batch_size} scrolls limit)...")
+            if platform == "instagram":
+                batch_accounts = await collect_instagram_batch_accounts(
+                    page,
+                    ig_feed_usernames,
+                    scroll_batch_size=args.scroll_batch_size,
+                    excluded_accounts_lower=processed_accounts_lower,
+                )
+            else:
+                batch_accounts = await collect_batch_accounts(
+                    page,
+                    scroll_batch_size=args.scroll_batch_size,
+                    excluded_accounts_lower=processed_accounts_lower,
+                )
 
             print(f"📋 [Cycle {cycle}] Discovered {len(batch_accounts)} new accounts in this batch.")
 
-            # 2. 収集したアカウントの画像取得（最新300ポスト）
+            # 2. 収集したアカウントの画像取得
             if batch_accounts:
                 for idx, account in enumerate(batch_accounts, start=1):
                     acc_lower = account.lower()
@@ -307,16 +413,16 @@ async def run_expansion_loop(args, gist_id):
                     is_existing = acc_lower in existing_users_lower
                     fetch_num = args.num_existing if is_existing else args.num
                     print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
-                    ret_code = process_account(gist_id, account, fetch_num, is_existing)
+                    ret_code = process_account(gist_id, account, fetch_num, is_existing, platform=platform)
 
                     # レート制限 (code 42) 検知時の自動待機＆リトライ
                     if ret_code == 42:
                         wait_mins = round(args.rate_limit_wait / 60, 1)
-                        print(f"\n🚨 Rate limit detected from X (exit code 42) while processing @{account}.")
-                        print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until X rate limit resets...")
+                        print(f"\n🚨 Rate limit detected from {platform} (exit code 42) while processing @{account}.")
+                        print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until rate limit resets...")
                         await asyncio.sleep(args.rate_limit_wait)
                         print(f"🔄 Retrying @{account} after cooldown...")
-                        ret_code = process_account(gist_id, account, fetch_num, is_existing)
+                        ret_code = process_account(gist_id, account, fetch_num, is_existing, platform=platform)
 
                     if ret_code == 0:
                         total_processed += 1

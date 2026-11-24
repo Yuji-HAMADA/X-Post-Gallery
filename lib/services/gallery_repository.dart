@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
+import '../models/data_source.dart';
 import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
 import '../utils/date_helper.dart';
@@ -27,6 +28,7 @@ class GalleryData {
 }
 
 class GalleryRepository {
+  static const String _keyDataSource = 'selected_data_source';
   static const String _keyGistId = 'last_gist_id';
   static const String _keyAdminAuth = 'admin_authenticated';
   static const String _keyScrollIndex = 'grid_last_index';
@@ -43,6 +45,18 @@ class GalleryRepository {
   static const int defaultGridColumnCount = 2;
   static const String _keyRowHeightMode = 'gallery_row_height_mode';
   static const String defaultRowHeightMode = 'tallest';
+
+  /// [JA] 現在のデータ取得元（X と Instagram でキャッシュ・Gist ID・お気に入りを完全分離）
+  DataSource _source = DataSource.x;
+  DataSource get source => _source;
+  void setSource(DataSource newSource) {
+    if (_source != newSource) {
+      _source = newSource;
+      lastGistFilename = null;
+    }
+  }
+
+  String _scopedKey(String baseKey) => '${_source.storagePrefix}$baseKey';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
@@ -337,14 +351,30 @@ class GalleryRepository {
 
   // --- SharedPreferences ヘルパー ---
 
+  Future<DataSource> loadSelectedDataSource() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return DataSourceX.fromKey(prefs.getString(_keyDataSource));
+    } catch (_) {
+      return DataSource.x;
+    }
+  }
+
+  Future<void> saveSelectedDataSource(DataSource source) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyDataSource, source.key);
+    } catch (_) {}
+  }
+
   Future<String?> getSavedGistId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyGistId);
+    return prefs.getString(_scopedKey(_keyGistId));
   }
 
   Future<void> saveGistId(String gistId) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyGistId, gistId.trim());
+    await prefs.setString(_scopedKey(_keyGistId), gistId.trim());
   }
 
   /// Refresh / Append 共通の管理者認証状態（一度通ったら以降は不要）
@@ -361,75 +391,75 @@ class GalleryRepository {
   Future<String?> getCachedData() async {
     if (kIsWeb) return null;
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyCachedData);
+    return prefs.getString(_scopedKey(_keyCachedData));
   }
 
   Future<String?> getCachedUpdatedAt() async {
     if (kIsWeb) return null;
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyCachedUpdatedAt);
+    return prefs.getString(_scopedKey(_keyCachedUpdatedAt));
   }
 
   Future<void> saveCache(String jsonData, String updatedAt) async {
     if (kIsWeb) return; // Web版はlocalStorageのサイズ制限のためスキップ
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyCachedData, jsonData);
-    await prefs.setString(_keyCachedUpdatedAt, updatedAt);
+    await prefs.setString(_scopedKey(_keyCachedData), jsonData);
+    await prefs.setString(_scopedKey(_keyCachedUpdatedAt), updatedAt);
   }
 
   Future<void> clearCache() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyCachedData);
-    await prefs.remove(_keyCachedUpdatedAt);
+    await prefs.remove(_scopedKey(_keyCachedData));
+    await prefs.remove(_scopedKey(_keyCachedUpdatedAt));
   }
 
   Future<int?> getSavedScrollIndex() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyScrollIndex);
+    return prefs.getInt(_scopedKey(_keyScrollIndex));
   }
 
   Future<void> saveScrollIndex(int index) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyScrollIndex, index);
+    await prefs.setInt(_scopedKey(_keyScrollIndex), index);
   }
 
-  /// X上にユーザーが存在するか確認（404なら不存在、それ以外は存在とみなす）
+  /// 選択中プラットフォーム上にユーザーが存在するか確認（404なら不存在、それ以外は存在とみなす）
   Future<bool> checkUserExistsOnX(String username) async {
     try {
       final response = await http
-          .get(Uri.parse('https://x.com/$username'))
+          .get(Uri.parse(_source.profileUrl(username)))
           .timeout(const Duration(seconds: 8));
       return response.statusCode != 404;
     } catch (e) {
-      debugPrint('X user check error: $e');
+      debugPrint('${_source.displayName} user check error: $e');
       return true; // 確認失敗時は存在すると仮定して進める
     }
   }
 
   Future<Set<String>> loadFavoriteUsers() async {
     final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_keyFavoriteUsers) ?? []).toSet();
+    return (prefs.getStringList(_scopedKey(_keyFavoriteUsers)) ?? []).toSet();
   }
 
   Future<void> saveFavoriteUsers(Set<String> users) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_keyFavoriteUsers, users.toList());
+    await prefs.setStringList(_scopedKey(_keyFavoriteUsers), users.toList());
   }
 
   Future<String?> loadFavoritesGistId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyFavoritesGistId);
+    return prefs.getString(_scopedKey(_keyFavoritesGistId));
   }
 
   Future<void> saveFavoritesGistId(String gistId) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyFavoritesGistId, gistId);
+    await prefs.setString(_scopedKey(_keyFavoritesGistId), gistId);
   }
 
   /// [JA] ローカル SharedPreferences からピン留め（優先度）マップを読み込む
   Future<Map<String, int>> loadUserPriorities() async {
     final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString(_keyUserPriorities);
+    final jsonStr = prefs.getString(_scopedKey(_keyUserPriorities));
     if (jsonStr == null || jsonStr.isEmpty) return {};
     try {
       final decoded = json.decode(jsonStr) as Map<String, dynamic>;
@@ -448,7 +478,10 @@ class GalleryRepository {
   /// [JA] ピン留め（優先度）マップをローカル SharedPreferences に保存する
   Future<void> saveUserPriorities(Map<String, int> priorities) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyUserPriorities, json.encode(priorities));
+    await prefs.setString(
+      _scopedKey(_keyUserPriorities),
+      json.encode(priorities),
+    );
   }
 
   Future<int> _loadColumnCount(String key, {String? fallbackKey}) async {

@@ -17,55 +17,40 @@ else
   exit 1
 fi
 
-# --- 2. 二重起動防止ロック ---
-LOCKFILE="/tmp/expand_timeline_candidates.lock"
+# --- 2. 環境変数・プラットフォーム解決 ---
+source "$SCRIPT_DIR/platform_env.sh"
+load_project_env "$PROJECT_DIR"
+resolve_platform_env "$PROJECT_DIR"
+
+# --- 3. 二重起動防止ロック ---
+LOCKFILE="/tmp/expand_timeline_candidates${PLATFORM_LOCK_SUFFIX}.lock"
 exec 201>"$LOCKFILE"
 if ! flock -n 201; then
-  echo "⚠️ [$(date '+%Y-%m-%d %H:%M:%S')] Another instance of expand_timeline is already running. Exiting."
+  echo "⚠️ [$(date '+%Y-%m-%d %H:%M:%S')] Another instance of expand_timeline ($PLATFORM_LABEL) is already running. Exiting."
   exit 0
 fi
 
-# --- 3. .env の読み込み（既存の環境変数は上書きしない） ---
-if [ -f "$PROJECT_DIR/.env" ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [[ "$line" =~ ^# ]] && continue
-    [[ "$line" != *"="* ]] && continue
-    key="${line%%=*}"
-    val="${line#*=}"
-    key=$(echo "$key" | tr -d '[:space:]')
-    val=$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
-    if [ -n "$key" ] && [ -z "${!key+x}" ]; then
-      export "$key=$val"
-    fi
-  done < "$PROJECT_DIR/.env"
-fi
-
-# GITHUB_TOKEN から GH_TOKEN へのフォールバック
-export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-
 # MASTER_GIST_ID の確認
 if [ -z "${MASTER_GIST_ID:-}" ]; then
-  echo "❌ Error: MASTER_GIST_ID is not set in .env or environment."
+  echo "❌ Error: MASTER_GIST_ID (or IG_MASTER_GIST_ID for instagram) is not set in .env or environment."
   exit 1
 fi
 
-# data/auth.json のチェック（未生成かつ AUTH_JSON があれば生成）
-if [ ! -s "$PROJECT_DIR/data/auth.json" ] && [ -n "${AUTH_JSON:-}" ]; then
+# 認証ファイルのチェック（未生成かつ環境変数があれば生成）
+if [ ! -s "$PLATFORM_AUTH_PATH" ] && [ -n "${PLATFORM_AUTH_ENV:-}" ]; then
   mkdir -p "$PROJECT_DIR/data"
-  printf "%s" "$AUTH_JSON" > "$PROJECT_DIR/data/auth.json"
+  printf "%s" "$PLATFORM_AUTH_ENV" > "$PLATFORM_AUTH_PATH"
 fi
 
-if [ ! -s "$PROJECT_DIR/data/auth.json" ]; then
-  echo "❌ Error: Auth session not found at data/auth.json."
-  echo "   Please place valid X session cookies in data/auth.json or set AUTH_JSON in .env."
+if [ ! -s "$PLATFORM_AUTH_PATH" ]; then
+  echo "❌ Error: Auth session not found at $PLATFORM_AUTH_PATH."
   exit 1
 fi
 
 echo "=================================================="
-echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Timeline Candidate Collector Started"
+echo "🚀 [$(date '+%Y-%m-%d %H:%M:%S')] Timeline Candidate Collector Started ($PLATFORM_LABEL)"
 echo "  Master Gist ID : $MASTER_GIST_ID"
 echo "=================================================="
 
 # --- 4. タイムライン収集スクリプトの実行 ---
-python3 "$PROJECT_DIR/scripts/expand_timeline_candidates.py" -g "$MASTER_GIST_ID" "$@"
+python3 "$PROJECT_DIR/scripts/expand_timeline_candidates.py" --platform "$PLATFORM" -g "$MASTER_GIST_ID" "$@"

@@ -132,10 +132,12 @@ class TweetItem {
   /// [JA] 東京ローカルタイム（JST）の投稿日時文字列を取得
   String get formattedCreatedAt => formatToJst(createdAt);
 
-  /// [JA] Twitterメディアに name= パラメータを付与する
-  /// [EN] Appends the name= size parameter to Twitter media URLs
+  /// [JA] Twitterメディア (pbs.twimg.com) にのみ name= パラメータを付与する
+  /// [EN] Appends the name= size parameter only to Twitter media URLs (pbs.twimg.com)
   static String _withImageSize(String url, String size) {
     if (url.isEmpty) return '';
+    // Instagram等の署名付きCDN URLにパラメータを追記すると署名不一致(403)になるため無加工で返す
+    if (!url.contains('pbs.twimg.com') || url.contains('name=')) return url;
     return url.contains('?') ? '$url&name=$size' : '$url?name=$size';
   }
 

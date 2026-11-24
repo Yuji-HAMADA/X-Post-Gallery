@@ -460,14 +460,22 @@ class _DetailImageItemState extends State<DetailImageItem>
     );
   }
 
-  /// ハッシュタグ・ユーザー名タップ → Xのページを外部ブラウザで開く
+  /// ハッシュタグ・ユーザー名タップ → 対象プラットフォーム（X / Instagram）を外部ブラウザで開く
   void _onTagTap(String tag) async {
+    final isInstagram =
+        widget.item.postUrl?.contains('instagram.com') == true ||
+        widget.item.mediaUrls.any((u) => u.contains('cdninstagram.com'));
     final String url;
     if (tag.startsWith('#')) {
-      url =
-          'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
+      final cleaned = tag.substring(1);
+      url = isInstagram
+          ? 'https://www.instagram.com/explore/tags/${Uri.encodeComponent(cleaned)}/'
+          : 'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
     } else if (tag.startsWith('@')) {
-      url = 'https://x.com/${tag.substring(1)}';
+      final handle = tag.substring(1);
+      url = isInstagram
+          ? 'https://www.instagram.com/$handle/'
+          : 'https://x.com/$handle';
     } else {
       return;
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/data_source.dart';
 import '../../models/tweet_item.dart';
 import '../../utils/date_helper.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
@@ -538,7 +539,7 @@ class _GalleryPageState extends State<GalleryPage> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 16),
-              Text(l10n.verifyingOnX),
+              Text(l10n.verifyingOnSource(vm.currentSource.displayName)),
             ],
           ),
         ),
@@ -550,11 +551,36 @@ class _GalleryPageState extends State<GalleryPage> {
     if (!mounted) return;
 
     if (!exists) {
-      _showErrorSnackBar(l10n.userNotFoundOnX(username));
+      _showErrorSnackBar(
+        l10n.userNotFoundOnSource(username, vm.currentSource.displayName),
+      );
       return;
     }
 
     await _handleAddNewUser(username);
+  }
+
+  Future<void> _handleSwitchDataSource(DataSource newSource) async {
+    final vm = context.read<GalleryViewModel>();
+    if (vm.currentSource == newSource) return;
+    final l10n = AppLocalizations.of(context);
+    final loaded = await vm.switchSource(newSource);
+    if (!mounted) return;
+    if (loaded) {
+      if (vm.status == GalleryStatus.error) {
+        _showErrorSnackBar(vm.errorMessage);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.switchedDataSource(newSource.displayName)),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        _restoreScrollPosition();
+      }
+    } else {
+      _showPasswordDialog(canCancel: true);
+    }
   }
 
   /// ピン留め短押し時: アカウントの優先順位を最上位に更新しトースト通知を表示
@@ -597,8 +623,10 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   // --- 外部連携 ---
-  Future<void> _launchX(String twitterId) async =>
-      _openUrl(Uri.parse('https://x.com/$twitterId'));
+  Future<void> _launchX(String username) async {
+    final source = context.read<GalleryViewModel>().currentSource;
+    await _openUrl(Uri.parse(source.profileUrl(username)));
+  }
   Future<void> _openUrl(Uri url) async {
     try {
       if (await canLaunchUrl(url)) {
@@ -677,6 +705,52 @@ class _GalleryPageState extends State<GalleryPage> {
           title: Text(currentTitle),
           actions: [
             if (!vm.isSelectionMode) ...[
+              PopupMenuButton<DataSource>(
+                tooltip: l10n.tooltipSwitchDataSource,
+                onSelected: _handleSwitchDataSource,
+                itemBuilder: (context) => [
+                  CheckedPopupMenuItem<DataSource>(
+                    value: DataSource.x,
+                    checked: vm.currentSource == DataSource.x,
+                    child: const Text('X'),
+                  ),
+                  CheckedPopupMenuItem<DataSource>(
+                    value: DataSource.instagram,
+                    checked: vm.currentSource == DataSource.instagram,
+                    child: const Text('Instagram'),
+                  ),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: vm.currentSource == DataSource.instagram
+                          ? Colors.pinkAccent.withValues(alpha: 0.22)
+                          : Colors.white12,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: vm.currentSource == DataSource.instagram
+                            ? Colors.pinkAccent
+                            : Colors.white30,
+                      ),
+                    ),
+                    child: Text(
+                      vm.currentSource == DataSource.instagram ? 'IG' : 'X',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               if (isFavPage) ...[
                 IconButton(
                   icon: const Icon(Icons.cloud_upload),

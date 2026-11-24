@@ -9,12 +9,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
+source "$SCRIPT_DIR/platform_env.sh"
+load_project_env "$PROJECT_DIR"
+resolve_platform_env "$PROJECT_DIR"
+
 if [ -d "$PROJECT_DIR/venv" ]; then
   source "$PROJECT_DIR/venv/bin/activate"
 fi
 
 echo "=========================================="
-echo "🌟 [$(date '+%Y-%m-%d %H:%M:%S')] Favorites Sync & Crawl Started"
+echo "🌟 [$(date '+%Y-%m-%d %H:%M:%S')] Favorites Sync & Crawl Started ($PLATFORM_LABEL)"
 echo "=========================================="
 
 # 1. お気に入りリスト (favorites.json) と Slot 0 キュー (fetch_queue.json) を同期

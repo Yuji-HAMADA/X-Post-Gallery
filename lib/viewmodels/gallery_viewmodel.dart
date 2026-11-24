@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../l10n/app_localizations.dart';
+import '../models/data_source.dart';
 import '../models/tweet_item.dart';
 import '../models/user_gist_entry.dart';
 import '../services/gallery_repository.dart';
@@ -14,6 +15,12 @@ const String _externalMasterGistId = String.fromEnvironment('MASTER_GIST_ID');
 const String _externalFavoriteGistId = String.fromEnvironment(
   'FAVORITE_GIST_ID',
 );
+const String _externalIgMasterGistId = String.fromEnvironment(
+  'IG_MASTER_GIST_ID',
+);
+const String _externalIgFavoriteGistId = String.fromEnvironment(
+  'IG_FAVORITE_GIST_ID',
+);
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -26,6 +33,9 @@ class GalleryViewModel extends ChangeNotifier {
        _githubService = githubService ?? GitHubService();
 
   // --- 状態 ---
+  DataSource _currentSource = DataSource.x;
+  DataSource get currentSource => _currentSource;
+
   GalleryStatus _status = GalleryStatus.initial;
   GalleryStatus get status => _status;
 
@@ -138,10 +148,53 @@ class GalleryViewModel extends ChangeNotifier {
   int get selectedCount => _selectedIds.length;
 
   // --- Helper ---
-  String get defaultMasterGistId =>
-      resolveEnv(_externalMasterGistId, 'MASTER_GIST_ID');
-  String get favoriteGistId =>
-      resolveEnv(_externalFavoriteGistId, 'FAVORITE_GIST_ID');
+  String get defaultMasterGistId => _currentSource == DataSource.instagram
+      ? resolveEnv(_externalIgMasterGistId, 'IG_MASTER_GIST_ID')
+      : resolveEnv(_externalMasterGistId, 'MASTER_GIST_ID');
+  String get favoriteGistId => _currentSource == DataSource.instagram
+      ? resolveEnv(_externalIgFavoriteGistId, 'IG_FAVORITE_GIST_ID')
+      : resolveEnv(_externalFavoriteGistId, 'FAVORITE_GIST_ID');
+
+  void _applySource(DataSource source) {
+    _currentSource = source;
+    _repository.setSource(source);
+    _githubService.setSource(source);
+  }
+
+  /// [JA] データ取得元（X / Instagram）を完全に独立した状態で切り替える
+  /// 切替先の Gist ID が存在しロード完了した場合は true、未設定で入力ダイアログが必要な場合は false を返す
+  Future<bool> switchSource(DataSource newSource) async {
+    if (_currentSource == newSource && _status == GalleryStatus.authenticated) {
+      return true;
+    }
+
+    _applySource(newSource);
+    await _repository.saveSelectedDataSource(newSource);
+
+    // 切替前のプラットフォーム状態をメモリ上から完全にクリア
+    _items = [];
+    _userName = '';
+    _userGists = {};
+    _userPriorities = {};
+    _userGistEntries = {};
+    _favoriteUsers = {};
+    _selectedIds.clear();
+    _errorMessage = '';
+
+    final savedId = await _repository.getSavedGistId();
+    final targetId = (savedId != null && savedId.isNotEmpty)
+        ? savedId
+        : defaultMasterGistId;
+
+    if (targetId.isNotEmpty) {
+      await loadGallery(targetId);
+      return true;
+    }
+
+    _status = GalleryStatus.initial;
+    notifyListeners();
+    return false;
+  }
 
   void _setError(String message) {
     _errorMessage = message;
@@ -155,6 +208,13 @@ class GalleryViewModel extends ChangeNotifier {
     await loadMainGridColumnCount();
     await loadAccountGridColumnCount();
     await loadRowHeightMode();
+
+    // 0. 取得元プラットフォームの復元（URLパラメータ ?source=instagram 優先）
+    final urlSource = Uri.base.queryParameters['source'];
+    final initialSource = (urlSource != null && urlSource.isNotEmpty)
+        ? DataSourceX.fromKey(urlSource)
+        : await _repository.loadSelectedDataSource();
+    _applySource(initialSource);
 
     // 1. URLパラメータ
     final String? urlId = Uri.base.queryParameters['id'];
