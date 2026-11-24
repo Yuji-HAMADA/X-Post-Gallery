@@ -334,31 +334,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                         ],
                       ),
                     ),
-                    PopupMenuItem(
-                      value: 'grid_columns',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.grid_view),
-                          const SizedBox(width: 8),
-                          Text(l10n.gridColumnsLabel),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'row_height',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.height),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              l10n.rowHeightStandardLabel,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    buildGridColumnsMenuItem(context),
+                    buildRowHeightMenuItem(context),
                     const PopupMenuDivider(),
                     PopupMenuItem(
                       value: 'delete_user',

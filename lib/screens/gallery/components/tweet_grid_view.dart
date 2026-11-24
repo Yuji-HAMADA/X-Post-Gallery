@@ -38,7 +38,7 @@ class TweetGridView extends StatelessWidget {
       columnCount: columnCount,
       items: items,
       getImageUrl: (item) =>
-          columnCount == 1 ? item.highResImageUrl : item.thumbnailUrl,
+          item.displayImageUrl(columnCount: columnCount),
       itemBuilder: (context, item, index) => TweetGridItem(
         items: items,
         index: index,
@@ -259,9 +259,8 @@ class _TweetGridItemState extends State<TweetGridItem> {
                         setState(() => _currentImageIndex = pageIndex);
                       },
                       itemBuilder: (context, imgIndex) {
-                        final url = item.origUrls.length > imgIndex
-                            ? item.origUrls[imgIndex]
-                            : item.mediaUrls[imgIndex];
+                        final url = item.imageUrlAt(imgIndex,
+                            columnCount: widget.columnCount);
                         return Image.network(
                           url,
                           fit: BoxFit.cover,
@@ -282,9 +281,8 @@ class _TweetGridItemState extends State<TweetGridItem> {
                         enableAutoplay: widget.columnCount == 1,
                       )
                     : () {
-                        final displayUrl = widget.columnCount == 1
-                            ? item.highResImageUrl
-                            : item.thumbnailUrl;
+                        final displayUrl = item.displayImageUrl(
+                            columnCount: widget.columnCount);
                         return displayUrl.isNotEmpty
                             ? Image.network(
                                 displayUrl,

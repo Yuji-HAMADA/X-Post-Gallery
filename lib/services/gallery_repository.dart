@@ -450,67 +450,56 @@ class GalleryRepository {
     await prefs.setString(_keyUserPriorities, json.encode(priorities));
   }
 
-  /// [JA] メインギャラリー（Favorite, Users, Candidate）のグリッド列数を読み込む（1, 2, 3 のいずれか。デフォルト2）
-  Future<int> loadMainGridColumnCount() async {
+  Future<int> _loadColumnCount(String key, {String? fallbackKey}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final count = prefs.getInt(_keyMainGridColumnCount) ??
-          prefs.getInt(_keyGridColumnCount);
+      final count = prefs.getInt(key) ??
+          (fallbackKey != null ? prefs.getInt(fallbackKey) : null);
       if (count != null && count >= 1 && count <= 3) {
         return count;
       }
     } catch (e) {
       if (!e.toString().contains('Binding has not yet been initialized')) {
         debugPrint(
-            'Error loading main grid column count from SharedPreferences: $e');
+            'Error loading column count ($key) from SharedPreferences: $e');
       }
     }
     return defaultGridColumnCount;
   }
+
+  Future<void> _saveColumnCount(String key, int count,
+      {String? mirrorKey}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(key, count);
+      if (mirrorKey != null) {
+        await prefs.setInt(mirrorKey, count);
+      }
+    } catch (e) {
+      if (!e.toString().contains('Binding has not yet been initialized')) {
+        debugPrint(
+            'Error saving column count ($key) to SharedPreferences: $e');
+      }
+    }
+  }
+
+  /// [JA] メインギャラリー（Favorite, Users, Candidate）のグリッド列数を読み込む（1, 2, 3 のいずれか。デフォルト2）
+  Future<int> loadMainGridColumnCount() => _loadColumnCount(
+      _keyMainGridColumnCount,
+      fallbackKey: _keyGridColumnCount);
 
   /// [JA] メインギャラリーのグリッド列数をローカル SharedPreferences に保存する
-  Future<void> saveMainGridColumnCount(int count) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_keyMainGridColumnCount, count);
-      await prefs.setInt(_keyGridColumnCount, count);
-    } catch (e) {
-      if (!e.toString().contains('Binding has not yet been initialized')) {
-        debugPrint(
-            'Error saving main grid column count to SharedPreferences: $e');
-      }
-    }
-  }
+  Future<void> saveMainGridColumnCount(int count) => _saveColumnCount(
+      _keyMainGridColumnCount, count,
+      mirrorKey: _keyGridColumnCount);
 
   /// [JA] アカウントギャラリーのグリッド列数を読み込む（1, 2, 3 のいずれか。デフォルト2）
-  Future<int> loadAccountGridColumnCount() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final count = prefs.getInt(_keyAccountGridColumnCount);
-      if (count != null && count >= 1 && count <= 3) {
-        return count;
-      }
-    } catch (e) {
-      if (!e.toString().contains('Binding has not yet been initialized')) {
-        debugPrint(
-            'Error loading account grid column count from SharedPreferences: $e');
-      }
-    }
-    return defaultGridColumnCount;
-  }
+  Future<int> loadAccountGridColumnCount() =>
+      _loadColumnCount(_keyAccountGridColumnCount);
 
   /// [JA] アカウントギャラリーのグリッド列数をローカル SharedPreferences に保存する
-  Future<void> saveAccountGridColumnCount(int count) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_keyAccountGridColumnCount, count);
-    } catch (e) {
-      if (!e.toString().contains('Binding has not yet been initialized')) {
-        debugPrint(
-            'Error saving account grid column count to SharedPreferences: $e');
-      }
-    }
-  }
+  Future<void> saveAccountGridColumnCount(int count) =>
+      _saveColumnCount(_keyAccountGridColumnCount, count);
 
   /// [JA] 既存互換用
   Future<int> loadGridColumnCount() => loadMainGridColumnCount();

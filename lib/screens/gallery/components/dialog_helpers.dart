@@ -241,3 +241,45 @@ Future<void> showRowHeightDialog(BuildContext context) async {
   );
 }
 
+/// [JA] 列数選択用メニュー項目
+/// [EN] Menu item to select grid column count
+PopupMenuItem<String> buildGridColumnsMenuItem(BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return PopupMenuItem<String>(
+    value: 'grid_columns',
+    child: Row(
+      children: [
+        const Icon(Icons.grid_view),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            l10n.gridColumnsLabel,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// [JA] 行の高さ基準選択用メニュー項目
+/// [EN] Menu item to select row height basis
+PopupMenuItem<String> buildRowHeightMenuItem(BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return PopupMenuItem<String>(
+    value: 'row_height',
+    child: Row(
+      children: [
+        const Icon(Icons.height),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            l10n.rowHeightStandardLabel,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+

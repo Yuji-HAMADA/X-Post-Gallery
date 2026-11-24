@@ -164,6 +164,24 @@ class TweetItem {
     return thumbnailUrl;
   }
 
+  /// [JA] 列数に応じた表示用画像URLを取得（1列表示時は高解像度、2列以上はサムネイル）
+  /// [EN] Returns display image URL according to column count (high-res for 1-column, thumbnail for multi-column)
+  String displayImageUrl({required int columnCount}) {
+    return columnCount == 1 ? highResImageUrl : thumbnailUrl;
+  }
+
+  /// [JA] 複数画像のインデックスに応じた画像URLを取得（1列表示時はorig、その他はメディアURL）
+  /// [EN] Returns image URL at given index (orig for 1-column, media URL otherwise)
+  String imageUrlAt(int index, {required int columnCount}) {
+    if (columnCount == 1 && origUrls.length > index) {
+      return origUrls[index];
+    }
+    if (mediaUrls.length > index) {
+      return mediaUrls[index];
+    }
+    return thumbnailUrl;
+  }
+
   /// [JA] 動画サムネイルを除いた純粋な静止画URL一覧（混在メディア用）
   /// [EN] List of pure image URLs excluding video thumbnails (for mixed media)
   List<String> get pureImageUrls {

@@ -759,22 +759,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     ),
                   ),
                   const PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: 'grid_columns',
-                    child: ListTile(
-                      leading: const Icon(Icons.grid_view),
-                      title: Text(l10n.gridColumnsLabel),
-                      dense: true,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'row_height',
-                    child: ListTile(
-                      leading: const Icon(Icons.height),
-                      title: Text(l10n.rowHeightStandardLabel),
-                      dense: true,
-                    ),
-                  ),
+                  buildGridColumnsMenuItem(context),
+                  buildRowHeightMenuItem(context),
                 ],
               ),
             ],
@@ -1000,6 +986,24 @@ class _GalleryPageState extends State<GalleryPage> {
     return idxB.compareTo(idxA);
   }
 
+  Widget _buildScrollableEmptyPlaceholder(String message) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// ユーザーグループ化したグリッド（メイン / 候補ギャラリー用）
   Widget _buildUserGroupedGrid(
     List<TweetItem> items,
@@ -1077,21 +1081,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (entries.isEmpty && isCandidateView) {
       final l10n = AppLocalizations.of(context);
-      return LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Center(
-              child: Text(
-                l10n.noCandidatesYet,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey),
-              ),
-            ),
-          ),
-        ),
-      );
+      return _buildScrollableEmptyPlaceholder(l10n.noCandidatesYet);
     }
 
     final columnCount = context.watch<GalleryViewModel>().mainGridColumnCount;
@@ -1132,21 +1122,7 @@ class _GalleryPageState extends State<GalleryPage> {
   ) {
     if (favoriteItems.isEmpty) {
       final l10n = AppLocalizations.of(context);
-      return LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Center(
-              child: Text(
-                l10n.noFavoritesYet,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey),
-              ),
-            ),
-          ),
-        ),
-      );
+      return _buildScrollableEmptyPlaceholder(l10n.noFavoritesYet);
     }
 
     final Map<String, List<TweetItem>> grouped = {};
