@@ -784,32 +784,41 @@ class _GalleryPageState extends State<GalleryPage> {
                 itemBuilder: (context, index) {
                   final logicalIndex =
                       ((index % _kTabCount) + _kTabCount) % _kTabCount;
+                  final Widget content;
                   switch (logicalIndex) {
                     case 0:
-                      return _buildFavoritesGrid(
+                      content = _buildFavoritesGrid(
                         favoriteItems,
                         vm.userGists,
                         vm.favoriteUsers,
                         vm.userPriorities,
                       );
+                      break;
                     case 1:
-                      return _buildUserGroupedGrid(
+                      content = _buildUserGroupedGrid(
                         vm.items,
                         vm.userGists,
                         vm.favoriteUsers,
                         vm.userPriorities,
                         isCandidateView: false,
                       );
+                      break;
                     case 2:
                     default:
-                      return _buildUserGroupedGrid(
+                      content = _buildUserGroupedGrid(
                         vm.items,
                         vm.userGists,
                         vm.favoriteUsers,
                         vm.userPriorities,
                         isCandidateView: true,
                       );
+                      break;
                   }
+                  return RefreshIndicator(
+                    onRefresh: () =>
+                        context.read<GalleryViewModel>().reloadGallery(),
+                    child: content,
+                  );
                 },
               ),
       ),
@@ -1056,11 +1065,19 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (entries.isEmpty && isCandidateView) {
       final l10n = AppLocalizations.of(context);
-      return Center(
-        child: Text(
-          l10n.noCandidatesYet,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.grey),
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Text(
+                l10n.noCandidatesYet,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -1068,6 +1085,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
     return GridView.builder(
       controller: isCandidateView ? _candidateGridController : _gridController,
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(4),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columnCount,
@@ -1103,11 +1121,19 @@ class _GalleryPageState extends State<GalleryPage> {
   ) {
     if (favoriteItems.isEmpty) {
       final l10n = AppLocalizations.of(context);
-      return Center(
-        child: Text(
-          l10n.noFavoritesYet,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.grey),
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Text(
+                l10n.noFavoritesYet,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -1151,6 +1177,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
     return GridView.builder(
       controller: _favGridController,
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(4),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columnCount,
