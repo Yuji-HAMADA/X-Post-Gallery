@@ -4,6 +4,7 @@ import '../../../models/tweet_item.dart';
 import '../../../viewmodels/gallery_viewmodel.dart';
 import '../../detail/detail_page.dart';
 import 'aspect_ratio_grid_view.dart';
+import 'thumbnail_video_player.dart';
 
 /// ツイート画像グリッド（gallery_page / user_gallery_swipe_page 共通）
 class TweetGridView extends StatelessWidget {
@@ -168,18 +169,26 @@ class _TweetGridItemState extends State<TweetGridItem> {
                       );
                     },
                   )
-                : (item.thumbnailUrl.isNotEmpty
-                    ? Image.network(
-                        item.thumbnailUrl,
-                        fit: BoxFit.cover,
-                        alignment: Alignment.topCenter,
-                        errorBuilder: (c, e, s) => const Center(
-                          child: Icon(Icons.broken_image, color: Colors.grey),
-                        ),
+                : (item.isVideo && item.videoUrl != null
+                    ? ThumbnailVideoPlayer(
+                        videoUrl: item.videoUrl!,
+                        thumbnailUrl: item.thumbnailUrl,
+                        bottomOffset: 8,
                       )
-                    : const Center(
-                        child: Icon(Icons.broken_image, color: Colors.grey),
-                      )),
+                    : (item.thumbnailUrl.isNotEmpty
+                        ? Image.network(
+                            item.thumbnailUrl,
+                            fit: BoxFit.cover,
+                            alignment: Alignment.topCenter,
+                            errorBuilder: (c, e, s) => const Center(
+                              child:
+                                  Icon(Icons.broken_image, color: Colors.grey),
+                            ),
+                          )
+                        : const Center(
+                            child:
+                                Icon(Icons.broken_image, color: Colors.grey),
+                          ))),
           ),
           // 1列表示かつ複数画像の場合のインジケータ・操作ボタン
           if (isMultiImageInOneColumn) ...[
@@ -260,7 +269,7 @@ class _TweetGridItemState extends State<TweetGridItem> {
                 ),
               ),
           ],
-          if (item.isVideo)
+          if (item.isVideo && item.videoUrl == null)
             Positioned(
               right: 6,
               bottom: 6,

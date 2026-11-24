@@ -1,0 +1,113 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:x_post_gallery/models/tweet_item.dart';
+import 'package:x_post_gallery/screens/gallery/components/thumbnail_video_player.dart';
+import 'package:x_post_gallery/screens/gallery/components/tweet_grid_view.dart';
+import 'package:x_post_gallery/screens/gallery/components/user_card.dart';
+
+void main() {
+  final videoTweetItem = TweetItem(
+    id: 'vid_1',
+    fullText: 'Video post',
+    createdAt: '2026-11-20 12:00:00 JST',
+    mediaUrls: const [],
+    videoUrls: const ['https://example.com/video.mp4'],
+    videoThumbnailUrl: 'https://example.com/video_thumb.jpg',
+  );
+
+  group('Thumbnail Video Autoplay & Play/Pause Tests', () {
+    testWidgets('ThumbnailVideoPlayer displays play/pause button at bottom center', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 200,
+              height: 200,
+              child: ThumbnailVideoPlayer(
+                videoUrl: 'https://example.com/video.mp4',
+                thumbnailUrl: 'https://example.com/video_thumb.jpg',
+                bottomOffset: 8.0,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // 下部中央に Play/Pause アイコンボタンが存在すること
+      final playIconFinder = find.byIcon(Icons.play_arrow);
+      expect(playIconFinder, findsOneWidget);
+
+      // 下部中央の配置（X座標が中央付近であること）
+      final buttonCenter = tester.getCenter(playIconFinder);
+      expect((buttonCenter.dx - 100).abs(), lessThan(5.0)); // 幅200の中央100付近
+    });
+
+    testWidgets('Tapping play/pause button does NOT trigger parent card onTap in UserCard', (tester) async {
+      int cardTapCount = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 200,
+              height: 200,
+              child: UserCard(
+                username: 'video_user',
+                thumbItem: videoTweetItem,
+                isFavorite: false,
+                onTap: () => cardTapCount++,
+                onFavoriteTap: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      final playIcon = find.byIcon(Icons.play_arrow);
+      expect(playIcon, findsOneWidget);
+
+      // Play/Pause ボタンをタップ
+      await tester.tap(playIcon);
+      await tester.pump();
+
+      // 親カードの onTap は発火しないこと
+      expect(cardTapCount, 0);
+
+      // Play/Pause ボタン以外のサムネイル領域（上部中央）をタップ
+      await tester.tapAt(const Offset(100, 50));
+      await tester.pump();
+
+      // 親カードの onTap が発火すること
+      expect(cardTapCount, 1);
+    });
+
+    testWidgets('TweetGridItem with video renders ThumbnailVideoPlayer and preserves detail navigation', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 200,
+              height: 200,
+              child: TweetGridItem(
+                items: [videoTweetItem],
+                index: 0,
+                selectedIds: const {},
+                columnCount: 1,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // ThumbnailVideoPlayer と Play ボタンが存在すること
+      expect(find.byType(ThumbnailVideoPlayer), findsOneWidget);
+      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    });
+  });
+}

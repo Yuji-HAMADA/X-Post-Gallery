@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/tweet_item.dart';
+import 'thumbnail_video_player.dart';
 
 /// ユーザーグリッド上のカードウィジェット
 class UserCard extends StatelessWidget {
@@ -32,18 +33,24 @@ class UserCard extends StatelessWidget {
         children: [
           Container(
             color: Colors.grey[900],
-            child: thumbItem.thumbnailUrl.isNotEmpty
-                ? Image.network(
-                    thumbItem.thumbnailUrl,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                    errorBuilder: (c, e, s) => const Center(
-                      child: Icon(Icons.broken_image, color: Colors.grey),
-                    ),
+            child: thumbItem.isVideo && thumbItem.videoUrl != null
+                ? ThumbnailVideoPlayer(
+                    videoUrl: thumbItem.videoUrl!,
+                    thumbnailUrl: thumbItem.thumbnailUrl,
+                    bottomOffset: 24.0, // 下部ユーザー名バーの上に配置
                   )
-                : const Center(
-                    child: Icon(Icons.broken_image, color: Colors.grey),
-                  ),
+                : (thumbItem.thumbnailUrl.isNotEmpty
+                    ? Image.network(
+                        thumbItem.thumbnailUrl,
+                        fit: BoxFit.cover,
+                        alignment: Alignment.topCenter,
+                        errorBuilder: (c, e, s) => const Center(
+                          child: Icon(Icons.broken_image, color: Colors.grey),
+                        ),
+                      )
+                    : const Center(
+                        child: Icon(Icons.broken_image, color: Colors.grey),
+                      )),
           ),
           // 左上: ピンマーク（ピン留めアカウントのみ表示）
           if (isPinned)
@@ -93,7 +100,7 @@ class UserCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               child: Row(
                 children: [
-                  if (thumbItem.isVideo) ...[
+                  if (thumbItem.isVideo && thumbItem.videoUrl == null) ...[
                     const Icon(Icons.play_arrow, size: 12, color: Colors.white70),
                     const SizedBox(width: 2),
                   ],
