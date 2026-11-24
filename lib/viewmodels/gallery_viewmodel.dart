@@ -32,6 +32,9 @@ class GalleryViewModel extends ChangeNotifier {
   int _gridColumnCount = GalleryRepository.defaultGridColumnCount;
   int get gridColumnCount => _gridColumnCount;
 
+  String _rowHeightMode = GalleryRepository.defaultRowHeightMode;
+  String get rowHeightMode => _rowHeightMode;
+
   Future<void> loadGridColumnCount() async {
     try {
       final count = await _repository.loadGridColumnCount();
@@ -49,6 +52,23 @@ class GalleryViewModel extends ChangeNotifier {
     _gridColumnCount = count;
     notifyListeners();
     await _repository.saveGridColumnCount(count);
+  }
+
+  Future<void> loadRowHeightMode() async {
+    try {
+      final mode = await _repository.loadRowHeightMode();
+      if (_rowHeightMode != mode) {
+        _rowHeightMode = mode;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setRowHeightMode(String mode) async {
+    if (_rowHeightMode == mode) return;
+    _rowHeightMode = mode;
+    notifyListeners();
+    await _repository.saveRowHeightMode(mode);
   }
 
   List<TweetItem> _items = [];
@@ -108,6 +128,7 @@ class GalleryViewModel extends ChangeNotifier {
   /// 初期ロード：URLパラメータ → SharedPreferences → null（ダイアログ必要）
   Future<bool> handleInitialLoad() async {
     await loadGridColumnCount();
+    await loadRowHeightMode();
 
     // 1. URLパラメータ
     final String? urlId = Uri.base.queryParameters['id'];

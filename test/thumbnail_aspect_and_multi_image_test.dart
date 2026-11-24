@@ -39,9 +39,9 @@ void main() {
       expect(manager.getAspectRatio('https://example.com/test.jpg'), 1.5);
     });
 
-    testWidgets('Row height matches the shortest (most landscape) image in 2-column view', (tester) async {
-      // url1: 縦長 (比率 0.5 = 1000x2000, 縦長)
-      // url2: 横長 (比率 2.0 = 2000x1000, 最も縦が小さい)
+    testWidgets('Row height matches the tallest image by default in 2-column view', (tester) async {
+      // url1: 縦長 (比率 0.5 = 1000x2000, 最も縦が大きい)
+      // url2: 横長 (比率 2.0 = 2000x1000)
       ImageAspectRatioManager.instance.setAspectRatio('https://example.com/tall.jpg', 0.5);
       ImageAspectRatioManager.instance.setAspectRatio('https://example.com/wide.jpg', 2.0);
 
@@ -66,11 +66,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // 行のセルアスペクト比が横長画像 (2.0) に合致していることを確認
+      // デフォルトで行のセルアスペクト比が縦長画像 (0.5) に合致していることを確認
       final aspectRatios = tester.widgetList<AspectRatio>(find.byType(AspectRatio));
       expect(aspectRatios.isNotEmpty, isTrue);
       for (final ar in aspectRatios) {
-        expect(ar.aspectRatio, 2.0);
+        expect(ar.aspectRatio, 0.5);
       }
     });
 

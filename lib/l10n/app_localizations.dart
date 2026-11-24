@@ -49,6 +49,12 @@ class AppLocalizations {
   String get gridColumnsLabel => isJapanese ? '列数' : 'Columns';
   String columnsCount(int count) =>
       isJapanese ? '$count列' : '$count Column${count > 1 ? 's' : ''}';
+  String get rowHeightStandardLabel =>
+      isJapanese ? '行の高さ基準' : 'Row Height Basis';
+  String get rowHeightShortest =>
+      isJapanese ? '最小縦幅' : 'Minimum Height';
+  String get rowHeightTallest =>
+      isJapanese ? '最大縦幅' : 'Maximum Height';
   String get back => isJapanese ? '戻る' : 'Back';
   String get show => isJapanese ? '表示' : 'Show';
 

@@ -12,6 +12,9 @@ void main() {
       expect(l10n.cancel, 'キャンセル');
       expect(l10n.delete, '削除');
       expect(l10n.fetchImages, '画像取得');
+      expect(l10n.rowHeightStandardLabel, '行の高さ基準');
+      expect(l10n.rowHeightShortest, '最小縦幅');
+      expect(l10n.rowHeightTallest, '最大縦幅');
       expect(l10n.tooltipSwitchToHorizontal, '横方向レイアウトに切り替え');
       expect(l10n.tooltipToggleGap, '画像の隙間を切り替え');
       expect(l10n.tooltipPinToTop, '一番上に移動');
@@ -40,6 +43,9 @@ void main() {
       expect(l10n.cancel, 'Cancel');
       expect(l10n.delete, 'Delete');
       expect(l10n.fetchImages, 'Fetch images');
+      expect(l10n.rowHeightStandardLabel, 'Row Height Basis');
+      expect(l10n.rowHeightShortest, 'Minimum Height');
+      expect(l10n.rowHeightTallest, 'Maximum Height');
       expect(l10n.tooltipSwitchToHorizontal, 'Switch to horizontal layout');
       expect(l10n.tooltipToggleGap, 'Toggle image gap');
       expect(l10n.tooltipPinToTop, 'Pin to top');

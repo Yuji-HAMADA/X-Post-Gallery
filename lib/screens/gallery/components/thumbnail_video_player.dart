@@ -25,7 +25,7 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
   bool _isMostlyVisible = false;
   bool _userPaused = false;
   bool _isDisposed = false;
-  ScrollPosition? _scrollPosition;
+  final List<ScrollPosition> _attachedPositions = [];
 
   @override
   void initState() {
@@ -38,18 +38,40 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final newPosition = Scrollable.maybeOf(context)?.position;
-    if (_scrollPosition != newPosition) {
-      _scrollPosition?.removeListener(_checkVisibility);
-      _scrollPosition = newPosition;
-      _scrollPosition?.addListener(_checkVisibility);
+    _updateScrollListeners();
+  }
+
+  void _updateScrollListeners() {
+    for (final pos in _attachedPositions) {
+      pos.removeListener(_checkVisibility);
     }
+    _attachedPositions.clear();
+
+    // 祖先ツリーのすべての Scrollable (ListView, PageView 等) をリッスン
+    context.visitAncestorElements((element) {
+      if (element.widget is Scrollable) {
+        try {
+          final state = (element as StatefulElement).state;
+          if (state is ScrollableState) {
+            final pos = state.position;
+            if (!_attachedPositions.contains(pos)) {
+              _attachedPositions.add(pos);
+              pos.addListener(_checkVisibility);
+            }
+          }
+        } catch (_) {}
+      }
+      return true;
+    });
   }
 
   @override
   void dispose() {
     _isDisposed = true;
-    _scrollPosition?.removeListener(_checkVisibility);
+    for (final pos in _attachedPositions) {
+      pos.removeListener(_checkVisibility);
+    }
+    _attachedPositions.clear();
     _controller?.removeListener(_onControllerUpdate);
     _controller?.dispose();
     super.dispose();
@@ -68,14 +90,18 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
 
     final pos = rb.localToGlobal(Offset.zero);
     final size = rb.size;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final screenSize = MediaQuery.of(context).size;
 
-    // 画面中央線がアイテムの縦幅内にある場合（画面の主役として大部分を占める）
-    final midY = screenHeight * 0.5;
-    final isCenter = pos.dy <= midY && (pos.dy + size.height) >= midY;
+    // 水平方向および垂直方向の両方で画面中央線を含むか判定
+    final midX = screenSize.width * 0.5;
+    final midY = screenSize.height * 0.5;
+    final isCenterHorizontal = pos.dx <= midX && (pos.dx + size.width) >= midX;
+    final isCenterVertical = pos.dy <= midY && (pos.dy + size.height) >= midY;
 
-    if (isCenter != _isMostlyVisible) {
-      _isMostlyVisible = isCenter;
+    final isMostlyVisible = isCenterHorizontal && isCenterVertical;
+
+    if (isMostlyVisible != _isMostlyVisible) {
+      _isMostlyVisible = isMostlyVisible;
       if (_isMostlyVisible) {
         if (_controller == null) {
           _initAndPlay();

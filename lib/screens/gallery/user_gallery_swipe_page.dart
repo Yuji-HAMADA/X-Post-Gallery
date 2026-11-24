@@ -42,7 +42,11 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     _pageController = PageController(initialPage: widget.initialIndex);
     _loadPage(_currentIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<GalleryViewModel>().loadGridColumnCount();
+      if (mounted) {
+        final vm = context.read<GalleryViewModel>();
+        vm.loadGridColumnCount();
+        vm.loadRowHeightMode();
+      }
     });
   }
 
@@ -86,6 +90,24 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     // 隣のページをプリロード
     if (index + 1 < widget.usernames.length) _loadPage(index + 1);
     if (index - 1 >= 0) _loadPage(index - 1);
+  }
+
+  void _navigateToPreviousAccount() {
+    if (_currentIndex > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _navigateToNextAccount() {
+    if (_currentIndex < widget.usernames.length - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   // --- ダイアログ系 [JA: ダイアログ系 / EN: Dialogs] ---
@@ -293,6 +315,9 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                       case 'grid_columns':
                         showGridColumnsDialog(context);
                         break;
+                      case 'row_height':
+                        showRowHeightDialog(context);
+                        break;
                       case 'delete_user':
                         _confirmDeleteUser(username);
                         break;
@@ -316,6 +341,21 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                           const Icon(Icons.grid_view),
                           const SizedBox(width: 8),
                           Text(l10n.gridColumnsLabel),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'row_height',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.height),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              l10n.rowHeightStandardLabel,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -357,6 +397,10 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 items: items,
                 selectedIds: vm.selectedIds,
                 scrollController: _controllerFor(uname),
+                onNavigatePreviousAccount: _navigateToPreviousAccount,
+                onNavigateNextAccount: _navigateToNextAccount,
+                hasPreviousAccount: index > 0,
+                hasNextAccount: index < widget.usernames.length - 1,
               );
             },
           ),

@@ -182,3 +182,54 @@ Future<void> showGridColumnsDialog(BuildContext context) async {
   );
 }
 
+/// [JA] 行の高さ基準選択ダイアログ（ラジオボタン）を表示する
+/// [EN] Displays a dialog with radio buttons to select row height basis
+Future<void> showRowHeightDialog(BuildContext context) async {
+  final l10n = AppLocalizations.of(context);
+  final vm = context.read<GalleryViewModel>();
+  final current = vm.rowHeightMode;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(l10n.rowHeightStandardLabel),
+        contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioListTile<String>(
+              title: Text(l10n.rowHeightShortest),
+              value: 'shortest',
+              groupValue: current,
+              onChanged: (val) {
+                if (val != null) {
+                  vm.setRowHeightMode(val);
+                  Navigator.pop(dialogContext);
+                }
+              },
+            ),
+            RadioListTile<String>(
+              title: Text(l10n.rowHeightTallest),
+              value: 'tallest',
+              groupValue: current,
+              onChanged: (val) {
+                if (val != null) {
+                  vm.setRowHeightMode(val);
+                  Navigator.pop(dialogContext);
+                }
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(l10n.cancel),
+          ),
+        ],
+      );
+    },
+  );
+}
+

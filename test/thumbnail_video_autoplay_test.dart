@@ -109,5 +109,39 @@ void main() {
       expect(find.byType(ThumbnailVideoPlayer), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow), findsOneWidget);
     });
+
+    testWidgets('TweetGridItem with video and multiple mediaUrls still renders ThumbnailVideoPlayer in 1-column view', (tester) async {
+      final videoWithMultiMedia = TweetItem(
+        id: 'vid_multi',
+        fullText: 'Video with multiple mediaUrls',
+        createdAt: '2026-11-20 12:00:00 JST',
+        mediaUrls: const ['https://example.com/thumb1.jpg', 'https://example.com/thumb2.jpg'],
+        videoUrls: const ['https://example.com/video.mp4'],
+        videoThumbnailUrl: 'https://example.com/video_thumb.jpg',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 200,
+              height: 200,
+              child: TweetGridItem(
+                items: [videoWithMultiMedia],
+                index: 0,
+                selectedIds: const {},
+                columnCount: 1,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // !item.isVideo ガードにより、静止画 PageView ではなく ThumbnailVideoPlayer が描画されること
+      expect(find.byType(ThumbnailVideoPlayer), findsOneWidget);
+      expect(find.byType(PageView), findsNothing);
+    });
   });
 }

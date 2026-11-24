@@ -718,6 +718,9 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'grid_columns':
                       showGridColumnsDialog(context);
                       break;
+                    case 'row_height':
+                      showRowHeightDialog(context);
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
@@ -761,6 +764,14 @@ class _GalleryPageState extends State<GalleryPage> {
                     child: ListTile(
                       leading: const Icon(Icons.grid_view),
                       title: Text(l10n.gridColumnsLabel),
+                      dense: true,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'row_height',
+                    child: ListTile(
+                      leading: const Icon(Icons.height),
+                      title: Text(l10n.rowHeightStandardLabel),
                       dense: true,
                     ),
                   ),

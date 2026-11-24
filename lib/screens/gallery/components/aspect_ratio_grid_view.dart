@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../utils/image_aspect_ratio_manager.dart';
+import '../../../viewmodels/gallery_viewmodel.dart';
 
-/// [JA] 行ごとに最も縦方向が小さい画像のアスペクト比に高さを動的調整するグリッドビュー
-/// [EN] Grid view that dynamically adjusts row height to the shortest (most landscape/square) image in each row
+/// [JA] 行ごとにアスペクト比を高さを動的調整するグリッドビュー（最小縦幅／最大縦幅切替対応）
+/// [EN] Grid view that dynamically adjusts row height (shortest / tallest height mode supported)
 class AspectRatioGridView<T> extends StatelessWidget {
   final List<T> items;
   final int columnCount;
   final ScrollController scrollController;
   final ScrollPhysics? physics;
   final EdgeInsetsGeometry padding;
+  final String? rowHeightMode;
   final String Function(T item) getImageUrl;
   final Widget Function(BuildContext context, T item, int index) itemBuilder;
 
@@ -19,6 +22,7 @@ class AspectRatioGridView<T> extends StatelessWidget {
     required this.scrollController,
     this.physics,
     this.padding = const EdgeInsets.all(4),
+    this.rowHeightMode,
     required this.getImageUrl,
     required this.itemBuilder,
   });
@@ -48,6 +52,7 @@ class AspectRatioGridView<T> extends StatelessWidget {
             items: rowItems,
             startIndex: startIndex,
             columnCount: effectiveColumnCount,
+            rowHeightMode: rowHeightMode,
             getImageUrl: getImageUrl,
             itemBuilder: itemBuilder,
           ),
@@ -61,6 +66,7 @@ class _AspectGridRow<T> extends StatefulWidget {
   final List<T> items;
   final int startIndex;
   final int columnCount;
+  final String? rowHeightMode;
   final String Function(T item) getImageUrl;
   final Widget Function(BuildContext context, T item, int index) itemBuilder;
 
@@ -69,6 +75,7 @@ class _AspectGridRow<T> extends StatefulWidget {
     required this.items,
     required this.startIndex,
     required this.columnCount,
+    this.rowHeightMode,
     required this.getImageUrl,
     required this.itemBuilder,
   });
@@ -108,19 +115,27 @@ class _AspectGridRowState<T> extends State<_AspectGridRow<T>> {
   @override
   Widget build(BuildContext context) {
     // 2列・3列表示（および1列表示）共通:
-    // 行内の画像の中で「最も縦方向が小さい（＝アスペクト比 width / height が最大の）画像」のアスペクト比に高さを合わせる
-    double? maxRatio;
+    // 'shortest': 行内の画像の中で最も縦方向が小さい（アスペクト比 width / height が最大の）画像に合わせる
+    // 'tallest':  行内の画像の中で最も縦方向が大きい（アスペクト比 width / height が最小の）画像に合わせる
+    final effectiveMode = widget.rowHeightMode ??
+        context.watch<GalleryViewModel?>()?.rowHeightMode ??
+        'tallest';
+    final isTallest = effectiveMode == 'tallest';
+
+    double? targetRatio;
     for (final item in widget.items) {
       final url = widget.getImageUrl(item);
       final r = ImageAspectRatioManager.instance.getAspectRatio(url);
       if (r != null && r > 0) {
-        if (maxRatio == null || r > maxRatio) {
-          maxRatio = r;
+        if (targetRatio == null) {
+          targetRatio = r;
+        } else if (isTallest ? r < targetRatio : r > targetRatio) {
+          targetRatio = r;
         }
       }
     }
 
-    final rowAspectRatio = maxRatio ?? 1.0;
+    final rowAspectRatio = targetRatio ?? 1.0;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,

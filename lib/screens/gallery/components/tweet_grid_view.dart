@@ -11,12 +11,20 @@ class TweetGridView extends StatelessWidget {
   final List<TweetItem> items;
   final Set<String> selectedIds;
   final ScrollController scrollController;
+  final VoidCallback? onNavigatePreviousAccount;
+  final VoidCallback? onNavigateNextAccount;
+  final bool? hasPreviousAccount;
+  final bool? hasNextAccount;
 
   const TweetGridView({
     super.key,
     required this.items,
     required this.selectedIds,
     required this.scrollController,
+    this.onNavigatePreviousAccount,
+    this.onNavigateNextAccount,
+    this.hasPreviousAccount,
+    this.hasNextAccount,
   });
 
   @override
@@ -35,6 +43,10 @@ class TweetGridView extends StatelessWidget {
         index: index,
         selectedIds: selectedIds,
         columnCount: columnCount,
+        onNavigatePreviousAccount: onNavigatePreviousAccount,
+        onNavigateNextAccount: onNavigateNextAccount,
+        hasPreviousAccount: hasPreviousAccount,
+        hasNextAccount: hasNextAccount,
       ),
     );
   }
@@ -46,6 +58,10 @@ class TweetGridItem extends StatefulWidget {
   final int index;
   final Set<String> selectedIds;
   final int columnCount;
+  final VoidCallback? onNavigatePreviousAccount;
+  final VoidCallback? onNavigateNextAccount;
+  final bool? hasPreviousAccount;
+  final bool? hasNextAccount;
 
   const TweetGridItem({
     super.key,
@@ -53,6 +69,10 @@ class TweetGridItem extends StatefulWidget {
     required this.index,
     required this.selectedIds,
     this.columnCount = 3,
+    this.onNavigatePreviousAccount,
+    this.onNavigateNextAccount,
+    this.hasPreviousAccount,
+    this.hasNextAccount,
   });
 
   @override
@@ -64,6 +84,9 @@ class _TweetGridItemState extends State<TweetGridItem> {
   int _currentImageIndex = 0;
   bool _isMostlyVisible = false;
   ScrollPosition? _scrollPosition;
+  double _minOverscrollPixels = 0.0;
+  double _maxOverscrollPixels = 0.0;
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -130,7 +153,7 @@ class _TweetGridItemState extends State<TweetGridItem> {
     final isSelected = widget.selectedIds.contains(item.id);
     final isSelectionMode = widget.selectedIds.isNotEmpty;
     final isMultiImageInOneColumn =
-        widget.columnCount == 1 && item.mediaUrls.length > 1;
+        widget.columnCount == 1 && !item.isVideo && item.mediaUrls.length > 1;
 
     return GestureDetector(
       onTap: () {
@@ -148,26 +171,105 @@ class _TweetGridItemState extends State<TweetGridItem> {
           Container(
             decoration: BoxDecoration(color: Colors.grey[900]),
             child: isMultiImageInOneColumn
-                ? PageView.builder(
-                    controller: _imagePageController,
-                    physics: _isMostlyVisible
-                        ? const PageScrollPhysics()
-                        : const NeverScrollableScrollPhysics(),
-                    itemCount: item.mediaUrls.length,
-                    onPageChanged: (pageIndex) {
-                      setState(() => _currentImageIndex = pageIndex);
+                ? NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (notification is ScrollStartNotification) {
+                        _minOverscrollPixels = 0.0;
+                        _maxOverscrollPixels = 0.0;
+                        _navigated = false;
+                      } else if (notification is OverscrollNotification) {
+                        if (notification.overscroll < 0) {
+                          _minOverscrollPixels += notification.overscroll;
+                          if (!_navigated &&
+                              _currentImageIndex == 0 &&
+                              (widget.hasPreviousAccount ?? false) &&
+                              _minOverscrollPixels < -15.0) {
+                            _navigated = true;
+                            widget.onNavigatePreviousAccount?.call();
+                          }
+                        } else if (notification.overscroll > 0) {
+                          _maxOverscrollPixels += notification.overscroll;
+                          if (!_navigated &&
+                              _currentImageIndex ==
+                                  item.mediaUrls.length - 1 &&
+                              (widget.hasNextAccount ?? false) &&
+                              _maxOverscrollPixels > 15.0) {
+                            _navigated = true;
+                            widget.onNavigateNextAccount?.call();
+                          }
+                        }
+                      } else if (notification is ScrollUpdateNotification) {
+                        final px = notification.metrics.pixels;
+                        final minExt = notification.metrics.minScrollExtent;
+                        final maxExt = notification.metrics.maxScrollExtent;
+                        if (px < minExt) {
+                          final over = px - minExt;
+                          if (over < _minOverscrollPixels) {
+                            _minOverscrollPixels = over;
+                          }
+                          if (!_navigated &&
+                              _currentImageIndex == 0 &&
+                              (widget.hasPreviousAccount ?? false) &&
+                              over < -15.0) {
+                            _navigated = true;
+                            widget.onNavigatePreviousAccount?.call();
+                          }
+                        } else if (px > maxExt) {
+                          final over = px - maxExt;
+                          if (over > _maxOverscrollPixels) {
+                            _maxOverscrollPixels = over;
+                          }
+                          if (!_navigated &&
+                              _currentImageIndex ==
+                                  item.mediaUrls.length - 1 &&
+                              (widget.hasNextAccount ?? false) &&
+                              over > 15.0) {
+                            _navigated = true;
+                            widget.onNavigateNextAccount?.call();
+                          }
+                        }
+                      } else if (notification is ScrollEndNotification) {
+                        const threshold = 20.0;
+                        if (!_navigated) {
+                          if (_currentImageIndex == 0 &&
+                              _minOverscrollPixels < -threshold) {
+                            widget.onNavigatePreviousAccount?.call();
+                          } else if (_currentImageIndex ==
+                                  item.mediaUrls.length - 1 &&
+                              _maxOverscrollPixels > threshold) {
+                            widget.onNavigateNextAccount?.call();
+                          }
+                        }
+                        _minOverscrollPixels = 0.0;
+                        _maxOverscrollPixels = 0.0;
+                        _navigated = false;
+                      }
+                      return false;
                     },
-                    itemBuilder: (context, imgIndex) {
-                      final url = item.mediaUrls[imgIndex];
-                      return Image.network(
-                        url,
-                        fit: BoxFit.cover,
-                        alignment: Alignment.topCenter,
-                        errorBuilder: (c, e, s) => const Center(
-                          child: Icon(Icons.broken_image, color: Colors.grey),
-                        ),
-                      );
-                    },
+                    child: PageView.builder(
+                      controller: _imagePageController,
+                      physics: _isMostlyVisible
+                          ? const BouncingScrollPhysics(
+                              parent: PageScrollPhysics(),
+                            )
+                          : const NeverScrollableScrollPhysics(),
+                      itemCount: item.mediaUrls.length,
+                      onPageChanged: (pageIndex) {
+                        setState(() => _currentImageIndex = pageIndex);
+                      },
+                      itemBuilder: (context, imgIndex) {
+                        final url = item.mediaUrls[imgIndex];
+                        return Image.network(
+                          url,
+                          fit: BoxFit.cover,
+                          alignment: Alignment.topCenter,
+                          errorBuilder: (c, e, s) => const Center(
+                            child:
+                                Icon(Icons.broken_image, color: Colors.grey),
+                          ),
+                        );
+                      },
+                    ),
                   )
                 : (item.isVideo && item.videoUrl != null
                     ? ThumbnailVideoPlayer(

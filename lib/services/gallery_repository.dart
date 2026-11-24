@@ -36,6 +36,8 @@ class GalleryRepository {
   static const String _keyUserPriorities = 'user_priorities';
   static const String _keyGridColumnCount = 'gallery_grid_column_count';
   static const int defaultGridColumnCount = 3;
+  static const String _keyRowHeightMode = 'gallery_row_height_mode';
+  static const String defaultRowHeightMode = 'tallest';
 
   /// 最後にヒットした Gist ファイル名を記憶（削除時の上書きに使用）
   String? lastGistFilename;
@@ -468,6 +470,34 @@ class GalleryRepository {
     } catch (e) {
       if (!e.toString().contains('Binding has not yet been initialized')) {
         debugPrint('Error saving grid column count to SharedPreferences: $e');
+      }
+    }
+  }
+
+  /// [JA] 行の高さ基準（'shortest' または 'tallest'）を読み込む
+  Future<String> loadRowHeightMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mode = prefs.getString(_keyRowHeightMode);
+      if (mode == 'shortest' || mode == 'tallest') {
+        return mode!;
+      }
+    } catch (e) {
+      if (!e.toString().contains('Binding has not yet been initialized')) {
+        debugPrint('Error loading row height mode from SharedPreferences: $e');
+      }
+    }
+    return defaultRowHeightMode;
+  }
+
+  /// [JA] 行の高さ基準をローカル SharedPreferences に保存する
+  Future<void> saveRowHeightMode(String mode) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyRowHeightMode, mode);
+    } catch (e) {
+      if (!e.toString().contains('Binding has not yet been initialized')) {
+        debugPrint('Error saving row height mode to SharedPreferences: $e');
       }
     }
   }
