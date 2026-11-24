@@ -739,6 +739,51 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
     master_data["tweets"] = master_tweets
     return master_data
 
+def validate_master_gist_update(initial_user_gists, final_output, platform="x"):
+    """
+    マスターGist上書き前の安全検証:
+    1. プラットフォーム不一致（X更新時に Instagram マスターデータで上書き等）を拒否
+    2. 既存アカウント数が20件以上あるマスターGistでの急激な減少（50%未満）を拒否
+    """
+    if not isinstance(final_output, dict) or "user_gists" not in final_output:
+        return False, "Invalid master Gist payload (missing user_gists)"
+
+    screen_name = str(final_output.get("user_screen_name") or "").strip().lower()
+    if platform == "x" and screen_name == "instagram":
+        return False, "Cross-platform safety block: refusing to write Instagram master payload into X Master Gist"
+
+    new_count = len(final_output.get("user_gists", {}))
+    old_count = len(initial_user_gists or {})
+    if old_count >= 20 and new_count < (old_count * 0.5):
+        return False, f"Catastrophic shrink safety block: user_gists would drop from {old_count} to {new_count}"
+
+    return True, ""
+
+
+def write_master_gist_safely(gist_id, gist_filename, final_output, local_asset_path):
+    """
+    共有ローカルパス (assets/data/data.json) との競合を防ぐため、
+    プロセス固有の一時ファイルから gh gist edit を実行し、ローカルミラーはアトミック置換する。
+    """
+    fd, tmp_upload = tempfile.mkstemp(suffix=".json", prefix="master_upload_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(final_output, f, ensure_ascii=False, indent=2)
+        subprocess.run(["gh", "gist", "edit", gist_id, "-f", gist_filename, tmp_upload])
+    finally:
+        if os.path.exists(tmp_upload):
+            os.unlink(tmp_upload)
+
+    try:
+        os.makedirs(os.path.dirname(local_asset_path) or ".", exist_ok=True)
+        tmp_local = f"{local_asset_path}.tmp.{os.getpid()}"
+        with open(tmp_local, "w", encoding="utf-8") as f:
+            json.dump(final_output, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_local, local_asset_path)
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to update local mirror {local_asset_path}: {e}", file=sys.stderr)
+
+
 def main():
     args = parse_args()
     if not args.user:
@@ -848,17 +893,18 @@ def main():
         refresh_urls=refresh_urls,
     )
     output_file = "assets/data/data_instagram.json" if platform == "instagram" else "assets/data/data.json"
-    os.makedirs("assets/data", exist_ok=True)
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(final_output, f, ensure_ascii=False, indent=2)
 
     # 所属 Gist ID に変更がある場合、または対象ユーザーの最新ツイート（サムネイル/日時）が更新された場合に MASTER_GIST を更新
     gists_changed = has_user_gists_id_changed(initial_user_gists, final_output.get("user_gists", {}))
     tweets_changed = bool(args.user and has_master_tweets_changed(initial_master_tweets, final_output.get("tweets", []), args.user))
 
     if gists_changed or tweets_changed:
+        ok, err_msg = validate_master_gist_update(initial_user_gists, final_output, platform=platform)
+        if not ok:
+            print(f"🚨 ABORTED Master Gist update: {err_msg}", file=sys.stderr)
+            sys.exit(1)
         reason = "User Gist ID changed" if gists_changed else f"Latest thumbnail updated for @{args.user}"
-        subprocess.run(["gh", "gist", "edit", args.gist_id, "-f", gist_filename, output_file])
+        write_master_gist_safely(args.gist_id, gist_filename, final_output, output_file)
         print(f"✅ Master Gist updated! ({reason})")
     else:
         print(f"ℹ️ User Gist ID and latest thumbnail unchanged. Skipped Master Gist update.")

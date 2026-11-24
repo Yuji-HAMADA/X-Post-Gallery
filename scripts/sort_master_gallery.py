@@ -44,7 +44,10 @@ def load_master_gist_id():
     """環境変数または.envファイルから MASTER_GIST_ID (Instagram時は IG_MASTER_GIST_ID) を取得"""
     platform = os.environ.get("PLATFORM", "x").strip().lower()
     target_key = "IG_MASTER_GIST_ID" if platform == "instagram" else "MASTER_GIST_ID"
-    gid = os.environ.get("MASTER_GIST_ID") or os.environ.get(target_key)
+    if platform == "instagram":
+        gid = os.environ.get("IG_MASTER_GIST_ID") or os.environ.get("MASTER_GIST_ID")
+    else:
+        gid = os.environ.get("MASTER_GIST_ID")
     if gid:
         return gid.strip()
     env_paths = [".env", os.path.join(os.path.dirname(__file__), "..", ".env")]
@@ -462,10 +465,14 @@ def main():
         )
         if res.returncode == 0:
             print("✅ Master Gist のソートおよび最新サムネイル更新が正常に完了しました！")
-            local_asset_path = Path("assets/data/data.json")
+            platform = os.environ.get("PLATFORM", "x").strip().lower()
+            asset_filename = "data_instagram.json" if platform == "instagram" else "data.json"
+            local_asset_path = Path("assets/data") / asset_filename
             if local_asset_path.parent.exists():
-                with open(local_asset_path, "w", encoding="utf-8") as f:
+                tmp_asset = local_asset_path.with_suffix(f".json.tmp.{os.getpid()}")
+                with open(tmp_asset, "w", encoding="utf-8") as f:
                     json.dump(sorted_data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_asset, local_asset_path)
         else:
             print(f"❌ Failed to update Master Gist: {res.stderr}")
             sys.exit(1)

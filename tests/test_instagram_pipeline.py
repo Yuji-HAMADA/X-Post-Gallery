@@ -207,6 +207,36 @@ class TestInstagramPipeline(unittest.TestCase):
         self.assertEqual(list(grouped.keys()), ["target_profile"])
         self.assertIn("[collab @collab_partner]", converted[0]["full_text"])
 
+    def test_validate_master_gist_update_blocks_cross_platform_and_shrink(self):
+        """Xマスター更新時にInstagramデータ混入や大幅減少をブロックすること"""
+        initial = {f"user_{i}": f"g_{i}" for i in range(100)}
+        # 1. プラットフォーム不一致（Xなのに user_screen_name=Instagram）
+        ok1, _ = append_to_gist.validate_master_gist_update(
+            initial,
+            {"user_screen_name": "Instagram", "user_gists": initial, "tweets": []},
+            platform="x",
+        )
+        self.assertFalse(ok1)
+
+        # 2. 急激な減少（100 -> 10）
+        small = {f"user_{i}": f"g_{i}" for i in range(10)}
+        ok2, _ = append_to_gist.validate_master_gist_update(
+            initial,
+            {"user_screen_name": "", "user_gists": small, "tweets": []},
+            platform="x",
+        )
+        self.assertFalse(ok2)
+
+        # 3. 正常な増加（100 -> 101）
+        grown = dict(initial)
+        grown["user_new"] = "g_new"
+        ok3, _ = append_to_gist.validate_master_gist_update(
+            initial,
+            {"user_screen_name": "", "user_gists": grown, "tweets": []},
+            platform="x",
+        )
+        self.assertTrue(ok3)
+
 
 if __name__ == "__main__":
     unittest.main()
