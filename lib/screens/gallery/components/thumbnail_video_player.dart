@@ -7,12 +7,14 @@ class ThumbnailVideoPlayer extends StatefulWidget {
   final String videoUrl;
   final String thumbnailUrl;
   final double bottomOffset;
+  final bool enableAutoplay;
 
   const ThumbnailVideoPlayer({
     super.key,
     required this.videoUrl,
     required this.thumbnailUrl,
     this.bottomOffset = 8.0,
+    this.enableAutoplay = true,
   });
 
   @override
@@ -103,10 +105,12 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
     if (isMostlyVisible != _isMostlyVisible) {
       _isMostlyVisible = isMostlyVisible;
       if (_isMostlyVisible) {
-        if (_controller == null) {
-          _initAndPlay();
-        } else if (!_userPaused && _isInitialized) {
-          _controller?.play();
+        if (widget.enableAutoplay) {
+          if (_controller == null) {
+            _initAndPlay();
+          } else if (!_userPaused && _isInitialized) {
+            _controller?.play();
+          }
         }
       } else {
         if (_isInitialized) {
@@ -117,7 +121,7 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
     }
   }
 
-  Future<void> _initAndPlay() async {
+  Future<void> _initAndPlay({bool forcePlay = false}) async {
     if (widget.videoUrl.isEmpty) return;
     final controller =
         VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
@@ -133,7 +137,9 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
       await controller.setLooping(true);
       controller.addListener(_onControllerUpdate);
 
-      if (!_userPaused && _isMostlyVisible) {
+      final shouldPlay =
+          forcePlay || (widget.enableAutoplay && !_userPaused && _isMostlyVisible);
+      if (shouldPlay) {
         await controller.play();
       }
 
@@ -153,7 +159,7 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
   Future<void> _togglePlayPause() async {
     if (_controller == null) {
       _userPaused = false;
-      await _initAndPlay();
+      await _initAndPlay(forcePlay: true);
       return;
     }
 

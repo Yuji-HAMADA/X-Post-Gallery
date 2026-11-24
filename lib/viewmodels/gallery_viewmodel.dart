@@ -29,30 +29,55 @@ class GalleryViewModel extends ChangeNotifier {
   GalleryStatus _status = GalleryStatus.initial;
   GalleryStatus get status => _status;
 
-  int _gridColumnCount = GalleryRepository.defaultGridColumnCount;
-  int get gridColumnCount => _gridColumnCount;
+  int _mainGridColumnCount = GalleryRepository.defaultGridColumnCount;
+  int get mainGridColumnCount => _mainGridColumnCount;
+
+  int _accountGridColumnCount = GalleryRepository.defaultGridColumnCount;
+  int get accountGridColumnCount => _accountGridColumnCount;
+
+  /// 既存互換ゲッター（メインギャラリー列数）
+  int get gridColumnCount => _mainGridColumnCount;
 
   String _rowHeightMode = GalleryRepository.defaultRowHeightMode;
   String get rowHeightMode => _rowHeightMode;
 
-  Future<void> loadGridColumnCount() async {
+  Future<void> loadMainGridColumnCount() async {
     try {
-      final count = await _repository.loadGridColumnCount();
-      if (_gridColumnCount != count) {
-        _gridColumnCount = count;
+      final count = await _repository.loadMainGridColumnCount();
+      if (_mainGridColumnCount != count) {
+        _mainGridColumnCount = count;
         notifyListeners();
       }
-    } catch (_) {
-      // ユニットテスト等で Binding 未初期化の場合はフォールバック値を維持
-    }
+    } catch (_) {}
   }
 
-  Future<void> setGridColumnCount(int count) async {
-    if (_gridColumnCount == count) return;
-    _gridColumnCount = count;
+  Future<void> setMainGridColumnCount(int count) async {
+    if (_mainGridColumnCount == count) return;
+    _mainGridColumnCount = count;
     notifyListeners();
-    await _repository.saveGridColumnCount(count);
+    await _repository.saveMainGridColumnCount(count);
   }
+
+  Future<void> loadAccountGridColumnCount() async {
+    try {
+      final count = await _repository.loadAccountGridColumnCount();
+      if (_accountGridColumnCount != count) {
+        _accountGridColumnCount = count;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setAccountGridColumnCount(int count) async {
+    if (_accountGridColumnCount == count) return;
+    _accountGridColumnCount = count;
+    notifyListeners();
+    await _repository.saveAccountGridColumnCount(count);
+  }
+
+  /// 既存互換メソッド
+  Future<void> loadGridColumnCount() => loadMainGridColumnCount();
+  Future<void> setGridColumnCount(int count) => setMainGridColumnCount(count);
 
   Future<void> loadRowHeightMode() async {
     try {
@@ -127,7 +152,8 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// 初期ロード：URLパラメータ → SharedPreferences → null（ダイアログ必要）
   Future<bool> handleInitialLoad() async {
-    await loadGridColumnCount();
+    await loadMainGridColumnCount();
+    await loadAccountGridColumnCount();
     await loadRowHeightMode();
 
     // 1. URLパラメータ

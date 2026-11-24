@@ -287,7 +287,7 @@ void main() {
         repository: _MockRepoForRowHeightTest(),
         githubService: _MockGitHubServiceForRowHeightTest(),
       );
-      await vm.setGridColumnCount(1);
+      await vm.setAccountGridColumnCount(1);
 
       await tester.pumpWidget(
         MultiProvider(

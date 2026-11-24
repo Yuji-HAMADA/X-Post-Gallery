@@ -144,10 +144,14 @@ Future<void> pinAccountToTop(
 
 /// [JA] 列数選択ダイアログ（ラジオボタン）を表示する
 /// [EN] Displays a dialog with radio buttons to select the grid column count
-Future<void> showGridColumnsDialog(BuildContext context) async {
+Future<void> showGridColumnsDialog(
+  BuildContext context, {
+  bool isAccountGallery = false,
+}) async {
   final l10n = AppLocalizations.of(context);
   final vm = context.read<GalleryViewModel>();
-  final current = vm.gridColumnCount;
+  final current =
+      isAccountGallery ? vm.accountGridColumnCount : vm.mainGridColumnCount;
 
   await showDialog<void>(
     context: context,
@@ -164,7 +168,11 @@ Future<void> showGridColumnsDialog(BuildContext context) async {
               groupValue: current,
               onChanged: (val) {
                 if (val != null) {
-                  vm.setGridColumnCount(val);
+                  if (isAccountGallery) {
+                    vm.setAccountGridColumnCount(val);
+                  } else {
+                    vm.setMainGridColumnCount(val);
+                  }
                   Navigator.pop(dialogContext);
                 }
               },

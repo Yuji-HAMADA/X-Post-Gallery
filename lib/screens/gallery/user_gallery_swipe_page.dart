@@ -44,7 +44,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final vm = context.read<GalleryViewModel>();
-        vm.loadGridColumnCount();
+        vm.loadAccountGridColumnCount();
         vm.loadRowHeightMode();
       }
     });
@@ -313,7 +313,7 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                         _handleAppend(username);
                         break;
                       case 'grid_columns':
-                        showGridColumnsDialog(context);
+                        showGridColumnsDialog(context, isAccountGallery: true);
                         break;
                       case 'row_height':
                         showRowHeightDialog(context);

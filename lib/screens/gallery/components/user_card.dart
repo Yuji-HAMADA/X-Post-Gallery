@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../models/tweet_item.dart';
+import '../../../viewmodels/gallery_viewmodel.dart';
 import 'thumbnail_video_player.dart';
 
 /// ユーザーグリッド上のカードウィジェット
@@ -8,6 +10,7 @@ class UserCard extends StatelessWidget {
   final TweetItem thumbItem;
   final bool isFavorite;
   final bool isPinned;
+  final int? columnCount;
   final VoidCallback onTap;
   final VoidCallback onFavoriteTap;
   final VoidCallback? onLongPress;
@@ -18,6 +21,7 @@ class UserCard extends StatelessWidget {
     required this.thumbItem,
     required this.isFavorite,
     this.isPinned = false,
+    this.columnCount,
     required this.onTap,
     required this.onFavoriteTap,
     this.onLongPress,
@@ -25,6 +29,10 @@ class UserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveColumnCount = columnCount ??
+        context.watch<GalleryViewModel?>()?.mainGridColumnCount ??
+        2;
+
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -38,6 +46,7 @@ class UserCard extends StatelessWidget {
                     videoUrl: thumbItem.videoUrl!,
                     thumbnailUrl: thumbItem.thumbnailUrl,
                     bottomOffset: 24.0, // 下部ユーザー名バーの上に配置
+                    enableAutoplay: effectiveColumnCount == 1,
                   )
                 : (thumbItem.thumbnailUrl.isNotEmpty
                     ? Image.network(

@@ -30,14 +30,15 @@ class TweetGridView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final columnCount =
-        context.watch<GalleryViewModel?>()?.gridColumnCount ?? 3;
+        context.watch<GalleryViewModel?>()?.accountGridColumnCount ?? 2;
     return AspectRatioGridView<TweetItem>(
       scrollController: scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(4),
       columnCount: columnCount,
       items: items,
-      getImageUrl: (item) => item.thumbnailUrl,
+      getImageUrl: (item) =>
+          columnCount == 1 ? item.highResImageUrl : item.thumbnailUrl,
       itemBuilder: (context, item, index) => TweetGridItem(
         items: items,
         index: index,
@@ -258,7 +259,9 @@ class _TweetGridItemState extends State<TweetGridItem> {
                         setState(() => _currentImageIndex = pageIndex);
                       },
                       itemBuilder: (context, imgIndex) {
-                        final url = item.mediaUrls[imgIndex];
+                        final url = item.origUrls.length > imgIndex
+                            ? item.origUrls[imgIndex]
+                            : item.mediaUrls[imgIndex];
                         return Image.network(
                           url,
                           fit: BoxFit.cover,
@@ -276,21 +279,27 @@ class _TweetGridItemState extends State<TweetGridItem> {
                         videoUrl: item.videoUrl!,
                         thumbnailUrl: item.thumbnailUrl,
                         bottomOffset: 8,
+                        enableAutoplay: widget.columnCount == 1,
                       )
-                    : (item.thumbnailUrl.isNotEmpty
-                        ? Image.network(
-                            item.thumbnailUrl,
-                            fit: BoxFit.cover,
-                            alignment: Alignment.topCenter,
-                            errorBuilder: (c, e, s) => const Center(
-                              child:
-                                  Icon(Icons.broken_image, color: Colors.grey),
-                            ),
-                          )
-                        : const Center(
-                            child:
-                                Icon(Icons.broken_image, color: Colors.grey),
-                          ))),
+                    : () {
+                        final displayUrl = widget.columnCount == 1
+                            ? item.highResImageUrl
+                            : item.thumbnailUrl;
+                        return displayUrl.isNotEmpty
+                            ? Image.network(
+                                displayUrl,
+                                fit: BoxFit.cover,
+                                alignment: Alignment.topCenter,
+                                errorBuilder: (c, e, s) => const Center(
+                                  child: Icon(Icons.broken_image,
+                                      color: Colors.grey),
+                                ),
+                              )
+                            : const Center(
+                                child: Icon(Icons.broken_image,
+                                    color: Colors.grey),
+                              );
+                      }()),
           ),
           // 1列表示かつ複数画像の場合のインジケータ・操作ボタン
           if (isMultiImageInOneColumn) ...[

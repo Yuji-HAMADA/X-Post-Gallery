@@ -156,6 +156,14 @@ class TweetItem {
   List<String> get origUrls =>
       mediaUrls.map((u) => _withImageSize(u, 'orig')).toList();
 
+  /// [JA] 1列表示等で使用する個別画像（高解像度側）URL（先頭）
+  /// [EN] Primary high-resolution image URL (name=orig)
+  String get highResImageUrl {
+    if (origUrls.isNotEmpty) return origUrls.first;
+    if (mediaUrls.isNotEmpty) return mediaUrls.first;
+    return thumbnailUrl;
+  }
+
   /// [JA] 動画サムネイルを除いた純粋な静止画URL一覧（混在メディア用）
   /// [EN] List of pure image URLs excluding video thumbnails (for mixed media)
   List<String> get pureImageUrls {

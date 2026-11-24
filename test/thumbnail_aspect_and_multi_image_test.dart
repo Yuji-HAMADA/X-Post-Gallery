@@ -124,7 +124,7 @@ void main() {
         repository: _MockRepoForAspectTest(),
         githubService: GitHubService(),
       );
-      await vm.setGridColumnCount(1);
+      await vm.setAccountGridColumnCount(1);
 
       await tester.pumpWidget(
         MultiProvider(
@@ -164,6 +164,46 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('2/2'), findsOneWidget);
       }
+    });
+
+    testWidgets('Account gallery 1-column view uses high-resolution (orig) image URL', (tester) async {
+      final singleItem = TweetItem(
+        id: 'single_1',
+        fullText: 'Single image post',
+        createdAt: '2026-11-20 10:00:00 JST',
+        mediaUrls: ['https://pbs.twimg.com/media/sample.jpg'],
+      );
+
+      final vm = GalleryViewModel(
+        repository: _MockRepoForAspectTest(),
+        githubService: GitHubService(),
+      );
+      await vm.setAccountGridColumnCount(1);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<GalleryViewModel>.value(value: vm),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: TweetGridView(
+                items: [singleItem],
+                selectedIds: const {},
+                scrollController: ScrollController(),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final imageFinder = find.byType(Image);
+      expect(imageFinder, findsOneWidget);
+      final imageWidget = tester.widget<Image>(imageFinder);
+      final networkImage = imageWidget.image as NetworkImage;
+      expect(networkImage.url, contains('name=orig'));
     });
   });
 }

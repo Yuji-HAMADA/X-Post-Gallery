@@ -14,14 +14,40 @@ import 'package:x_post_gallery/services/github_service.dart';
 import 'package:x_post_gallery/viewmodels/gallery_viewmodel.dart';
 
 class MockGalleryRepoForGrid extends GalleryRepository {
-  int _storedCount = 3;
+  int _storedMainCount = 2;
+  int _storedAccountCount = 2;
 
   @override
-  Future<int> loadGridColumnCount() async => _storedCount;
+  Future<int> loadMainGridColumnCount() async => _storedMainCount;
 
   @override
-  Future<void> saveGridColumnCount(int count) async {
-    _storedCount = count;
+  Future<void> saveMainGridColumnCount(int count) async {
+    _storedMainCount = count;
+  }
+
+  @override
+  Future<int> loadAccountGridColumnCount() async => _storedAccountCount;
+
+  @override
+  Future<void> saveAccountGridColumnCount(int count) async {
+    _storedAccountCount = count;
+  }
+
+  @override
+  Future<GalleryData> fetchGalleryData(String gistId, {String? remoteUpdatedAt}) async {
+    return GalleryData(
+      userName: 'test_user',
+      items: [
+        TweetItem(
+          id: '1',
+          fullText: 'test post',
+          createdAt: '2026-01-01',
+          mediaUrls: const ['https://example.com/1.jpg'],
+          username: 'userA',
+        ),
+      ],
+      userGists: {'userA': 'gist_a'},
+    );
   }
 }
 
@@ -41,7 +67,12 @@ class MockViewModelForGrid extends GalleryViewModel {
   }
 }
 
-class MockGitHubServiceForGrid extends GitHubService {}
+class MockGitHubServiceForGrid extends GitHubService {
+  @override
+  Future<Map<String, dynamic>> fetchGistMetadata(String gistId) async {
+    return {'exists': true, 'updatedAt': '2026-01-01T00:00:00Z'};
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,38 +87,43 @@ void main() {
   });
 
   group('Grid Column Count Unit Tests', () {
-    test('GalleryRepository defaults to 3 and persists column changes', () async {
+    test('GalleryRepository defaults to 2 for both main and account galleries', () async {
       final repo = GalleryRepository();
-      expect(await repo.loadGridColumnCount(), 3);
+      expect(await repo.loadMainGridColumnCount(), 2);
+      expect(await repo.loadAccountGridColumnCount(), 2);
 
-      await repo.saveGridColumnCount(2);
-      expect(await repo.loadGridColumnCount(), 2);
+      await repo.saveMainGridColumnCount(3);
+      await repo.saveAccountGridColumnCount(1);
 
-      await repo.saveGridColumnCount(1);
-      expect(await repo.loadGridColumnCount(), 1);
+      expect(await repo.loadMainGridColumnCount(), 3);
+      expect(await repo.loadAccountGridColumnCount(), 1);
     });
 
-    test('GalleryViewModel updates gridColumnCount and persists change', () async {
+    test('GalleryViewModel maintains separate main and account column counts', () async {
       final repo = MockGalleryRepoForGrid();
       final vm = GalleryViewModel(
         repository: repo,
         githubService: MockGitHubServiceForGrid(),
       );
 
-      expect(vm.gridColumnCount, 3);
+      expect(vm.mainGridColumnCount, 2);
+      expect(vm.accountGridColumnCount, 2);
 
-      bool notified = false;
-      vm.addListener(() => notified = true);
+      await vm.setMainGridColumnCount(3);
+      expect(vm.mainGridColumnCount, 3);
+      expect(vm.accountGridColumnCount, 2); // アカウントギャラリー側は影響を受けない
+      expect(await repo.loadMainGridColumnCount(), 3);
+      expect(await repo.loadAccountGridColumnCount(), 2);
 
-      await vm.setGridColumnCount(2);
-      expect(vm.gridColumnCount, 2);
-      expect(notified, isTrue);
-      expect(await repo.loadGridColumnCount(), 2);
+      await vm.setAccountGridColumnCount(1);
+      expect(vm.mainGridColumnCount, 3);
+      expect(vm.accountGridColumnCount, 1);
+      expect(await repo.loadAccountGridColumnCount(), 1);
     });
   });
 
   group('Grid Column Count UI Integration Tests', () {
-    testWidgets('UserGallerySwipePage menu contains column count options and switches columns', (tester) async {
+    testWidgets('UserGallerySwipePage menu switches account gallery columns (default 2)', (tester) async {
       tester.view.physicalSize = const Size(800, 1200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
@@ -124,11 +160,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // 初期状態のグリッドは3列
+      // 初期状態のアカウントグリッドは2列
       final gridFinder = find.byType(AspectRatioGridView<TweetItem>);
       expect(gridFinder, findsOneWidget);
       final gridWidget = tester.widget<AspectRatioGridView<TweetItem>>(gridFinder);
-      expect(gridWidget.columnCount, 3);
+      expect(gridWidget.columnCount, 2);
 
       // ハンバーガーメニューを開く
       final menuButton = find.byIcon(Icons.menu);
@@ -145,17 +181,18 @@ void main() {
       expect(find.text('2列'), findsOneWidget);
       expect(find.text('1列'), findsOneWidget);
 
-      // 2列をタップ
-      await tester.tap(find.text('2列'), warnIfMissed: false);
+      // 3列をタップ
+      await tester.tap(find.text('3列'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
-      // グリッドが2列に切り替わっていること
+      // グリッドが3列に切り替わっていること
       final updatedGridWidget = tester.widget<AspectRatioGridView<TweetItem>>(gridFinder);
-      expect(updatedGridWidget.columnCount, 2);
-      expect(vm.gridColumnCount, 2);
+      expect(updatedGridWidget.columnCount, 3);
+      expect(vm.accountGridColumnCount, 3);
+      expect(vm.mainGridColumnCount, 2); // メインギャラリー側は維持されること
     });
 
-    testWidgets('GalleryPage menu contains column count options and switches columns', (tester) async {
+    testWidgets('GalleryPage menu switches main gallery columns (default 2)', (tester) async {
       tester.view.physicalSize = const Size(800, 1200);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
@@ -168,6 +205,7 @@ void main() {
         repository: repo,
         githubService: MockGitHubServiceForGrid(),
       );
+      await vm.loadGallery('master_123');
 
       await tester.pumpWidget(
         ChangeNotifierProvider<GalleryViewModel>.value(
@@ -186,7 +224,10 @@ void main() {
         ),
       );
 
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // 初期状態のメインギャラリーは2列
+      expect(vm.mainGridColumnCount, 2);
 
       // ハンバーガーメニューを開く
       final menuButton = find.byIcon(Icons.menu);
@@ -199,16 +240,12 @@ void main() {
       await tester.tap(find.text('列数'));
       await tester.pumpAndSettle();
 
-      // ラジオボタン選択肢として 3列、2列、1列 がダイアログ内に存在すること
-      expect(find.text('3列'), findsOneWidget);
-      expect(find.text('2列'), findsOneWidget);
-      expect(find.text('1列'), findsOneWidget);
-
       // 1列をタップ
       await tester.tap(find.text('1列'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
-      expect(vm.gridColumnCount, 1);
+      expect(vm.mainGridColumnCount, 1);
+      expect(vm.accountGridColumnCount, 2); // アカウントギャラリー側は影響を受けないこと
     });
   });
 }

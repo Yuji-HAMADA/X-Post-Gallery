@@ -143,5 +143,74 @@ void main() {
       expect(find.byType(ThumbnailVideoPlayer), findsOneWidget);
       expect(find.byType(PageView), findsNothing);
     });
+
+    testWidgets('ThumbnailVideoPlayer does not autoplay when enableAutoplay is false', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 200,
+              height: 200,
+              child: ThumbnailVideoPlayer(
+                videoUrl: 'https://example.com/video.mp4',
+                thumbnailUrl: 'https://example.com/video_thumb.jpg',
+                enableAutoplay: false, // 2列・3列時
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Play アイコンが表示されていること
+      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+
+      // Play ボタンをタップしたときは手動で再生処理が走ること（エラーなくタップ可能）
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pump();
+    });
+
+    testWidgets('UserCard and TweetGridItem disable autoplay when columnCount > 1', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                SizedBox(
+                  width: 200,
+                  height: 200,
+                  child: UserCard(
+                    username: 'user_2col',
+                    thumbItem: videoTweetItem,
+                    isFavorite: false,
+                    columnCount: 2, // 2列表示
+                    onTap: () {},
+                    onFavoriteTap: () {},
+                  ),
+                ),
+                SizedBox(
+                  width: 200,
+                  height: 200,
+                  child: TweetGridItem(
+                    items: [videoTweetItem],
+                    index: 0,
+                    selectedIds: const {},
+                    columnCount: 3, // 3列表示
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      final players = tester.widgetList<ThumbnailVideoPlayer>(find.byType(ThumbnailVideoPlayer)).toList();
+      expect(players.length, 2);
+      expect(players[0].enableAutoplay, isFalse);
+      expect(players[1].enableAutoplay, isFalse);
+    });
   });
 }

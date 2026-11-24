@@ -1094,7 +1094,7 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
+    final columnCount = context.watch<GalleryViewModel>().mainGridColumnCount;
     return AspectRatioGridView<MapEntry<String, List<TweetItem>>>(
       scrollController:
           isCandidateView ? _candidateGridController : _gridController,
@@ -1113,6 +1113,7 @@ class _GalleryPageState extends State<GalleryPage> {
           thumbItem: thumbItem,
           isFavorite: favoriteUsers.contains(username),
           isPinned: isPinned,
+          columnCount: columnCount,
           onTap: () => _openUserGallery(username, scope: userUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
@@ -1184,7 +1185,7 @@ class _GalleryPageState extends State<GalleryPage> {
     // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
     final favUsernames = entries.map((e) => e.key).toList();
 
-    final columnCount = context.watch<GalleryViewModel>().gridColumnCount;
+    final columnCount = context.watch<GalleryViewModel>().mainGridColumnCount;
     return AspectRatioGridView<MapEntry<String, List<TweetItem>>>(
       scrollController: _favGridController,
       physics: const AlwaysScrollableScrollPhysics(),
@@ -1202,6 +1203,7 @@ class _GalleryPageState extends State<GalleryPage> {
           thumbItem: thumbItem,
           isFavorite: true,
           isPinned: isPinned,
+          columnCount: columnCount,
           onTap: () => _openUserGallery(username, scope: favUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
