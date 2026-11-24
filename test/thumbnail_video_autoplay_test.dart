@@ -67,11 +67,16 @@ void main() {
 
       await tester.pump();
 
-      final playIcon = find.byIcon(Icons.play_arrow);
-      expect(playIcon, findsOneWidget);
+      // ThumbnailVideoPlayer 内の Play ボタンと、下部バー右端の動画ありインジケーターの双方が存在すること
+      final playIconInPlayer = find.descendant(
+        of: find.byType(ThumbnailVideoPlayer),
+        matching: find.byIcon(Icons.play_arrow),
+      );
+      expect(playIconInPlayer, findsOneWidget);
+      expect(find.byIcon(Icons.play_arrow), findsNWidgets(2));
 
       // Play/Pause ボタンをタップ
-      await tester.tap(playIcon);
+      await tester.tap(playIconInPlayer);
       await tester.pump();
 
       // 親カードの onTap は発火しないこと

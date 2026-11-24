@@ -4,11 +4,13 @@ class UserGistEntry {
   final String gistId;
   final int priorityUpdatedAt;
   final bool isCandidate;
+  final bool hasVideo;
 
   const UserGistEntry({
     required this.gistId,
     this.priorityUpdatedAt = 0,
     this.isCandidate = false,
+    this.hasVideo = false,
   });
 
   factory UserGistEntry.fromDynamic(dynamic value) {
@@ -16,6 +18,7 @@ class UserGistEntry {
       final gistId = (value['gist_id'] ?? '').toString();
       final priority = value['priority_updated_at'];
       final isCandidate = value['is_candidate'] == true;
+      final hasVideo = value['has_video'] == true;
       int parsedPriority = 0;
       if (priority is int) {
         parsedPriority = priority;
@@ -30,22 +33,35 @@ class UserGistEntry {
         gistId: gistId,
         priorityUpdatedAt: parsedPriority,
         isCandidate: isCandidate,
+        hasVideo: hasVideo,
       );
     } else if (value is String) {
-      return UserGistEntry(gistId: value, priorityUpdatedAt: 0, isCandidate: false);
+      return UserGistEntry(
+        gistId: value,
+        priorityUpdatedAt: 0,
+        isCandidate: false,
+        hasVideo: false,
+      );
     }
-    return const UserGistEntry(gistId: '', priorityUpdatedAt: 0, isCandidate: false);
+    return const UserGistEntry(
+      gistId: '',
+      priorityUpdatedAt: 0,
+      isCandidate: false,
+      hasVideo: false,
+    );
   }
 
   UserGistEntry copyWith({
     String? gistId,
     int? priorityUpdatedAt,
     bool? isCandidate,
+    bool? hasVideo,
   }) {
     return UserGistEntry(
       gistId: gistId ?? this.gistId,
       priorityUpdatedAt: priorityUpdatedAt ?? this.priorityUpdatedAt,
       isCandidate: isCandidate ?? this.isCandidate,
+      hasVideo: hasVideo ?? this.hasVideo,
     );
   }
 
@@ -53,6 +69,7 @@ class UserGistEntry {
     'gist_id': gistId,
     'priority_updated_at': priorityUpdatedAt,
     if (isCandidate) 'is_candidate': true,
+    if (hasVideo) 'has_video': true,
   };
 
   @override
@@ -62,12 +79,14 @@ class UserGistEntry {
           runtimeType == other.runtimeType &&
           gistId == other.gistId &&
           priorityUpdatedAt == other.priorityUpdatedAt &&
-          isCandidate == other.isCandidate;
+          isCandidate == other.isCandidate &&
+          hasVideo == other.hasVideo;
 
   @override
-  int get hashCode => Object.hash(gistId, priorityUpdatedAt, isCandidate);
+  int get hashCode =>
+      Object.hash(gistId, priorityUpdatedAt, isCandidate, hasVideo);
 
   @override
   String toString() =>
-      'UserGistEntry(gistId: $gistId, priorityUpdatedAt: $priorityUpdatedAt, isCandidate: $isCandidate)';
+      'UserGistEntry(gistId: $gistId, priorityUpdatedAt: $priorityUpdatedAt, isCandidate: $isCandidate, hasVideo: $hasVideo)';
 }

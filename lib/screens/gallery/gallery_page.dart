@@ -1098,12 +1098,17 @@ class _GalleryPageState extends State<GalleryPage> {
         final userItems = entry.value;
         final thumbItem = _selectThumbnailItem(userItems);
         final isPinned = (userPriorities[username] ?? 0) > 0;
+        final hasVideo =
+            (context.read<GalleryViewModel>().userGistEntries[username]?.hasVideo ??
+                    false) ||
+                userItems.any((i) => i.isVideo);
         return UserCard(
           username: username,
           thumbItem: thumbItem,
           isFavorite: favoriteUsers.contains(username),
           isPinned: isPinned,
           columnCount: columnCount,
+          hasVideo: hasVideo,
           onTap: () => _openUserGallery(username, scope: userUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),
@@ -1174,12 +1179,17 @@ class _GalleryPageState extends State<GalleryPage> {
         final userItems = entry.value;
         final thumbItem = _selectThumbnailItem(userItems);
         final isPinned = (userPriorities[username] ?? 0) > 0;
+        final hasVideo =
+            (context.read<GalleryViewModel>().userGistEntries[username]?.hasVideo ??
+                    false) ||
+                userItems.any((i) => i.isVideo);
         return UserCard(
           username: username,
           thumbItem: thumbItem,
           isFavorite: true,
           isPinned: isPinned,
           columnCount: columnCount,
+          hasVideo: hasVideo,
           onTap: () => _openUserGallery(username, scope: favUsernames),
           onFavoriteTap: () =>
               context.read<GalleryViewModel>().toggleFavorite(username),

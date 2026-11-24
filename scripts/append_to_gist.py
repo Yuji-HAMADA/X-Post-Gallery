@@ -131,6 +131,23 @@ def has_media(tweet):
         return True
     return False
 
+def check_user_has_video(tweets):
+    """ユーザーのツイート群に動画が含まれているか判定"""
+    if not tweets:
+        return False
+    for t in tweets:
+        if not isinstance(t, dict):
+            continue
+        if t.get("video_url") or t.get("video_urls"):
+            return True
+        media = (t.get("tweet", {}).get("extended_entities", {}).get("media") or
+                 t.get("tweet", {}).get("entities", {}).get("media"))
+        if isinstance(media, list):
+            for m in media:
+                if isinstance(m, dict) and m.get("type") in ("video", "animated_gif"):
+                    return True
+    return False
+
 def select_latest_thumbnail_tweet(tweets):
     """ユーザーのツイート群からサムネイル用最新メディアツイートを選出する"""
     if not tweets:
@@ -545,12 +562,17 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             user_priority = now_ms
             user_is_candidate = is_candidate
 
+        old_has_video = existing_entry.get("has_video", False) if isinstance(existing_entry, dict) else False
+        user_has_video = check_user_has_video(merged) or old_has_video
+
         entry_data = {
             "gist_id": final_id,
             "priority_updated_at": user_priority,
         }
         if user_is_candidate:
             entry_data["is_candidate"] = True
+        if user_has_video:
+            entry_data["has_video"] = True
         user_gists_map[canonical_user] = entry_data
         master_tweets = [t for t in master_tweets if extract_username(t).lower() != user.lower()]
         latest = select_latest_thumbnail_tweet(merged)
@@ -593,6 +615,8 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             }
             if entry.get("is_candidate"):
                 e_dict["is_candidate"] = True
+            if entry.get("has_video"):
+                e_dict["has_video"] = True
             unified_user_gists[u] = e_dict
         else:
             unified_user_gists[u] = {

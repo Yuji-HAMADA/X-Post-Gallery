@@ -11,6 +11,7 @@ class UserCard extends StatelessWidget {
   final bool isFavorite;
   final bool isPinned;
   final int? columnCount;
+  final bool? hasVideo;
   final VoidCallback onTap;
   final VoidCallback onFavoriteTap;
   final VoidCallback? onLongPress;
@@ -22,6 +23,7 @@ class UserCard extends StatelessWidget {
     required this.isFavorite,
     this.isPinned = false,
     this.columnCount,
+    this.hasVideo,
     required this.onTap,
     required this.onFavoriteTap,
     this.onLongPress,
@@ -109,10 +111,6 @@ class UserCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               child: Row(
                 children: [
-                  if (thumbItem.isVideo && thumbItem.videoUrl == null) ...[
-                    const Icon(Icons.play_arrow, size: 12, color: Colors.white70),
-                    const SizedBox(width: 2),
-                  ],
                   Expanded(
                     child: Text(
                       '@$username',
@@ -120,6 +118,11 @@ class UserCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if ((hasVideo ?? false) || thumbItem.isVideo) ...[
+                    const SizedBox(width: 2),
+                    const Icon(Icons.play_arrow,
+                        size: 12, color: Colors.white70),
+                  ],
                 ],
               ),
             ),

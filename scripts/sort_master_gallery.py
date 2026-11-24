@@ -181,6 +181,24 @@ def has_media(tweet):
     return False
 
 
+def check_user_has_video(tweets):
+    """ユーザーのツイート群に動画が含まれているか判定"""
+    if not tweets:
+        return False
+    for t in tweets:
+        if not isinstance(t, dict):
+            continue
+        if t.get("video_url") or t.get("video_urls"):
+            return True
+        media = (t.get("tweet", {}).get("extended_entities", {}).get("media") or
+                 t.get("tweet", {}).get("entities", {}).get("media"))
+        if isinstance(media, list):
+            for m in media:
+                if isinstance(m, dict) and m.get("type") in ("video", "animated_gif"):
+                    return True
+    return False
+
+
 def select_latest_thumbnail_tweet(tweets):
     """ユーザーの全ツイート群からサムネイル用最新メディアツイートを選出"""
     if not tweets:
@@ -234,6 +252,7 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
     # 各ユーザーの最新ツイートとソートキーを特定
     latest_tweet_map = {}  # username -> Tweet
     sort_key_map = {}      # username -> int (timestamp ms)
+    user_has_video_map = {}  # username -> bool
 
     if fetch_child:
         print(f"🔍 子Gistから最新ツイートとサムネイル画像を取得中 ({len(user_gists)} アカウント, 並列数: {max_threads})...")
@@ -267,6 +286,10 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
                 else:
                     sort_key_map[u] = 0
 
+                old_e = user_gists.get(u)
+                old_has_video = old_e.get("has_video", False) if isinstance(old_e, dict) else False
+                user_has_video_map[u] = check_user_has_video(all_candidate_tweets) or old_has_video
+
                 if completed_count % 20 == 0 or completed_count == len(user_child_map):
                     print(f"  [{completed_count}/{len(user_child_map)}] 取得完了...")
     else:
@@ -279,6 +302,9 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
                 sort_key_map[u] = get_tweet_sort_key(best_tweet)
             else:
                 sort_key_map[u] = 0
+            old_e = user_gists.get(u)
+            old_has_video = old_e.get("has_video", False) if isinstance(old_e, dict) else False
+            user_has_video_map[u] = check_user_has_video(tweets) or old_has_video
 
     # ユーザーを「ピン留めグループ」と「非ピン留めグループ」に分類
     pinned_users = []
@@ -305,6 +331,7 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
     for u in sorted_all_users:
         old_entry = user_gists[u]
         is_pinned = u in pinned_users
+        has_video = user_has_video_map.get(u, False)
         if isinstance(old_entry, dict):
             entry_dict = dict(old_entry)
             if is_pinned:
@@ -312,12 +339,17 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
                 entry_dict["priority_updated_at"] = max(1, sort_key_map.get(u, 1))
             else:
                 entry_dict["priority_updated_at"] = 0
+            if has_video:
+                entry_dict["has_video"] = True
             new_user_gists[u] = entry_dict
         else:
-            new_user_gists[u] = {
+            entry_dict = {
                 "gist_id": str(old_entry),
                 "priority_updated_at": max(1, sort_key_map.get(u, 1)) if is_pinned else 0,
             }
+            if has_video:
+                entry_dict["has_video"] = True
+            new_user_gists[u] = entry_dict
 
     # 新しい tweets（各ユーザーの最新サムネイル用ツイート）を構築
     new_tweets = []

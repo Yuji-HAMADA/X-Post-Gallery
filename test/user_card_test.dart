@@ -186,5 +186,79 @@ void main() {
 
       expect(find.text('@test_user を一番上に移動しました'), findsNothing);
     });
+
+    testWidgets('UserCard displays video indicator (play arrow) in bottom-right across 1, 2, and 3 columns', (tester) async {
+      final videoThumb = TweetItem(
+        id: 'v1',
+        fullText: 'Video tweet',
+        createdAt: '2026-01-01',
+        mediaUrls: const ['https://example.com/v1.jpg'],
+        videoUrls: const ['https://example.com/v1.mp4'],
+      );
+
+      for (final cols in [1, 2, 3]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 150,
+                  height: 150,
+                  child: UserCard(
+                    username: 'video_user',
+                    thumbItem: videoThumb,
+                    isFavorite: false,
+                    columnCount: cols,
+                    onTap: () {},
+                    onFavoriteTap: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // 下部バー右端の play_arrow アイコン（サイズ 12）が存在すること
+        final indicators = tester.widgetList<Icon>(find.byIcon(Icons.play_arrow)).where((i) => i.size == 12);
+        expect(indicators.length, 1, reason: 'Column count $cols must display bottom-right video indicator');
+      }
+    });
+
+    testWidgets('UserCard displays video indicator when thumbItem is image but hasVideo is true', (tester) async {
+      final imageThumb = TweetItem(
+        id: 'img1',
+        fullText: 'Image only tweet',
+        createdAt: '2026-01-01',
+        mediaUrls: const ['https://example.com/img.jpg'],
+        videoUrls: const [],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 150,
+                height: 150,
+                child: UserCard(
+                  username: 'hina2nd_ai',
+                  thumbItem: imageThumb,
+                  isFavorite: false,
+                  hasVideo: true, // アカウントは過去に動画を保持している
+                  onTap: () {},
+                  onFavoriteTap: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // サムネイル自体は静止画だが、hasVideo=true により右下インジケーター（サイズ 12）が表示されること
+      final indicators = tester.widgetList<Icon>(find.byIcon(Icons.play_arrow)).where((i) => i.size == 12);
+      expect(indicators.length, 1);
+    });
   });
 }
