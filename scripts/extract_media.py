@@ -6,7 +6,7 @@ import sys
 import time
 import argparse
 from datetime import datetime, timezone, timedelta
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit, parse_qs, urlencode
 from playwright.async_api import async_playwright
 
 # --- 設定・定数 ---
@@ -14,6 +14,8 @@ DATA_DIR = "data"
 OUTPUT_FILE = os.path.join(DATA_DIR, "tweets.js")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
+RESUME_DIR = os.path.join(DATA_DIR, "resume")
+RESUME_TTL_SECONDS = 24 * 3600  # 再開データの有効期限（24時間）
 JST = timezone(timedelta(hours=9))
 
 def to_jst_timestamp(ts_str):
@@ -45,6 +47,239 @@ def write_crawl_result(user, tweets_saved, status="ok"):
     except Exception as e:
         print(f"⚠️ Warning: Failed to write crawl result: {e}", file=sys.stderr)
 
+def write_tweets_output(tweets):
+    """取得したツイート配列を window.YTD.tweets.part0 形式で書き出す"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        f.write("window.YTD.tweets.part0 = ")
+        # 空リスト [] でも書き込むことで、Flutter側のエラーを防ぐ
+        json.dump(tweets if tweets else [], f, ensure_ascii=False, indent=2)
+
+# --- 再開（Resume）チェックポイント & GraphQL カーソル処理 ---
+
+def get_resume_file_path(user):
+    """ユーザーごとの再開状態ファイルパスを返す"""
+    safe_user = re.sub(r'[^a-z0-9_.-]', '_', (user or "").strip().lower())
+    return os.path.join(RESUME_DIR, f"{safe_user}.json")
+
+def save_resume_state(user, tweets, seen_ids, cursor=None, target_num=None):
+    """レート制限等で中断した際の取得済みデータ・カーソルをアトミックに保存する"""
+    if not user:
+        return
+    if not tweets and not cursor:
+        return
+    try:
+        os.makedirs(RESUME_DIR, exist_ok=True)
+        path = get_resume_file_path(user)
+        tmp_path = f"{path}.tmp.{os.getpid()}"
+        payload = {
+            "user": user,
+            "target_num": target_num,
+            "tweets": list(tweets),
+            "seen_ids": sorted(str(x) for x in seen_ids if x),
+            "cursor": cursor,
+            "saved_at": int(time.time()),
+        }
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to save resume state: {e}", file=sys.stderr)
+
+def load_resume_state(user, ttl_seconds=RESUME_TTL_SECONDS, now=None):
+    """有効な再開状態ファイルが存在すれば読み込む（期限切れ・破損時は破棄して None）"""
+    if not user:
+        return None
+    path = get_resume_file_path(user)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        if not isinstance(state, dict):
+            clear_resume_state(user)
+            return None
+        if str(state.get("user", "")).lower() != user.lower():
+            return None
+        saved_at = state.get("saved_at")
+        current_time = time.time() if now is None else now
+        if ttl_seconds is not None and saved_at is not None:
+            if (current_time - float(saved_at)) > ttl_seconds:
+                clear_resume_state(user)
+                return None
+        tweets = state.get("tweets")
+        if not isinstance(tweets, list):
+            clear_resume_state(user)
+            return None
+        return {
+            "user": state.get("user", user),
+            "target_num": state.get("target_num"),
+            "tweets": tweets,
+            "seen_ids": state.get("seen_ids") if isinstance(state.get("seen_ids"), list) else [],
+            "cursor": state.get("cursor") if isinstance(state.get("cursor"), str) and state.get("cursor") else None,
+            "saved_at": saved_at,
+        }
+    except Exception:
+        clear_resume_state(user)
+        return None
+
+def clear_resume_state(user):
+    """再開状態ファイルを削除する"""
+    if not user:
+        return
+    path = get_resume_file_path(user)
+    try:
+        if os.path.exists(path):
+            os.unlink(path)
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to clear resume state: {e}", file=sys.stderr)
+
+def apply_resume_state(resume_state, skip_ids):
+    """再開状態から (restored_tweets, resumed_ids, resume_cursor) を復元する"""
+    if not resume_state:
+        return [], set(), None
+
+    restored_tweets = []
+    restored_tweet_ids = set()
+    resumed_ids = {str(x) for x in resume_state.get("seen_ids", []) if x}
+
+    for item in resume_state.get("tweets", []):
+        if not isinstance(item, dict):
+            continue
+        tid = str(item.get("tweet", {}).get("id_str") or item.get("id_str") or "")
+        if not tid:
+            continue
+        resumed_ids.add(tid)
+        if tid in skip_ids or tid in restored_tweet_ids:
+            continue
+        restored_tweet_ids.add(tid)
+        restored_tweets.append(item)
+
+    resume_cursor = resume_state.get("cursor")
+    return restored_tweets, resumed_ids, resume_cursor
+
+def is_user_tweets_graphql_url(url):
+    """X の UserTweets GraphQL エンドポイント URL かどうかを判定する"""
+    if not url:
+        return False
+    try:
+        parsed = urlsplit(url)
+        path = parsed.path.rstrip("/")
+        return "/i/api/graphql/" in path and path.endswith("/UserTweets")
+    except Exception:
+        return False
+
+def extract_cursor_from_graphql_url(url):
+    """GraphQL リクエスト URL の variables パラメータから cursor 値を抽出する"""
+    try:
+        qs = parse_qs(urlsplit(url).query, keep_blank_values=True)
+        raw_vars = qs.get("variables", [None])[0]
+        if not raw_vars:
+            return None
+        variables = json.loads(raw_vars)
+        cursor = variables.get("cursor")
+        return str(cursor) if cursor else None
+    except Exception:
+        return None
+
+def inject_cursor_into_graphql_url(url, cursor):
+    """初期 UserTweets GraphQL リクエスト URL の variables に再開用 cursor を注入する"""
+    if not url or not cursor:
+        return None
+    try:
+        parsed = urlsplit(url)
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        raw_vars = qs.get("variables", [None])[0]
+        if not raw_vars:
+            return None
+        variables = json.loads(raw_vars)
+        if not isinstance(variables, dict):
+            return None
+        # 既に cursor を含む後続ページリクエストは変更しない
+        if variables.get("cursor"):
+            return None
+        variables["cursor"] = cursor
+        qs["variables"] = [json.dumps(variables, separators=(",", ":"))]
+        new_query = urlencode(qs, doseq=True)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
+    except Exception:
+        return None
+
+def extract_user_tweets_page_info(payload):
+    """UserTweets GraphQL レスポンスから (tweet_ids, bottom_cursor) を抽出する"""
+    if not isinstance(payload, dict):
+        return [], None
+
+    user_result = payload.get("data", {}).get("user", {}).get("result", {})
+    if not isinstance(user_result, dict):
+        return [], None
+    timeline_obj = (
+        user_result.get("timeline_v2", {}).get("timeline")
+        or user_result.get("timeline", {}).get("timeline")
+        or {}
+    )
+    instructions = timeline_obj.get("instructions", [])
+    if not isinstance(instructions, list):
+        return [], None
+
+    tweet_ids = []
+    bottom_cursor = None
+
+    for inst in instructions:
+        if not isinstance(inst, dict) or inst.get("type") != "TimelineAddEntries":
+            continue
+        entries = inst.get("entries", [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("entryId", ""))
+            content = entry.get("content", {})
+            if not isinstance(content, dict):
+                continue
+
+            if content.get("cursorType") == "Bottom" and content.get("value"):
+                bottom_cursor = str(content["value"])
+                continue
+
+            # プロモーション投稿は除外
+            if entry_id.startswith("promoted-tweet-") or content.get("itemContent", {}).get("promotedMetadata"):
+                continue
+
+            if entry_id.startswith("tweet-"):
+                tid = entry_id[len("tweet-"):]
+                if tid.isdigit():
+                    tweet_ids.append(tid)
+                    continue
+
+            tweet_res = content.get("itemContent", {}).get("tweet_results", {}).get("result", {})
+            if isinstance(tweet_res, dict):
+                rest_id = tweet_res.get("rest_id") or tweet_res.get("tweet", {}).get("rest_id")
+                if rest_id and str(rest_id).isdigit():
+                    tweet_ids.append(str(rest_id))
+                    continue
+
+            # スレッドモジュール（TimelineTimelineModule）内のツイートも収集
+            items = content.get("items")
+            if isinstance(items, list):
+                for sub in items:
+                    if not isinstance(sub, dict):
+                        continue
+                    sub_res = sub.get("item", {}).get("itemContent", {}).get("tweet_results", {}).get("result", {})
+                    if isinstance(sub_res, dict):
+                        rest_id = sub_res.get("rest_id") or sub_res.get("tweet", {}).get("rest_id")
+                        if rest_id and str(rest_id).isdigit():
+                            tweet_ids.append(str(rest_id))
+
+    return tweet_ids, bottom_cursor
+
+def select_resume_cursor(last_non_pinned_id, tweet_page_cursor, fallback_cursor=None):
+    """中断直前の非固定ツイートが含まれていたページの要求カーソルを選択する（取りこぼし防止）"""
+    if last_non_pinned_id and last_non_pinned_id in tweet_page_cursor:
+        return tweet_page_cursor[last_non_pinned_id]
+    return fallback_cursor
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--num", type=int, default=500)
@@ -54,6 +289,7 @@ def parse_args():
     parser.add_argument("--stop-on-existing", action="store_true", help="Stop when hitting a known ID (for user-specific append)")
     parser.add_argument("--max-no-new-scrolls", type=int, default=40, help="Safety guard: maximum consecutive scrolls without new media (default: 40)")
     parser.add_argument("--max-runtime", type=int, default=7200, help="Safety guard: maximum execution runtime in seconds (default: 7200)")
+    parser.add_argument("--no-resume", action="store_true", help="Ignore saved resume checkpoint and start from scratch")
     return parser.parse_args()
 
 def build_url(user):
@@ -560,6 +796,36 @@ async def run():
     target_label = f"@{args.user}"
     print(f"🚀 Mode: {mode} | Target: {target_label} | URL: {url}")
 
+    # 既知IDの読み込み（スキップ対象）
+    skip_ids = set()
+    if args.skip_ids_file and os.path.exists(args.skip_ids_file):
+        with open(args.skip_ids_file, 'r') as f:
+            skip_ids = {line.strip() for line in f if line.strip()}
+        print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
+
+    # 中断チェックポイントの復元（--no-resume 指定時は破棄して最初から取得）
+    new_tweets = []
+    resumed_ids = set()
+    active_resume_cursor = None
+    if args.no_resume:
+        clear_resume_state(args.user)
+    else:
+        resume_state = load_resume_state(args.user)
+        if resume_state:
+            new_tweets, resumed_ids, active_resume_cursor = apply_resume_state(resume_state, skip_ids)
+            print(
+                f"🔄 Resuming {target_label}: {len(new_tweets)}/{args.num} tweets restored from checkpoint "
+                f"(cursor={'yes' if active_resume_cursor else 'no'})."
+            )
+            # 復元時点で既に目標件数に達している場合はブラウザ起動せず即完了
+            if len(new_tweets) >= args.num:
+                final_tweets = new_tweets[:args.num]
+                write_tweets_output(final_tweets)
+                clear_resume_state(args.user)
+                write_crawl_result(args.user, len(final_tweets), status="ok")
+                print(f"\n✅ Done: {len(final_tweets)} tweets saved (completed from checkpoint).")
+                return
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
@@ -584,9 +850,28 @@ async def run():
         """)
 
         rate_limit_hit = False
+        injected_resume_cursor = False
+        first_user_tweets_resp_seen = False
+        cursor_injection_failed = False
+        tweet_page_cursor = {}
+
+        async def handle_user_tweets_route(route):
+            nonlocal injected_resume_cursor
+            req_url = route.request.url
+            if active_resume_cursor and not injected_resume_cursor and is_user_tweets_graphql_url(req_url):
+                new_url = inject_cursor_into_graphql_url(req_url, active_resume_cursor)
+                if new_url:
+                    injected_resume_cursor = True
+                    print("⏩ Injecting saved GraphQL cursor to resume timeline.")
+                    await route.continue_(url=new_url)
+                    return
+            await route.continue_()
+
+        if active_resume_cursor:
+            await page.route("**/i/api/graphql/**/UserTweets*", handle_user_tweets_route)
 
         async def handle_response(response):
-            nonlocal rate_limit_hit
+            nonlocal rate_limit_hit, first_user_tweets_resp_seen, cursor_injection_failed
             if response.status == 429:
                 res_url = response.url.lower()
                 # X (Twitter) の コア API エンドポイント (/i/api/ や api.x.com / api.twitter.com) の 429 のみを対象にする
@@ -594,6 +879,26 @@ async def run():
                 if any(domain in res_url for domain in ["api.twitter.com", "api.x.com", "x.com/i/api/", "twitter.com/i/api/"]):
                     print(f"⚠️ X API Rate limit (429) hit on: {response.url.split('?')[0]}")
                     rate_limit_hit = True
+                return
+
+            if is_user_tweets_graphql_url(response.url):
+                is_first = not first_user_tweets_resp_seen
+                first_user_tweets_resp_seen = True
+                if response.status >= 400:
+                    if injected_resume_cursor and is_first:
+                        cursor_injection_failed = True
+                    return
+                if response.status == 200:
+                    try:
+                        payload = await response.json()
+                        req_cursor = extract_cursor_from_graphql_url(response.url)
+                        if req_cursor is None and injected_resume_cursor and is_first:
+                            req_cursor = active_resume_cursor
+                        page_tids, _ = extract_user_tweets_page_info(payload)
+                        for ptid in page_tids:
+                            tweet_page_cursor[ptid] = req_cursor
+                    except Exception:
+                        pass
 
         page.on("response", handle_response)
         
@@ -605,6 +910,7 @@ async def run():
             early_status = await check_account_status(page)
             if early_status == "account_dead":
                 print(f"❌ Account @{args.user} is dead/suspended/inaccessible. Exiting with code 44.")
+                clear_resume_state(args.user)
                 await browser.close()
                 sys.exit(44)
             elif early_status == "auth_error":
@@ -621,11 +927,46 @@ async def run():
         elif status == "empty":
             timeline_empty = True
 
+        # カーソル注入での再開が空/失敗した場合は先頭からの通常スクロールへフォールバック（取得済みツイートは保持）
+        if injected_resume_cursor and not rate_limit_hit and (cursor_injection_failed or timeline_empty or not articles_ready):
+            print("⚠️ Resuming with GraphQL cursor yielded no timeline. Falling back to top-of-timeline scroll...")
+            try:
+                await page.unroute("**/i/api/graphql/**/UserTweets*", handle_user_tweets_route)
+            except Exception:
+                pass
+            active_resume_cursor = None
+            injected_resume_cursor = False
+            first_user_tweets_resp_seen = False
+            cursor_injection_failed = False
+            articles_ready = False
+            timeline_empty = False
+            try:
+                await page.goto(url, wait_until="domcontentloaded")
+                await dismiss_modals(page)
+                status = await wait_for_timeline(page, timeout=25)
+                if status == "ready":
+                    articles_ready = True
+                elif status == "empty":
+                    timeline_empty = True
+            except Exception as e:
+                print(f"⚠️ Fallback reload failed or timed out: {e}")
+
+        # 初期ロード時点でレート制限(429)を検知した場合はチェックポイントを保持したまま exit 42
+        if rate_limit_hit:
+            if new_tweets or active_resume_cursor:
+                save_resume_state(args.user, new_tweets, resumed_ids, cursor=active_resume_cursor, target_num=args.num)
+                print(f"💾 Preserved resume checkpoint for {target_label}: {len(new_tweets)}/{args.num} tweets.")
+            write_crawl_result(args.user, len(new_tweets), status="rate_limit")
+            print("🚨 Rate limit detected from X! Exiting with code 42.")
+            await browser.close()
+            sys.exit(42)
+
         # 初期タイムアウト時、アカウント状態を再確認
         if not articles_ready and not timeline_empty and args.user:
             status_check = await check_account_status(page)
             if status_check == "account_dead":
                 print(f"❌ Account @{args.user} is dead/suspended/inaccessible (e.g. age-restricted). Exiting with code 44.")
+                clear_resume_state(args.user)
                 await browser.close()
                 sys.exit(44)
             elif status_check == "auth_error":
@@ -651,15 +992,22 @@ async def run():
 
         # 空タイムライン確定時の即時終了
         if timeline_empty:
-            with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-                f.write("window.YTD.tweets.part0 = []")
-            write_crawl_result(args.user, 0, status="empty")
-            print("\n✅ Done: 0 tweets saved (empty timeline).")
+            write_tweets_output(new_tweets)
+            clear_resume_state(args.user)
+            write_crawl_result(args.user, len(new_tweets), status="empty" if not new_tweets else "ok")
+            print(f"\n✅ Done: {len(new_tweets)} tweets saved (empty timeline).")
             await browser.close()
             sys.exit(0)
 
         # リロード後も記事が検出されない場合は無駄なスクロールをスキップして即時診断・終了
         if not articles_ready:
+            if rate_limit_hit:
+                if new_tweets or active_resume_cursor:
+                    save_resume_state(args.user, new_tweets, resumed_ids, cursor=active_resume_cursor, target_num=args.num)
+                write_crawl_result(args.user, len(new_tweets), status="rate_limit")
+                print("🚨 Rate limit detected from X! Exiting with code 42.")
+                await browser.close()
+                sys.exit(42)
             diag_status = await diagnose_empty_state(page, 0, 0, 0)
             if diag_status in ("account_dead", "auth_error", "server_error"):
                 debug_screen = os.path.join(DATA_DIR, "debug_screen.png")
@@ -671,6 +1019,7 @@ async def run():
 
                 await browser.close()
                 if diag_status == "account_dead":
+                    clear_resume_state(args.user)
                     print(f"🚨 Account @{args.user} is dead/suspended/inaccessible. Exiting with code 44.")
                     sys.exit(44)
                 elif diag_status == "auth_error":
@@ -681,10 +1030,10 @@ async def run():
                     sys.exit(43)
             elif diag_status == "ok":
                 # 投稿なしなど正常な0件
-                with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-                    f.write("window.YTD.tweets.part0 = []")
-                write_crawl_result(args.user, 0, status="empty")
-                print("\n✅ Done: 0 tweets saved (empty timeline).")
+                write_tweets_output(new_tweets)
+                clear_resume_state(args.user)
+                write_crawl_result(args.user, len(new_tweets), status="empty" if not new_tweets else "ok")
+                print(f"\n✅ Done: {len(new_tweets)} tweets saved (empty timeline).")
                 await browser.close()
                 sys.exit(0)
 
@@ -699,14 +1048,7 @@ async def run():
         except Exception:
             pass
 
-        # 既知IDの読み込み（スキップ対象）
-        skip_ids = set()
-        if args.skip_ids_file and os.path.exists(args.skip_ids_file):
-            with open(args.skip_ids_file, 'r') as f:
-                skip_ids = {line.strip() for line in f if line.strip()}
-            print(f"⏭️ Skipping {len(skip_ids)} known IDs.")
-
-        new_tweets, seen_ids = [], set()
+        seen_ids = set()
         stall_count = 0
         scroll_count = 0
         total_articles_detected = 0
@@ -714,10 +1056,12 @@ async def run():
         skipped_count = 0
         hit_existing = False
         no_new_scrolls = 0
+        last_non_pinned_seen_id = None
         start_time = time.time()
 
         while len(new_tweets) < args.num and not hit_existing and not rate_limit_hit:
             prev_new_count = len(new_tweets)
+            saw_resumed_in_scroll = False
             articles = await page.query_selector_all('article')
             if not articles:
                 articles = await page.query_selector_all('[data-testid="tweet"]')
@@ -736,6 +1080,16 @@ async def run():
                 seen_ids.add(tid)
 
                 is_pinned = raw_info.get("is_pinned", False)
+
+                # 再開チェックポイントで既に処理済みのIDはスキップ（--stop-on-existing 誤発火防止）
+                if tid in resumed_ids:
+                    saw_resumed_in_scroll = True
+                    if not is_pinned and injected_resume_cursor:
+                        last_non_pinned_seen_id = tid
+                    continue
+
+                if not is_pinned:
+                    last_non_pinned_seen_id = tid
 
                 # 固定ツイート（Pinned）は重複停止判定から除外・スキップ
                 if is_pinned:
@@ -768,8 +1122,8 @@ async def run():
 
             if len(new_tweets) >= args.num or hit_existing or rate_limit_hit: break
 
-            # 新規メディア追加の有無を判定
-            if len(new_tweets) > prev_new_count:
+            # 新規メディア追加または再開済み範囲の通過中は no_new_scrolls をリセット
+            if len(new_tweets) > prev_new_count or saw_resumed_in_scroll:
                 no_new_scrolls = 0
             else:
                 no_new_scrolls += 1
@@ -819,8 +1173,27 @@ async def run():
         if skipped_count:
             print(f"⏭️ Skipped {skipped_count} already-known posts.")
 
-        # レート制限検知時
+        # レート制限検知時: 取得済みデータ・カーソルをチェックポイント保存して exit 42
         if rate_limit_hit:
+            checkpoint_cursor = select_resume_cursor(
+                last_non_pinned_seen_id,
+                tweet_page_cursor,
+                fallback_cursor=active_resume_cursor,
+            )
+            all_seen_ids = resumed_ids | seen_ids
+            if new_tweets or checkpoint_cursor:
+                save_resume_state(
+                    args.user,
+                    new_tweets,
+                    all_seen_ids,
+                    cursor=checkpoint_cursor,
+                    target_num=args.num,
+                )
+                print(
+                    f"💾 Saved resume checkpoint for {target_label}: {len(new_tweets)}/{args.num} tweets "
+                    f"(cursor={'yes' if checkpoint_cursor else 'no'})."
+                )
+            write_crawl_result(args.user, len(new_tweets), status="rate_limit")
             print("🚨 Rate limit detected from X! Exiting with code 42.")
             await browser.close()
             sys.exit(42)
@@ -838,6 +1211,7 @@ async def run():
 
                 await browser.close()
                 if diag_status == "account_dead":
+                    clear_resume_state(args.user)
                     print(f"🚨 Account @{args.user} is dead/suspended/inaccessible. Exiting with code 44.")
                     sys.exit(44)
                 elif diag_status == "auth_error":
@@ -847,10 +1221,8 @@ async def run():
                     print("🚨 Server error or timeline DOM failure. Exiting with code 43.")
                     sys.exit(43)
 
-        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-            f.write("window.YTD.tweets.part0 = ")
-            # 空リスト [] でも書き込むことで、Flutter側のエラーを防ぐ
-            json.dump(new_tweets if new_tweets else [], f, ensure_ascii=False, indent=2)
+        write_tweets_output(new_tweets)
+        clear_resume_state(args.user)
         write_crawl_result(args.user, len(new_tweets), status="ok")
         print(f"\n✅ Done: {len(new_tweets)} tweets saved.")
 
