@@ -82,10 +82,14 @@ def to_jst_from_unix(ts):
 async def enable_fast_resource_blocking(context):
     """帯域・CPU・RAM削減のため、画像・動画・フォント実バイナリのDLを遮断する"""
     async def _route_handler(route):
-        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
-            await route.abort()
-        else:
-            await route.continue_()
+        try:
+            if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+                await route.abort()
+            else:
+                await route.continue_()
+        except Exception:
+            # ブラウザ終了・ページ遷移直後の競合エラーを無視してパイプ書き込み警告を防ぐ
+            pass
 
     await context.route("**/*", _route_handler)
 
@@ -672,6 +676,14 @@ async def run():
             result_file=result_file,
         )
         print(f"\n✅ Done: {len(final_tweets)} TikTok posts saved.")
+        try:
+            await context.unroute_all(behavior="ignoreErrors")
+        except Exception:
+            pass
+        try:
+            await context.close()
+        except Exception:
+            pass
         await browser.close()
 
 

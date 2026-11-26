@@ -464,6 +464,7 @@ async def run_expansion_loop(args, gist_id):
 
         ig_feed_usernames = []
         tt_feed_posts = []
+        response_handler = None
         if platform == "instagram":
             async def _on_ig_response(response):
                 r_url = response.url
@@ -492,7 +493,8 @@ async def run_expansion_loop(args, gist_id):
                         if post.get("username"):
                             ig_feed_usernames.append(post["username"])
 
-            page.on("response", _on_ig_response)
+            response_handler = _on_ig_response
+            page.on("response", response_handler)
         elif platform == "tiktok":
             tt_mode = "following" if "/following" in args.timeline_url else "foryou"
 
@@ -508,121 +510,141 @@ async def run_expansion_loop(args, gist_id):
                     if post.get("username"):
                         tt_feed_posts.append(post)
 
-            page.on("response", _on_tt_response)
+            response_handler = _on_tt_response
+            page.on("response", response_handler)
 
-        while True:
-            cycle += 1
-            print("\n==================================================")
-            print(f"🔄 Starting Cycle {cycle}: Loading / Reloading Timeline ({platform})")
-            print(f"  URL: {args.timeline_url}")
-            print(f"  Scroll Batch Size: {args.scroll_batch_size} scrolls")
-            print(f"  Total Processed so far: {total_processed}")
-            print("==================================================")
+        try:
+            while True:
+                cycle += 1
+                print("\n==================================================")
+                print(f"🔄 Starting Cycle {cycle}: Loading / Reloading Timeline ({platform})")
+                print(f"  URL: {args.timeline_url}")
+                print(f"  Scroll Batch Size: {args.scroll_batch_size} scrolls")
+                print(f"  Total Processed so far: {total_processed}")
+                print("==================================================")
 
-            # 3. ホーム画面のリロード（初回は通常遷移）
-            ig_feed_usernames.clear()
-            tt_feed_posts.clear()
-            try:
-                await page.goto(args.timeline_url, wait_until="domcontentloaded", timeout=45000)
-                await page.wait_for_timeout(4000)
-            except Exception as e:
-                print(f"⚠️ Page load warning: {e}")
+                # 3. ホーム画面のリロード（初回は通常遷移）
+                ig_feed_usernames.clear()
+                tt_feed_posts.clear()
+                try:
+                    await page.goto(args.timeline_url, wait_until="domcontentloaded", timeout=45000)
+                    await page.wait_for_timeout(4000)
+                except Exception as e:
+                    print(f"⚠️ Page load warning: {e}")
 
-            # --- TikTok: For You タイムラインから取得済みのフル投稿を直接一括投入 ---
-            if platform == "tiktok":
-                print(f"\n📜 [Cycle {cycle}] Collecting TikTok timeline posts (target={args.num}, steps={args.scroll_batch_size})...")
-                tt_posts = await collect_tiktok_batch_posts(
-                    page,
-                    tt_feed_posts,
-                    scroll_batch_size=args.scroll_batch_size,
-                    target_posts=args.num,
-                )
-                unique_creators = {p["username"].lower() for p in tt_posts if p.get("username")}
-                print(f"📋 [Cycle {cycle}] Collected {len(tt_posts)} TikTok posts across {len(unique_creators)} creators.")
-                if tt_posts:
-                    ret_code = ingest_tiktok_batch_posts(gist_id, tt_posts)
-                    if ret_code == 0:
-                        total_processed += len(unique_creators)
+                # --- TikTok: For You タイムラインから取得済みのフル投稿を直接一括投入 ---
+                if platform == "tiktok":
+                    print(f"\n📜 [Cycle {cycle}] Collecting TikTok timeline posts (target={args.num}, steps={args.scroll_batch_size})...")
+                    tt_posts = await collect_tiktok_batch_posts(
+                        page,
+                        tt_feed_posts,
+                        scroll_batch_size=args.scroll_batch_size,
+                        target_posts=args.num,
+                    )
+                    # Gist 反映中に裏側で不要な通信・route コールバックが滞留するのを防ぐためページを停止
+                    try:
+                        await page.goto("about:blank", wait_until="commit", timeout=5000)
+                    except Exception:
+                        pass
+                    unique_creators = {p["username"].lower() for p in tt_posts if p.get("username")}
+                    print(f"📋 [Cycle {cycle}] Collected {len(tt_posts)} TikTok posts across {len(unique_creators)} creators.")
+                    if tt_posts:
+                        ret_code = await asyncio.to_thread(ingest_tiktok_batch_posts, gist_id, tt_posts)
+                        if ret_code == 0:
+                            total_processed += len(unique_creators)
+                    else:
+                        print(f"ℹ️ No TikTok posts found in this {args.scroll_batch_size}-step batch.")
+
+                    if args.max_cycles and cycle >= args.max_cycles:
+                        print(f"🏁 Reached maximum requested cycles ({args.max_cycles}). Stopping loop.")
+                        break
+                    print(f"\n✅ [Cycle {cycle}] Completed TikTok timeline ingestion. Reloading in 3 seconds...")
+                    await asyncio.sleep(3)
+                    continue
+
+                # 1. スクロールでアカウント収集（X / Instagram）
+                print(f"\n📜 [Cycle {cycle}] Collecting accounts ({args.scroll_batch_size} scrolls limit)...")
+                if platform == "instagram":
+                    batch_accounts = await collect_instagram_batch_accounts(
+                        page,
+                        ig_feed_usernames,
+                        scroll_batch_size=args.scroll_batch_size,
+                        excluded_accounts_lower=processed_accounts_lower,
+                    )
                 else:
-                    print(f"ℹ️ No TikTok posts found in this {args.scroll_batch_size}-step batch.")
+                    batch_accounts = await collect_batch_accounts(
+                        page,
+                        scroll_batch_size=args.scroll_batch_size,
+                        excluded_accounts_lower=processed_accounts_lower,
+                    )
+
+                print(f"📋 [Cycle {cycle}] Discovered {len(batch_accounts)} new accounts in this batch.")
+
+                # 2. 収集したアカウントの画像取得
+                if batch_accounts:
+                    for idx, account in enumerate(batch_accounts, start=1):
+                        acc_lower = account.lower()
+                        processed_accounts_lower.add(acc_lower)
+
+                        # すでに Candidate 扱いのアカウントは取得をスキップ
+                        if acc_lower in candidate_users_lower:
+                            print(f"\n⏭️ Skipping @{account}: Already registered in Candidate gallery.")
+                            continue
+
+                        is_existing = acc_lower in existing_users_lower
+                        fetch_num = args.num_existing if is_existing else args.num
+                        print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
+                        ret_code = await asyncio.to_thread(process_account, gist_id, account, fetch_num, is_existing, platform)
+
+                        # レート制限 (code 42) 検知時の自動待機＆リトライ
+                        if ret_code == 42:
+                            wait_mins = round(args.rate_limit_wait / 60, 1)
+                            print(f"\n🚨 Rate limit detected from {platform} (exit code 42) while processing @{account}.")
+                            print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until rate limit resets...")
+                            await asyncio.sleep(args.rate_limit_wait)
+                            print(f"🔄 Retrying @{account} after cooldown...")
+                            ret_code = await asyncio.to_thread(process_account, gist_id, account, fetch_num, is_existing, platform)
+
+                        if ret_code == 0:
+                            total_processed += 1
+                            if not is_existing:
+                                existing_users_lower[acc_lower] = account
+                                candidate_users_lower.add(acc_lower)
+
+                        # 連続アクセスによるレートリミットを予防するためのクールダウン
+                        if args.account_cooldown > 0:
+                            await asyncio.sleep(args.account_cooldown)
+
+                        if args.max_total_accounts and total_processed >= args.max_total_accounts:
+                            print(f"🛑 Reached maximum total accounts limit ({args.max_total_accounts}).")
+                            break
+                else:
+                    print(f"ℹ️ No new accounts found in this {args.scroll_batch_size}-scroll batch.")
+
+                if args.max_total_accounts and total_processed >= args.max_total_accounts:
+                    break
 
                 if args.max_cycles and cycle >= args.max_cycles:
                     print(f"🏁 Reached maximum requested cycles ({args.max_cycles}). Stopping loop.")
                     break
-                print(f"\n✅ [Cycle {cycle}] Completed TikTok timeline ingestion. Reloading in 3 seconds...")
+
+                print(f"\n✅ [Cycle {cycle}] Completed image fetching. Reloading timeline for next cycle in 3 seconds...")
                 await asyncio.sleep(3)
-                continue
-
-            # 1. スクロールでアカウント収集（X / Instagram）
-            print(f"\n📜 [Cycle {cycle}] Collecting accounts ({args.scroll_batch_size} scrolls limit)...")
-            if platform == "instagram":
-                batch_accounts = await collect_instagram_batch_accounts(
-                    page,
-                    ig_feed_usernames,
-                    scroll_batch_size=args.scroll_batch_size,
-                    excluded_accounts_lower=processed_accounts_lower,
-                )
-            else:
-                batch_accounts = await collect_batch_accounts(
-                    page,
-                    scroll_batch_size=args.scroll_batch_size,
-                    excluded_accounts_lower=processed_accounts_lower,
-                )
-
-            print(f"📋 [Cycle {cycle}] Discovered {len(batch_accounts)} new accounts in this batch.")
-
-            # 2. 収集したアカウントの画像取得
-            if batch_accounts:
-                for idx, account in enumerate(batch_accounts, start=1):
-                    acc_lower = account.lower()
-                    processed_accounts_lower.add(acc_lower)
-
-                    # すでに Candidate 扱いのアカウントは取得をスキップ
-                    if acc_lower in candidate_users_lower:
-                        print(f"\n⏭️ Skipping @{account}: Already registered in Candidate gallery.")
-                        continue
-
-                    is_existing = acc_lower in existing_users_lower
-                    fetch_num = args.num_existing if is_existing else args.num
-                    print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
-                    ret_code = process_account(gist_id, account, fetch_num, is_existing, platform=platform)
-
-                    # レート制限 (code 42) 検知時の自動待機＆リトライ
-                    if ret_code == 42:
-                        wait_mins = round(args.rate_limit_wait / 60, 1)
-                        print(f"\n🚨 Rate limit detected from {platform} (exit code 42) while processing @{account}.")
-                        print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until rate limit resets...")
-                        await asyncio.sleep(args.rate_limit_wait)
-                        print(f"🔄 Retrying @{account} after cooldown...")
-                        ret_code = process_account(gist_id, account, fetch_num, is_existing, platform=platform)
-
-                    if ret_code == 0:
-                        total_processed += 1
-                        if not is_existing:
-                            existing_users_lower[acc_lower] = account
-                            candidate_users_lower.add(acc_lower)
-
-                    # 連続アクセスによるレートリミットを予防するためのクールダウン
-                    if args.account_cooldown > 0:
-                        await asyncio.sleep(args.account_cooldown)
-
-                    if args.max_total_accounts and total_processed >= args.max_total_accounts:
-                        print(f"🛑 Reached maximum total accounts limit ({args.max_total_accounts}).")
-                        break
-            else:
-                print(f"ℹ️ No new accounts found in this {args.scroll_batch_size}-scroll batch.")
-
-            if args.max_total_accounts and total_processed >= args.max_total_accounts:
-                break
-
-            if args.max_cycles and cycle >= args.max_cycles:
-                print(f"🏁 Reached maximum requested cycles ({args.max_cycles}). Stopping loop.")
-                break
-
-            print(f"\n✅ [Cycle {cycle}] Completed image fetching. Reloading timeline for next cycle in 3 seconds...")
-            await asyncio.sleep(3)
-
-        await browser.close()
+        finally:
+            if response_handler is not None:
+                try:
+                    page.remove_listener("response", response_handler)
+                except Exception:
+                    pass
+            try:
+                await context.unroute_all(behavior="ignoreErrors")
+            except Exception:
+                pass
+            for closable in (page, context, browser):
+                try:
+                    await closable.close()
+                except Exception:
+                    pass
 
     print("\n==================================================")
     print("Timeline Expansion Loop Finished")

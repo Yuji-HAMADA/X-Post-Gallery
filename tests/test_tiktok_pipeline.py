@@ -191,6 +191,26 @@ class TestTikTokPipeline(unittest.TestCase):
         self.assertEqual(url, "https://www.tiktok.com/aweme/v1/play/?video_id=h264_main")
         self.assertEqual(br, 1200000)
 
+    def test_route_handler_ignores_teardown_errors(self):
+        """リソース遮断ルートハンドラが終了時の例外を握りつぶして安全終了すること"""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        registered = {}
+
+        class DummyContext:
+            async def route(self, pattern, handler):
+                registered["handler"] = handler
+
+        asyncio.run(tt_ext.enable_fast_resource_blocking(DummyContext()))
+        handler = registered["handler"]
+
+        route = MagicMock()
+        route.request.resource_type = "media"
+        route.abort = AsyncMock(side_effect=RuntimeError("Target closed"))
+        asyncio.run(handler(route))
+        route.abort.assert_awaited_once()
+
     def test_poc_parse_cookies_input(self):
         """Cookie ヘッダおよび JSON 配列が TikTok Playwright Cookie へ変換されること"""
         c1 = tt_poc.parse_cookies_input("Cookie: sessionid=s1; sid_tt=t1")

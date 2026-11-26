@@ -39,10 +39,13 @@ BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
 async def enable_fast_resource_blocking(context):
     """帯域・CPU・RAM削減のため、画像・動画・フォント実バイナリのDLを遮断する"""
     async def _route_handler(route):
-        if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
-            await route.abort()
-        else:
-            await route.continue_()
+        try:
+            if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+                await route.abort()
+            else:
+                await route.continue_()
+        except Exception:
+            pass
 
     await context.route("**/*", _route_handler)
 
