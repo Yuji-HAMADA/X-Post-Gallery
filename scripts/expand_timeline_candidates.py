@@ -23,6 +23,15 @@ from playwright.async_api import async_playwright
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from extract_media import AUTH_PATH, DATA_DIR, dismiss_modals
 from extract_instagram_media import AUTH_PATH as IG_AUTH_PATH, extract_posts_from_payload as extract_ig_posts_from_payload
+from extract_tiktok_media import (
+    AUTH_PATH as TIKTOK_AUTH_PATH,
+    OUTPUT_FILE as TIKTOK_OUTPUT_FILE,
+    extract_items_from_payload as extract_tt_items_from_payload,
+    is_allowed_tiktok_api_url,
+    enable_fast_resource_blocking as enable_tt_resource_blocking,
+    to_archive_tweet_format as tt_to_archive_tweet_format,
+    write_tweets_output as tt_write_tweets_output,
+)
 
 EXTRACT_ACCOUNTS_JS = """() => {
     const articles = document.querySelectorAll('article');
@@ -159,11 +168,11 @@ def fetch_master_user_gists(gist_id):
 def parse_args():
     parser = argparse.ArgumentParser(description="Timeline Candidate Account Collector")
     parser.add_argument("-g", "--gist-id", default=None, help="Master Gist ID (defaults to MASTER_GIST_ID env)")
-    parser.add_argument("--platform", choices=["x", "instagram"], default=os.environ.get("PLATFORM", "x").lower(),
-                        help="Platform to crawl: x or instagram (default: x)")
+    parser.add_argument("--platform", choices=["x", "instagram", "tiktok"], default=os.environ.get("PLATFORM", "x").lower(),
+                        help="Platform to crawl: x, instagram, or tiktok (default: x)")
     parser.add_argument("-n", "--num", type=int, default=300, help="Number of tweets to fetch for new accounts (default: 300)")
     parser.add_argument("--num-existing", type=int, default=500, help="Number of tweets to fetch for existing accounts (default: 500)")
-    parser.add_argument("--timeline-url", default=None, help="Timeline URL to scrape (defaults to x.com/home or instagram.com/)")
+    parser.add_argument("--timeline-url", default=None, help="Timeline URL to scrape (defaults to x.com/home, instagram.com/, or tiktok.com/foryou)")
     parser.add_argument("--scroll-batch-size", type=int, default=10, help="Number of scrolls per collection batch (default: 10)")
     parser.add_argument("--max-cycles", type=int, default=None, help="Maximum number of reload-and-collect cycles (default: unlimited)")
     parser.add_argument("--max-total-accounts", type=int, default=None, help="Max total accounts to process")
@@ -174,7 +183,12 @@ def parse_args():
     parser.add_argument("--no-headless", action="store_true", help="Run browser in headful mode")
     args = parser.parse_args()
     if not args.timeline_url:
-        args.timeline_url = "https://www.instagram.com/" if args.platform == "instagram" else "https://x.com/home"
+        if args.platform == "instagram":
+            args.timeline_url = "https://www.instagram.com/"
+        elif args.platform == "tiktok":
+            args.timeline_url = "https://www.tiktok.com/foryou"
+        else:
+            args.timeline_url = "https://x.com/home"
     return args
 
 async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_lower=None):
@@ -239,8 +253,8 @@ def process_account(gist_id, username, num, is_existing, platform="x"):
     append_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "append_to_gist.py")
 
     cmd = [python_bin, append_script, "-g", gist_id, "-u", username, "-n", str(num)]
-    if platform == "instagram":
-        cmd.extend(["--platform", "instagram"])
+    if platform in ("instagram", "tiktok"):
+        cmd.extend(["--platform", platform])
     if is_existing:
         print(f"\n📂 Processing EXISTING account: @{username} (Stop on existing: Yes, Keep Gallery: Yes)")
         cmd.append("-s")
@@ -343,9 +357,85 @@ async def collect_instagram_batch_accounts(page, ig_feed_usernames, scroll_batch
     return batch_accounts
 
 
+async def collect_tiktok_batch_posts(page, tt_feed_posts, scroll_batch_size=10, target_posts=30):
+    """
+    TikTok For You / Following タイムライン API (/api/recommend/item_list/) から
+    動画・フォトモード投稿本体を直接一括収集する。
+    ※ヘッドレス環境ではプロフィール一覧API (/api/post/item_list/) が空レスポンス(0 bytes)を返す制限があるため、
+      For You ストリームで取得済みのフルメディアデータをそのまま Gist 投入する。
+    """
+    collected = {}
+
+    def _drain():
+        raw_seen = 0
+        while tt_feed_posts:
+            raw_seen += 1
+            post = tt_feed_posts.pop(0)
+            pid = str(post.get("id") or "")
+            if pid and pid not in collected:
+                collected[pid] = post
+                print(
+                    f"  🎯 Collected TikTok post: {pid} (@{post.get('username', '')}) "
+                    f"[{len(collected)}/{target_posts}]"
+                )
+        return raw_seen
+
+    _drain()
+
+    stalls = 0
+    MAX_STALLS = 3
+    for scroll_idx in range(1, scroll_batch_size + 1):
+        if len(collected) >= target_posts:
+            break
+        for _ in range(3):
+            await page.keyboard.press("ArrowDown")
+            await asyncio.sleep(0.8)
+        await asyncio.sleep(1.8)
+        raw_seen = _drain()
+        if raw_seen == 0:
+            stalls += 1
+            if stalls >= MAX_STALLS:
+                print(f"⏳ No new TikTok feed items at step {scroll_idx}/{scroll_batch_size} (after {MAX_STALLS} stalls).")
+                break
+        else:
+            stalls = 0
+
+    return list(collected.values())[:target_posts]
+
+
+def ingest_tiktok_batch_posts(gist_id, posts):
+    """収集した TikTok 投稿群を tiktok_tweets.js へ書き出し、append_to_gist.py (--skip-extract) で一括反映する"""
+    archive_items = []
+    for p in posts:
+        item = tt_to_archive_tweet_format(p)
+        if item:
+            archive_items.append(item)
+    if not archive_items:
+        return 0
+
+    tt_write_tweets_output(archive_items, TIKTOK_OUTPUT_FILE)
+    python_bin = sys.executable
+    append_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "append_to_gist.py")
+    cmd = [
+        python_bin, append_script,
+        "--platform", "tiktok",
+        "--skip-extract",
+        "--is-candidate",
+        "-g", gist_id,
+    ]
+    print(f"\n📦 Ingesting {len(archive_items)} TikTok For You posts into Gist...")
+    res = subprocess.run(cmd)
+    return res.returncode
+
+
 async def run_expansion_loop(args, gist_id):
     platform = getattr(args, "platform", "x") or "x"
-    auth_path = IG_AUTH_PATH if platform == "instagram" else AUTH_PATH
+    if platform == "instagram":
+        auth_path = IG_AUTH_PATH
+    elif platform == "tiktok":
+        auth_path = TIKTOK_AUTH_PATH
+    else:
+        auth_path = AUTH_PATH
     if not os.path.exists(auth_path):
         print(f"❌ Error: Auth credentials not found at {auth_path}")
         sys.exit(1)
@@ -368,9 +458,12 @@ async def run_expansion_loop(args, gist_id):
             storage_state=auth_path,
             viewport={"width": 1280, "height": 900},
         )
+        if platform == "tiktok":
+            await enable_tt_resource_blocking(context)
         page = await context.new_page()
 
         ig_feed_usernames = []
+        tt_feed_posts = []
         if platform == "instagram":
             async def _on_ig_response(response):
                 r_url = response.url
@@ -400,6 +493,22 @@ async def run_expansion_loop(args, gist_id):
                             ig_feed_usernames.append(post["username"])
 
             page.on("response", _on_ig_response)
+        elif platform == "tiktok":
+            tt_mode = "following" if "/following" in args.timeline_url else "foryou"
+
+            async def _on_tt_response(response):
+                r_url = response.url
+                if response.status != 200 or not is_allowed_tiktok_api_url(r_url, source_mode=tt_mode):
+                    return
+                try:
+                    pl = await response.json()
+                except Exception:
+                    return
+                for post in extract_tt_items_from_payload(pl, source="api_tiktok"):
+                    if post.get("username"):
+                        tt_feed_posts.append(post)
+
+            page.on("response", _on_tt_response)
 
         while True:
             cycle += 1
@@ -412,13 +521,39 @@ async def run_expansion_loop(args, gist_id):
 
             # 3. ホーム画面のリロード（初回は通常遷移）
             ig_feed_usernames.clear()
+            tt_feed_posts.clear()
             try:
                 await page.goto(args.timeline_url, wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(4000)
             except Exception as e:
                 print(f"⚠️ Page load warning: {e}")
 
-            # 1. スクロールでアカウント収集
+            # --- TikTok: For You タイムラインから取得済みのフル投稿を直接一括投入 ---
+            if platform == "tiktok":
+                print(f"\n📜 [Cycle {cycle}] Collecting TikTok timeline posts (target={args.num}, steps={args.scroll_batch_size})...")
+                tt_posts = await collect_tiktok_batch_posts(
+                    page,
+                    tt_feed_posts,
+                    scroll_batch_size=args.scroll_batch_size,
+                    target_posts=args.num,
+                )
+                unique_creators = {p["username"].lower() for p in tt_posts if p.get("username")}
+                print(f"📋 [Cycle {cycle}] Collected {len(tt_posts)} TikTok posts across {len(unique_creators)} creators.")
+                if tt_posts:
+                    ret_code = ingest_tiktok_batch_posts(gist_id, tt_posts)
+                    if ret_code == 0:
+                        total_processed += len(unique_creators)
+                else:
+                    print(f"ℹ️ No TikTok posts found in this {args.scroll_batch_size}-step batch.")
+
+                if args.max_cycles and cycle >= args.max_cycles:
+                    print(f"🏁 Reached maximum requested cycles ({args.max_cycles}). Stopping loop.")
+                    break
+                print(f"\n✅ [Cycle {cycle}] Completed TikTok timeline ingestion. Reloading in 3 seconds...")
+                await asyncio.sleep(3)
+                continue
+
+            # 1. スクロールでアカウント収集（X / Instagram）
             print(f"\n📜 [Cycle {cycle}] Collecting accounts ({args.scroll_batch_size} scrolls limit)...")
             if platform == "instagram":
                 batch_accounts = await collect_instagram_batch_accounts(

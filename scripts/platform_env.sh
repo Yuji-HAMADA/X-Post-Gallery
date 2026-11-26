@@ -43,6 +43,17 @@ resolve_platform_env() {
     export PLATFORM_ADAPTIVE_STATE="$project_dir/data/instagram_adaptive_skip_state.json"
     export PLATFORM_LOCK_SUFFIX="_instagram"
     export PLATFORM_LABEL="Instagram"
+  elif [ "$PLATFORM" = "tiktok" ]; then
+    export MASTER_GIST_ID="${TIKTOK_MASTER_GIST_ID:-}"
+    export FETCH_QUEUE_GIST_ID="${TIKTOK_FETCH_QUEUE_GIST_ID:-}"
+    export FETCH_QUEUE_SLOT1_GIST_ID="${TIKTOK_FETCH_QUEUE_SLOT1_GIST_ID:-}"
+    export FAVORITE_GIST_ID="${TIKTOK_FAVORITE_GIST_ID:-}"
+    export PLATFORM_AUTH_PATH="$project_dir/data/tiktok_auth.json"
+    export PLATFORM_AUTH_ENV="${TIKTOK_AUTH_JSON:-}"
+    export PLATFORM_RESULT_FILE="$project_dir/data/.last_fetch_result_tiktok.json"
+    export PLATFORM_ADAPTIVE_STATE="$project_dir/data/tiktok_adaptive_skip_state.json"
+    export PLATFORM_LOCK_SUFFIX="_tiktok"
+    export PLATFORM_LABEL="TikTok"
   else
     export PLATFORM="x"
     export PLATFORM_AUTH_PATH="$project_dir/data/auth.json"

@@ -460,22 +460,34 @@ class _DetailImageItemState extends State<DetailImageItem>
     );
   }
 
-  /// ハッシュタグ・ユーザー名タップ → 対象プラットフォーム（X / Instagram）を外部ブラウザで開く
+  /// ハッシュタグ・ユーザー名タップ → 対象プラットフォーム（X / Instagram / TikTok）を外部ブラウザで開く
   void _onTagTap(String tag) async {
+    final postUrl = widget.item.postUrl ?? '';
     final isInstagram =
-        widget.item.postUrl?.contains('instagram.com') == true ||
+        postUrl.contains('instagram.com') ||
         widget.item.mediaUrls.any((u) => u.contains('cdninstagram.com'));
+    final isTikTok =
+        postUrl.contains('tiktok.com') ||
+        widget.item.mediaUrls.any((u) => u.contains('tiktokcdn.com'));
     final String url;
     if (tag.startsWith('#')) {
       final cleaned = tag.substring(1);
-      url = isInstagram
-          ? 'https://www.instagram.com/explore/tags/${Uri.encodeComponent(cleaned)}/'
-          : 'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
+      if (isInstagram) {
+        url = 'https://www.instagram.com/explore/tags/${Uri.encodeComponent(cleaned)}/';
+      } else if (isTikTok) {
+        url = 'https://www.tiktok.com/tag/${Uri.encodeComponent(cleaned)}';
+      } else {
+        url = 'https://x.com/search?q=${Uri.encodeComponent(tag)}&src=typed_query&f=media';
+      }
     } else if (tag.startsWith('@')) {
       final handle = tag.substring(1);
-      url = isInstagram
-          ? 'https://www.instagram.com/$handle/'
-          : 'https://x.com/$handle';
+      if (isInstagram) {
+        url = 'https://www.instagram.com/$handle/';
+      } else if (isTikTok) {
+        url = 'https://www.tiktok.com/@$handle';
+      } else {
+        url = 'https://x.com/$handle';
+      }
     } else {
       return;
     }

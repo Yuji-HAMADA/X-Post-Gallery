@@ -314,8 +314,8 @@ process_slot() {
     rm -f "$PLATFORM_RESULT_FILE"
 
     local PLATFORM_FLAGS=()
-    if [ "$PLATFORM" = "instagram" ]; then
-      PLATFORM_FLAGS=(--platform instagram)
+    if [ "$PLATFORM" = "instagram" ] || [ "$PLATFORM" = "tiktok" ]; then
+      PLATFORM_FLAGS=(--platform "$PLATFORM")
     fi
 
     if [ "$FROM_SCRATCH" = "true" ]; then

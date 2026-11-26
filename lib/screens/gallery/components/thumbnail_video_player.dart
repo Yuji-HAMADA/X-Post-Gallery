@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../../utils/video_http_headers.dart';
 
 /// [JA] サムネイル上で画面の大部分を占めた際にミュート自動再生する動画ウィジェット
 /// [EN] Video thumbnail widget that automatically plays muted when occupying most of the screen
@@ -123,8 +124,10 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
 
   Future<void> _initAndPlay({bool forcePlay = false}) async {
     if (widget.videoUrl.isEmpty) return;
-    final controller =
-        VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(widget.videoUrl),
+      httpHeaders: buildVideoHttpHeaders(widget.videoUrl),
+    );
     _controller = controller;
 
     try {

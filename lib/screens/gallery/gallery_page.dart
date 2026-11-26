@@ -719,6 +719,11 @@ class _GalleryPageState extends State<GalleryPage> {
                     checked: vm.currentSource == DataSource.instagram,
                     child: const Text('Instagram'),
                   ),
+                  CheckedPopupMenuItem<DataSource>(
+                    value: DataSource.tiktok,
+                    checked: vm.currentSource == DataSource.tiktok,
+                    child: const Text('TikTok'),
+                  ),
                 ],
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -733,16 +738,20 @@ class _GalleryPageState extends State<GalleryPage> {
                     decoration: BoxDecoration(
                       color: vm.currentSource == DataSource.instagram
                           ? Colors.pinkAccent.withValues(alpha: 0.22)
+                          : vm.currentSource == DataSource.tiktok
+                          ? Colors.cyanAccent.withValues(alpha: 0.22)
                           : Colors.white12,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: vm.currentSource == DataSource.instagram
                             ? Colors.pinkAccent
+                            : vm.currentSource == DataSource.tiktok
+                            ? Colors.cyanAccent
                             : Colors.white30,
                       ),
                     ),
                     child: Text(
-                      vm.currentSource == DataSource.instagram ? 'IG' : 'X',
+                      vm.currentSource.shortLabel,
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,

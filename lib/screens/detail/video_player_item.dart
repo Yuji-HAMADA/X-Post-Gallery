@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../l10n/app_localizations.dart';
+import '../../utils/video_http_headers.dart';
 import '../../utils/video_wakelock_manager.dart';
 
 /// 動画再生ウィジェット（再生/一時停止、シークバー、消音切り替え対応）
@@ -66,8 +67,10 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
   }
 
   Future<void> _initializePlayer() async {
-    final controller =
-        VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(widget.videoUrl),
+      httpHeaders: buildVideoHttpHeaders(widget.videoUrl),
+    );
     _controller = controller;
     try {
       await controller.initialize();
@@ -151,19 +154,45 @@ class _VideoPlayerItemState extends State<VideoPlayerItem> {
 
     if (_hasError) {
       final l10n = AppLocalizations.of(context);
+      final thumb = widget.thumbnailUrl;
       return Container(
         width: screenWidth,
         height: 240,
         color: Colors.black,
         alignment: Alignment.center,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
-            const SizedBox(height: 8),
-            Text(
-              l10n.videoLoadFailed,
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            // 動画URL期限切れ・再生不可時のフォールバック用サムネイル表示
+            if (thumb != null && thumb.isNotEmpty)
+              Positioned.fill(
+                child: Image.network(
+                  thumb,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.redAccent,
+                    size: 36,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    l10n.videoLoadFailed,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

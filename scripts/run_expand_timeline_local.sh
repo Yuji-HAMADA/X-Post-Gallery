@@ -32,7 +32,7 @@ fi
 
 # MASTER_GIST_ID の確認
 if [ -z "${MASTER_GIST_ID:-}" ]; then
-  echo "❌ Error: MASTER_GIST_ID (or IG_MASTER_GIST_ID for instagram) is not set in .env or environment."
+  echo "❌ Error: MASTER_GIST_ID (or IG_MASTER_GIST_ID / TIKTOK_MASTER_GIST_ID) is not set in .env or environment."
   exit 1
 fi
 

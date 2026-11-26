@@ -173,6 +173,10 @@ def main():
         fav_id = os.environ.get("FAVORITE_GIST_ID") or os.environ.get("IG_FAVORITE_GIST_ID")
         q0_id = os.environ.get("FETCH_QUEUE_GIST_ID") or os.environ.get("IG_FETCH_QUEUE_GIST_ID")
         q1_id = os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID") or os.environ.get("IG_FETCH_QUEUE_SLOT1_GIST_ID")
+    elif platform == "tiktok":
+        fav_id = os.environ.get("FAVORITE_GIST_ID") or os.environ.get("TIKTOK_FAVORITE_GIST_ID")
+        q0_id = os.environ.get("FETCH_QUEUE_GIST_ID") or os.environ.get("TIKTOK_FETCH_QUEUE_GIST_ID")
+        q1_id = os.environ.get("FETCH_QUEUE_SLOT1_GIST_ID") or os.environ.get("TIKTOK_FETCH_QUEUE_SLOT1_GIST_ID")
     else:
         fav_id = os.environ.get("FAVORITE_GIST_ID")
         q0_id = os.environ.get("FETCH_QUEUE_GIST_ID")

@@ -16,6 +16,9 @@ const String _externalFetchQueueGistId = String.fromEnvironment(
 const String _externalIgFetchQueueGistId = String.fromEnvironment(
   'IG_FETCH_QUEUE_GIST_ID',
 );
+const String _externalTiktokFetchQueueGistId = String.fromEnvironment(
+  'TIKTOK_FETCH_QUEUE_GIST_ID',
+);
 
 /// fetch_queue.json の2スロットリングバッファの読み込み結果
 class _QueueSlots {
@@ -54,9 +57,10 @@ class GitHubService {
   final String token;
   final String owner;
 
-  /// キューGist ID（X用 / Instagram用）
+  /// キューGist ID（X用 / Instagram用 / TikTok用）
   final String fetchQueueGistId;
   final String igFetchQueueGistId;
+  final String tiktokFetchQueueGistId;
 
   DataSource _source = DataSource.x;
   DataSource get source => _source;
@@ -65,8 +69,16 @@ class GitHubService {
   }
 
   /// 選択中プラットフォームのキューGist ID
-  String get activeFetchQueueGistId =>
-      _source == DataSource.instagram ? igFetchQueueGistId : fetchQueueGistId;
+  String get activeFetchQueueGistId {
+    switch (_source) {
+      case DataSource.x:
+        return fetchQueueGistId;
+      case DataSource.instagram:
+        return igFetchQueueGistId;
+      case DataSource.tiktok:
+        return tiktokFetchQueueGistId;
+    }
+  }
 
   String _lastErrorMessage = '';
 
@@ -79,13 +91,19 @@ class GitHubService {
     String? owner,
     String? fetchQueueGistId,
     String? igFetchQueueGistId,
+    String? tiktokFetchQueueGistId,
   })  : _client = client ?? http.Client(),
         token = token ?? resolveEnv(_externalToken, 'GITHUB_TOKEN'),
         owner = owner ?? resolveEnv(_externalGithubUsername, 'GITHUB_USERNAME'),
         fetchQueueGistId = fetchQueueGistId ??
             resolveEnv(_externalFetchQueueGistId, 'FETCH_QUEUE_GIST_ID'),
         igFetchQueueGistId = igFetchQueueGistId ??
-            resolveEnv(_externalIgFetchQueueGistId, 'IG_FETCH_QUEUE_GIST_ID');
+            resolveEnv(_externalIgFetchQueueGistId, 'IG_FETCH_QUEUE_GIST_ID'),
+        tiktokFetchQueueGistId = tiktokFetchQueueGistId ??
+            resolveEnv(
+              _externalTiktokFetchQueueGistId,
+              'TIKTOK_FETCH_QUEUE_GIST_ID',
+            );
 
   // ヘッダーをゲッターで定義して、毎回新しいマップを返すようにする
   Map<String, String> get _headers => {

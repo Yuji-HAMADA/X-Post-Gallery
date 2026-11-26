@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     *)
-      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch] [--is-candidate] [--platform x|instagram]"
+      echo "Usage: $0 -g gist_id -u user [-n num] [-s] [-f] [-p promote_gist_id] [--from-scratch] [--is-candidate] [--platform x|instagram|tiktok]"
       exit 1
       ;;
   esac

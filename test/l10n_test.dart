@@ -65,7 +65,10 @@ void main() {
       expect(l10n.networkError('err'), '通信エラーが発生しました: err');
       expect(l10n.masterGistUpdateFailed(null), 'マスターGistの更新に失敗しました');
       expect(l10n.dataSourceLabel, '取得元');
-      expect(l10n.tooltipSwitchDataSource, '取得元を切り替え (X / Instagram)');
+      expect(
+        l10n.tooltipSwitchDataSource,
+        '取得元を切り替え (X / Instagram / TikTok)',
+      );
       expect(l10n.verifyingOnSource('Instagram'), 'Instagramで確認中...');
       expect(
         l10n.userNotFoundOnSource('user1', 'Instagram'),
@@ -138,7 +141,10 @@ void main() {
       expect(l10n.networkError('err'), 'Network error: err');
       expect(l10n.masterGistUpdateFailed(null), 'Failed to update Master Gist');
       expect(l10n.dataSourceLabel, 'Source');
-      expect(l10n.tooltipSwitchDataSource, 'Switch source (X / Instagram)');
+      expect(
+        l10n.tooltipSwitchDataSource,
+        'Switch source (X / Instagram / TikTok)',
+      );
       expect(l10n.verifyingOnSource('Instagram'), 'Verifying on Instagram...');
       expect(
         l10n.userNotFoundOnSource('user1', 'Instagram'),

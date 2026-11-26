@@ -21,18 +21,30 @@ from urllib.parse import parse_qs, urlsplit
 DATA_DIR = "data"
 TWEETS_JS = os.path.join(DATA_DIR, "tweets.js")
 IG_TWEETS_JS = os.path.join(DATA_DIR, "instagram_tweets.js")
+TIKTOK_TWEETS_JS = os.path.join(DATA_DIR, "tiktok_tweets.js")
 RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result.json")
 IG_RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result_instagram.json")
+TIKTOK_RESULT_FILE = os.path.join(DATA_DIR, ".last_fetch_result_tiktok.json")
 GIST_MAX_TWEETS = 2000  # 移動先Gistの上限
 IG_URL_REFRESH_BUFFER_SECONDS = 24 * 3600        # Instagram画像署名URL (寿命~4日) の事前リフレッシュ閾値（残り24時間）
 IG_VIDEO_URL_REFRESH_BUFFER_SECONDS = 6 * 3600   # Instagram動画署名URL (寿命~24時間) の事前リフレッシュ閾値（残り6時間）
+TIKTOK_URL_REFRESH_BUFFER_SECONDS = 12 * 3600    # TikTokサムネイル/画像URL (寿命~48時間) の事前リフレッシュ閾値（残り12時間）
+TIKTOK_VIDEO_URL_REFRESH_BUFFER_SECONDS = 3 * 3600  # TikTok動画URL (寿命~6時間) の事前リフレッシュ閾値（残り3時間）
 USER_PATTERN = re.compile(r"^@([^:]+):")
 
 def get_result_file_for_platform(platform="x"):
-    return IG_RESULT_FILE if platform == "instagram" else RESULT_FILE
+    if platform == "instagram":
+        return IG_RESULT_FILE
+    if platform == "tiktok":
+        return TIKTOK_RESULT_FILE
+    return RESULT_FILE
 
 def get_tweets_js_for_platform(platform="x"):
-    return IG_TWEETS_JS if platform == "instagram" else TWEETS_JS
+    if platform == "instagram":
+        return IG_TWEETS_JS
+    if platform == "tiktok":
+        return TIKTOK_TWEETS_JS
+    return TWEETS_JS
 
 def write_fetch_result(user, tweets_saved, status="ok", platform=None):
     """クローラーの取得結果（保存ツイート数など）をメタデータファイルに書き出す"""
@@ -62,8 +74,10 @@ def parse_args():
     parser.add_argument("--force-empty", action="store_true", help="Gistが0件でも強制続行")
     parser.add_argument("-p", "--promote-gist-id", default=None,
                         help="移動先Gist IDを手動指定")
-    parser.add_argument("--platform", choices=["x", "instagram"], default=os.environ.get("PLATFORM", "x").lower(),
-                        help="取得元プラットフォーム (x または instagram, default: x)")
+    parser.add_argument("--platform", choices=["x", "instagram", "tiktok"], default=os.environ.get("PLATFORM", "x").lower(),
+                        help="取得元プラットフォーム (x / instagram / tiktok, default: x)")
+    parser.add_argument("--skip-extract", action="store_true",
+                        help="抽出スクリプトの実行をスキップし、既存の tweets.js から直接 Gist へ追記する（タイムライン一括投入用）")
     parser.add_argument("--max-no-new-scrolls", type=int, default=None, help="新規未検出連続スクロール上限（未指定時はextract_media.py既定値）")
     parser.add_argument("--max-runtime", type=int, default=None, help="最大実行秒数（未指定時はextract_media.py既定値）")
     args = parser.parse_args()
@@ -162,13 +176,73 @@ def needs_instagram_url_refresh(
                 return True
     return False
 
+def is_tiktok_tweet(tweet):
+    """ツイート/投稿オブジェクトが TikTok 由来かどうかを判定する"""
+    if not isinstance(tweet, dict):
+        return False
+    post_url = str(tweet.get("post_url") or "")
+    if "tiktok.com/" in post_url:
+        return True
+    for u in list(tweet.get("media_urls") or []) + list(tweet.get("video_urls") or []):
+        s = str(u)
+        if "tiktokcdn.com" in s or "tiktok.com/" in s:
+            return True
+    return False
+
+def is_non_x_tweet(tweet):
+    return is_instagram_tweet(tweet) or is_tiktok_tweet(tweet)
+
+def extract_tiktok_url_expiry(url):
+    """TikTok 署名付き CDN URL の x-expires= / expire= (10進Unix秒) 有効期限を返す"""
+    if not url:
+        return None
+    s = str(url)
+    if "tiktokcdn.com" not in s and "tiktok.com" not in s:
+        return None
+    try:
+        qs = parse_qs(urlsplit(s).query)
+        raw = qs.get("x-expires", [None])[0] or qs.get("expire", [None])[0]
+        if raw and str(raw).isdigit():
+            return int(raw)
+    except Exception:
+        return None
+    return None
+
+def needs_tiktok_url_refresh(
+    tweets,
+    buffer_seconds=TIKTOK_URL_REFRESH_BUFFER_SECONDS,
+    video_buffer_seconds=TIKTOK_VIDEO_URL_REFRESH_BUFFER_SECONDS,
+    check_limit=None,
+    now=None,
+):
+    """既存投稿（check_limit 指定時は先頭 check_limit 件）内に有効期限切れ間近の TikTok CDN URL があるか判定する"""
+    if not tweets:
+        return False
+    cur = time.time() if now is None else float(now)
+    target_tweets = tweets[:check_limit] if check_limit and check_limit > 0 else tweets
+    for t in target_tweets:
+        if not isinstance(t, dict):
+            continue
+        for u in (t.get("media_urls") or []):
+            exp = extract_tiktok_url_expiry(u)
+            if exp is not None and (exp - cur) <= buffer_seconds:
+                return True
+        v_urls = list(t.get("video_urls") or [])
+        if t.get("video_url"):
+            v_urls.append(t["video_url"])
+        for u in v_urls:
+            exp = extract_tiktok_url_expiry(u)
+            if exp is not None and (exp - cur) <= video_buffer_seconds:
+                return True
+    return False
+
 def get_tweet_sort_key(tweet):
     """ツイートの投稿時刻ソートキー（ミリ秒タイムスタンプ）を返す"""
     if not tweet or not isinstance(tweet, dict):
         return 0
     id_str = str(tweet.get("id_str") or tweet.get("id") or "")
-    # Instagram の 19桁 pk は Twitter Snowflake ではないため created_at を優先する
-    if not is_instagram_tweet(tweet) and id_str.isdigit():
+    # Instagram / TikTok の 19桁ID は Twitter Snowflake ではないため created_at を優先する
+    if not is_non_x_tweet(tweet) and id_str.isdigit():
         val = int(id_str)
         if val > 100000000000:
             return (val >> 22) + 1288834974650
@@ -414,21 +488,22 @@ def write_skip_ids_file(ordered_ids):
 
 def run_extraction(args, skip_ids_file):
     platform = getattr(args, "platform", "x") or "x"
-    extractor_script = (
-        "scripts/extract_instagram_media.py"
-        if platform == "instagram"
-        else "scripts/extract_media.py"
-    )
+    if platform == "instagram":
+        extractor_script = "scripts/extract_instagram_media.py"
+    elif platform == "tiktok":
+        extractor_script = "scripts/extract_tiktok_media.py"
+    else:
+        extractor_script = "scripts/extract_media.py"
     cmd = [
         sys.executable, extractor_script,
         "--mode", "post_only",
         "-n", str(args.num),
         "--skip-ids-file", skip_ids_file,
     ]
-    if platform == "instagram":
+    if platform in ("instagram", "tiktok"):
         cmd.extend([
-            "--output", get_tweets_js_for_platform("instagram"),
-            "--result-file", get_result_file_for_platform("instagram"),
+            "--output", get_tweets_js_for_platform(platform),
+            "--result-file", get_result_file_for_platform(platform),
         ])
     if args.user:
         cmd.extend(["-u", args.user])
@@ -463,7 +538,7 @@ def convert_raw_tweets_to_gist_format(raw_tweets):
             if not post_url:
                 if '/status/' in eu:
                     post_url = re.sub(r'/(photo|video)/\d+$', '', eu)
-                elif 'instagram.com/' in eu:
+                elif 'instagram.com/' in eu or 'tiktok.com/' in eu:
                     post_url = eu
             if m.get('type') == 'video':
                 variants = m.get('video_info', {}).get('variants', [])
@@ -704,7 +779,7 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             "media_urls": latest.get("media_urls", [])[:1],
         }
         created_at = latest.get("created_at") or (
-            "" if is_instagram_tweet(latest) else snowflake_to_jst_str(master_entry["id_str"])
+            "" if is_non_x_tweet(latest) else snowflake_to_jst_str(master_entry["id_str"])
         )
         if created_at:
             master_entry["created_at"] = created_at
@@ -764,8 +839,12 @@ def validate_master_gist_update(initial_user_gists, final_output, platform="x"):
         return False, "Invalid master Gist payload (missing user_gists)"
 
     screen_name = str(final_output.get("user_screen_name") or "").strip().lower()
-    if platform == "x" and screen_name == "instagram":
-        return False, "Cross-platform safety block: refusing to write Instagram master payload into X Master Gist"
+    if platform == "x" and screen_name in ("instagram", "tiktok"):
+        return False, f"Cross-platform safety block: refusing to write {screen_name} master payload into X Master Gist"
+    if platform == "instagram" and screen_name == "tiktok":
+        return False, "Cross-platform safety block: refusing to write tiktok master payload into Instagram Master Gist"
+    if platform == "tiktok" and screen_name == "instagram":
+        return False, "Cross-platform safety block: refusing to write instagram master payload into TikTok Master Gist"
 
     new_count = len(final_output.get("user_gists", {}))
     old_count = len(initial_user_gists or {})
@@ -801,7 +880,8 @@ def write_master_gist_safely(gist_id, gist_filename, final_output, local_asset_p
 
 def main():
     args = parse_args()
-    if not args.user:
+    skip_extract = bool(getattr(args, "skip_extract", False))
+    if not args.user and not skip_extract:
         print("❌ Error: Target user ID (-u/--user) is required for append_to_gist.py.")
         print("💡 Hint: To automatically discover accounts from your timeline and expand Candidate gallery, run:")
         print("   ./scripts/run_expand_timeline_local.sh")
@@ -813,29 +893,39 @@ def main():
         print(f"❌ Error: {args.gist_id} is not a Master Gist.")
         sys.exit(1)
 
-    # skip_ids 作成（Instagram 定期URLリフレッシュ判定含む）
+    # skip_ids 作成（Instagram / TikTok 定期URLリフレッシュ判定含む）
     refresh_urls = False
-    if args.from_scratch:
-        args.stop_on_existing = False
-        skip_ids_file = write_skip_ids_file([])
-    elif args.user:
-        ug_id = get_gist_id_from_entry(full_data.get("user_gists", {}).get(args.user))
-        if ug_id:
-            _, p_data = fetch_gist_data(ug_id)
-            existing = get_user_tweets(p_data, args.user)
-        else:
-            existing = []
-        if args.platform == "instagram" and needs_instagram_url_refresh(existing, check_limit=args.num):
-            print(f"🔄 [Instagram] Expiring signed CDN URLs detected for @{args.user}. Refreshing URLs in-place...")
-            refresh_urls = True
+    skip_ids_file = None
+    if not skip_extract:
+        if args.from_scratch:
             args.stop_on_existing = False
             skip_ids_file = write_skip_ids_file([])
+        elif args.user:
+            ug_id = get_gist_id_from_entry(full_data.get("user_gists", {}).get(args.user))
+            if ug_id:
+                _, p_data = fetch_gist_data(ug_id)
+                existing = get_user_tweets(p_data, args.user)
+            else:
+                existing = []
+            if args.platform == "instagram" and needs_instagram_url_refresh(existing, check_limit=args.num):
+                print(f"🔄 [Instagram] Expiring signed CDN URLs detected for @{args.user}. Refreshing URLs in-place...")
+                refresh_urls = True
+                args.stop_on_existing = False
+                skip_ids_file = write_skip_ids_file([])
+            elif args.platform == "tiktok" and needs_tiktok_url_refresh(existing, check_limit=args.num):
+                print(f"🔄 [TikTok] Expiring signed CDN URLs detected for @{args.user}. Refreshing URLs in-place...")
+                refresh_urls = True
+                args.stop_on_existing = False
+                skip_ids_file = write_skip_ids_file([])
+            else:
+                skip_ids_file = write_skip_ids_file(get_existing_ids_ordered(existing))
         else:
-            skip_ids_file = write_skip_ids_file(get_existing_ids_ordered(existing))
-    else:
-        skip_ids_file = write_skip_ids_file(
-            get_existing_ids_ordered(full_data.get("tweets", []))
-        )
+            skip_ids_file = write_skip_ids_file(
+                get_existing_ids_ordered(full_data.get("tweets", []))
+            )
+    elif args.platform in ("instagram", "tiktok"):
+        # タイムライン一括投入時は既存投稿の署名URLも最新にリフレッシュ
+        refresh_urls = True
 
     # クロール開始前のマスターGistおよびキューの状態を記録（クロール中の削除検知用）
     user_lower = args.user.lower() if args.user else None
@@ -852,17 +942,19 @@ def main():
     )
 
     platform = getattr(args, "platform", "x")
-    if platform not in ("x", "instagram"):
+    if platform not in ("x", "instagram", "tiktok"):
         platform = "x"
-    if platform == "instagram":
-        os.environ["PLATFORM"] = "instagram"
+    if platform in ("instagram", "tiktok"):
+        os.environ["PLATFORM"] = platform
 
-    try:
-        run_extraction(args, skip_ids_file)
-    finally:
-        os.unlink(skip_ids_file)
+    if not skip_extract:
+        try:
+            run_extraction(args, skip_ids_file)
+        finally:
+            if skip_ids_file and os.path.exists(skip_ids_file):
+                os.unlink(skip_ids_file)
 
-    new_tweets = parse_tweets_js(platform=platform) if platform == "instagram" else parse_tweets_js()
+    new_tweets = parse_tweets_js(platform=platform) if platform in ("instagram", "tiktok") else parse_tweets_js()
     if not new_tweets:
         print("✅ No new tweets.")
         write_fetch_result(args.user, 0, status="no_new_tweets")
@@ -907,24 +999,36 @@ def main():
         is_candidate=args.is_candidate,
         refresh_urls=refresh_urls,
     )
-    output_file = "assets/data/data_instagram.json" if platform == "instagram" else "assets/data/data.json"
+    if platform == "instagram":
+        output_file = "assets/data/data_instagram.json"
+    elif platform == "tiktok":
+        output_file = "assets/data/data_tiktok.json"
+    else:
+        output_file = "assets/data/data.json"
 
     # 所属 Gist ID に変更がある場合、または対象ユーザーの最新ツイート（サムネイル/日時）が更新された場合に MASTER_GIST を更新
     gists_changed = has_user_gists_id_changed(initial_user_gists, final_output.get("user_gists", {}))
-    tweets_changed = bool(args.user and has_master_tweets_changed(initial_master_tweets, final_output.get("tweets", []), args.user))
+    if args.user:
+        tweets_changed = has_master_tweets_changed(initial_master_tweets, final_output.get("tweets", []), args.user)
+    else:
+        tweets_changed = (final_output.get("tweets", []) != initial_master_tweets)
 
     if gists_changed or tweets_changed:
         ok, err_msg = validate_master_gist_update(initial_user_gists, final_output, platform=platform)
         if not ok:
             print(f"🚨 ABORTED Master Gist update: {err_msg}", file=sys.stderr)
             sys.exit(1)
-        reason = "User Gist ID changed" if gists_changed else f"Latest thumbnail updated for @{args.user}"
+        reason = (
+            "User Gist ID changed"
+            if gists_changed
+            else (f"Latest thumbnail updated for @{args.user}" if args.user else "Timeline batch posts updated")
+        )
         write_master_gist_safely(args.gist_id, gist_filename, final_output, output_file)
         print(f"✅ Master Gist updated! ({reason})")
     else:
         print(f"ℹ️ User Gist ID and latest thumbnail unchanged. Skipped Master Gist update.")
 
-    write_fetch_result(args.user, len(new_tweets), status="success")
+    write_fetch_result(args.user or f"{platform}_batch", len(new_tweets), status="success")
 
 if __name__ == "__main__":
     main()

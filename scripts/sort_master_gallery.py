@@ -41,12 +41,16 @@ def load_token():
 
 
 def load_master_gist_id():
-    """環境変数または.envファイルから MASTER_GIST_ID (Instagram時は IG_MASTER_GIST_ID) を取得"""
+    """環境変数または.envファイルから MASTER_GIST_ID (Instagram/TikTok時は各専用変数) を取得"""
     platform = os.environ.get("PLATFORM", "x").strip().lower()
-    target_key = "IG_MASTER_GIST_ID" if platform == "instagram" else "MASTER_GIST_ID"
     if platform == "instagram":
+        target_key = "IG_MASTER_GIST_ID"
         gid = os.environ.get("IG_MASTER_GIST_ID") or os.environ.get("MASTER_GIST_ID")
+    elif platform == "tiktok":
+        target_key = "TIKTOK_MASTER_GIST_ID"
+        gid = os.environ.get("TIKTOK_MASTER_GIST_ID") or os.environ.get("MASTER_GIST_ID")
     else:
+        target_key = "MASTER_GIST_ID"
         gid = os.environ.get("MASTER_GIST_ID")
     if gid:
         return gid.strip()
@@ -153,12 +157,30 @@ def is_instagram_tweet(tweet):
     return False
 
 
+def is_tiktok_tweet(tweet):
+    """投稿オブジェクトが TikTok 由来かどうかを判定する"""
+    if not isinstance(tweet, dict):
+        return False
+    post_url = str(tweet.get("post_url") or "")
+    if "tiktok.com/" in post_url:
+        return True
+    for u in list(tweet.get("media_urls") or []) + list(tweet.get("video_urls") or []):
+        s = str(u)
+        if "tiktokcdn.com" in s or "tiktok.com/" in s:
+            return True
+    return False
+
+
+def is_non_x_tweet(tweet):
+    return is_instagram_tweet(tweet) or is_tiktok_tweet(tweet)
+
+
 def get_tweet_sort_key(tweet):
     """ツイートの投稿時刻ソートキー（ミリ秒タイムスタンプ）を算出"""
     if not tweet or not isinstance(tweet, dict):
         return 0
     id_str = str(tweet.get("id_str") or tweet.get("id") or "")
-    if not is_instagram_tweet(tweet) and id_str.isdigit():
+    if not is_non_x_tweet(tweet) and id_str.isdigit():
         val = int(id_str)
         # Snowflake ID のタイムスタンプ部分を抽出 (41 bits)
         if val > 100000000000:
@@ -380,7 +402,7 @@ def sort_master_gallery(master_data, fetch_child=True, max_threads=2):
                 "media_urls": latest.get("media_urls", [])[:1],
             }
             created_at = latest.get("created_at") or (
-                "" if is_instagram_tweet(latest) else snowflake_to_jst_str(master_entry["id_str"])
+                "" if is_non_x_tweet(latest) else snowflake_to_jst_str(master_entry["id_str"])
             )
             if created_at:
                 master_entry["created_at"] = created_at
@@ -466,7 +488,12 @@ def main():
         if res.returncode == 0:
             print("✅ Master Gist のソートおよび最新サムネイル更新が正常に完了しました！")
             platform = os.environ.get("PLATFORM", "x").strip().lower()
-            asset_filename = "data_instagram.json" if platform == "instagram" else "data.json"
+            if platform == "instagram":
+                asset_filename = "data_instagram.json"
+            elif platform == "tiktok":
+                asset_filename = "data_tiktok.json"
+            else:
+                asset_filename = "data.json"
             local_asset_path = Path("assets/data") / asset_filename
             if local_asset_path.parent.exists():
                 tmp_asset = local_asset_path.with_suffix(f".json.tmp.{os.getpid()}")

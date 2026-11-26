@@ -21,6 +21,12 @@ const String _externalIgMasterGistId = String.fromEnvironment(
 const String _externalIgFavoriteGistId = String.fromEnvironment(
   'IG_FAVORITE_GIST_ID',
 );
+const String _externalTiktokMasterGistId = String.fromEnvironment(
+  'TIKTOK_MASTER_GIST_ID',
+);
+const String _externalTiktokFavoriteGistId = String.fromEnvironment(
+  'TIKTOK_FAVORITE_GIST_ID',
+);
 
 class GalleryViewModel extends ChangeNotifier {
   final GalleryRepository _repository;
@@ -148,12 +154,30 @@ class GalleryViewModel extends ChangeNotifier {
   int get selectedCount => _selectedIds.length;
 
   // --- Helper ---
-  String get defaultMasterGistId => _currentSource == DataSource.instagram
-      ? resolveEnv(_externalIgMasterGistId, 'IG_MASTER_GIST_ID')
-      : resolveEnv(_externalMasterGistId, 'MASTER_GIST_ID');
-  String get favoriteGistId => _currentSource == DataSource.instagram
-      ? resolveEnv(_externalIgFavoriteGistId, 'IG_FAVORITE_GIST_ID')
-      : resolveEnv(_externalFavoriteGistId, 'FAVORITE_GIST_ID');
+  String get defaultMasterGistId {
+    switch (_currentSource) {
+      case DataSource.x:
+        return resolveEnv(_externalMasterGistId, 'MASTER_GIST_ID');
+      case DataSource.instagram:
+        return resolveEnv(_externalIgMasterGistId, 'IG_MASTER_GIST_ID');
+      case DataSource.tiktok:
+        return resolveEnv(_externalTiktokMasterGistId, 'TIKTOK_MASTER_GIST_ID');
+    }
+  }
+
+  String get favoriteGistId {
+    switch (_currentSource) {
+      case DataSource.x:
+        return resolveEnv(_externalFavoriteGistId, 'FAVORITE_GIST_ID');
+      case DataSource.instagram:
+        return resolveEnv(_externalIgFavoriteGistId, 'IG_FAVORITE_GIST_ID');
+      case DataSource.tiktok:
+        return resolveEnv(
+          _externalTiktokFavoriteGistId,
+          'TIKTOK_FAVORITE_GIST_ID',
+        );
+    }
+  }
 
   void _applySource(DataSource source) {
     _currentSource = source;

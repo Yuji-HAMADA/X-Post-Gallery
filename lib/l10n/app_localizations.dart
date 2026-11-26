@@ -262,10 +262,11 @@ class AppLocalizations {
       ? 'バッチGistの取得に失敗しました ($gistId)'
       : 'Failed to fetch batch gist ($gistId)';
 
-  // --- データ取得元切替 (X / Instagram) ---
+  // --- データ取得元切替 (X / Instagram / TikTok) ---
   String get dataSourceLabel => isJapanese ? '取得元' : 'Source';
-  String get tooltipSwitchDataSource =>
-      isJapanese ? '取得元を切り替え (X / Instagram)' : 'Switch source (X / Instagram)';
+  String get tooltipSwitchDataSource => isJapanese
+      ? '取得元を切り替え (X / Instagram / TikTok)'
+      : 'Switch source (X / Instagram / TikTok)';
   String verifyingOnSource(String source) =>
       isJapanese ? '$sourceで確認中...' : 'Verifying on $source...';
   String userNotFoundOnSource(String username, String source) => isJapanese

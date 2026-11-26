@@ -42,7 +42,10 @@ void main() {
           'FETCH_QUEUE_GIST_ID=x_queue_1\n'
           'IG_MASTER_GIST_ID=ig_master_1\n'
           'IG_FAVORITE_GIST_ID=ig_fav_1\n'
-          'IG_FETCH_QUEUE_GIST_ID=ig_queue_1\n',
+          'IG_FETCH_QUEUE_GIST_ID=ig_queue_1\n'
+          'TIKTOK_MASTER_GIST_ID=tt_master_1\n'
+          'TIKTOK_FAVORITE_GIST_ID=tt_fav_1\n'
+          'TIKTOK_FETCH_QUEUE_GIST_ID=tt_queue_1\n',
     );
   });
 
@@ -132,6 +135,21 @@ void main() {
           ],
           userGists: {'ig_only_user': 'ig_child_1'},
         ),
+        'tt_master_1': const GalleryData(
+          userName: 'TikTok Master',
+          items: [
+            TweetItem(
+              id: '7695367993454251271',
+              fullText: '@tt_only_user: tiktok video',
+              createdAt: '2026-11-26 12:00:00 JST',
+              mediaUrls: ['https://p16-common-sign.tiktokcdn.com/cover.jpg?x-expires=1800000000'],
+              videoUrls: ['https://v16-webapp-prime.tiktok.com/vid.mp4?expire=1800000000'],
+              postUrl: 'https://www.tiktok.com/@tt_only_user/video/7695367993454251271',
+              username: 'tt_only_user',
+            ),
+          ],
+          userGists: {'tt_only_user': 'tt_child_1'},
+        ),
       });
       final gh = _FakeGitHubService();
       final vm = GalleryViewModel(repository: repo, githubService: gh);
@@ -153,7 +171,19 @@ void main() {
       expect(vm.items.map((e) => e.username), ['ig_only_user']);
       expect(vm.userGists.keys, ['ig_only_user']);
 
-      // 3. X へ戻すと X データのみが復元される
+      // 3. TikTok へ切替（TIKTOK_MASTER_GIST_ID が自動ロードされ X/IG データと完全独立）
+      final ttLoaded = await vm.switchSource(DataSource.tiktok);
+      expect(ttLoaded, isTrue);
+      expect(vm.currentSource, DataSource.tiktok);
+      expect(vm.defaultMasterGistId, 'tt_master_1');
+      expect(vm.favoriteGistId, 'tt_fav_1');
+      expect(gh.activeFetchQueueGistId, 'tt_queue_1');
+      expect(vm.items.map((e) => e.username), ['tt_only_user']);
+      expect(vm.items.first.thumbnailUrl, 'https://p16-common-sign.tiktokcdn.com/cover.jpg?x-expires=1800000000');
+      expect(vm.items.first.isVideo, isTrue);
+      expect(vm.userGists.keys, ['tt_only_user']);
+
+      // 4. X へ戻すと X データのみが復元される
       final xLoaded = await vm.switchSource(DataSource.x);
       expect(xLoaded, isTrue);
       expect(vm.currentSource, DataSource.x);
@@ -170,6 +200,18 @@ void main() {
       expect(
         DataSource.instagram.hashtagUrl('#nature'),
         'https://www.instagram.com/explore/tags/nature/',
+      );
+      expect(
+        DataSource.tiktok.profileUrl('alice'),
+        'https://www.tiktok.com/@alice',
+      );
+      expect(
+        DataSource.tiktok.hashtagUrl('#dance'),
+        'https://www.tiktok.com/tag/dance',
+      );
+      expect(
+        DataSource.tiktok.fallbackPostUrl('alice', '7695367993454251271'),
+        'https://www.tiktok.com/@alice/video/7695367993454251271',
       );
     });
   });
