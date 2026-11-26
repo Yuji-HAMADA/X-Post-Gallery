@@ -10,13 +10,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-# --platform 引数があれば PLATFORM 環境変数に反映
+# --platform / --max-cycles 引数を解析し、残りを子スクリプトへ引き継ぐ
 PASS_ARGS=()
+MAX_CYCLES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --platform)
       export PLATFORM="$2"
       shift 2
+      ;;
+    --platform=*)
+      export PLATFORM="${1#*=}"
+      shift
+      ;;
+    --max-cycles)
+      if [[ $# -lt 2 ]]; then
+        echo "❌ Error: --max-cycles requires a numeric argument." >&2
+        exit 1
+      fi
+      MAX_CYCLES="$2"
+      shift 2
+      ;;
+    --max-cycles=*)
+      MAX_CYCLES="${1#*=}"
+      shift
       ;;
     *)
       PASS_ARGS+=("$1")
@@ -24,6 +41,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if ! [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]]; then
+  echo "❌ Error: --max-cycles must be a non-negative integer (got: '$MAX_CYCLES')." >&2
+  exit 1
+fi
 
 source "$SCRIPT_DIR/platform_env.sh"
 load_project_env "$PROJECT_DIR"
@@ -37,7 +59,11 @@ while true; do
   CYCLE=$((CYCLE + 1))
   echo ""
   echo "=================================================="
-  echo "🔄 [$(date '+%Y-%m-%d %H:%M:%S')] Starting Loop Cycle #$CYCLE (Platform: $PLATFORM_LABEL)"
+  if [[ "$MAX_CYCLES" -gt 0 ]]; then
+    echo "🔄 [$(date '+%Y-%m-%d %H:%M:%S')] Starting Loop Cycle #$CYCLE/$MAX_CYCLES (Platform: $PLATFORM_LABEL)"
+  else
+    echo "🔄 [$(date '+%Y-%m-%d %H:%M:%S')] Starting Loop Cycle #$CYCLE (Platform: $PLATFORM_LABEL)"
+  fi
   echo "=================================================="
 
   # 1. タイムライン収集（1巡分）の実行
@@ -51,6 +77,11 @@ while true; do
   # 3. タイムライン収集および詳細取得完了後のギャラリーソート実行
   echo "▶️ [Step 3/3] Running run_sort_master_local.sh (Sorting Master Gallery)..."
   "$SCRIPT_DIR/run_sort_master_local.sh" || echo "⚠️ Warning: Master gallery sort encountered an error."
+
+  if [[ "$MAX_CYCLES" -gt 0 && "$CYCLE" -ge "$MAX_CYCLES" ]]; then
+    echo "🏁 Completed Loop Cycle #$CYCLE/$MAX_CYCLES (Platform: $PLATFORM_LABEL). Stopping master loop."
+    break
+  fi
 
   echo "✅ Completed Loop Cycle #$CYCLE (Platform: $PLATFORM_LABEL). Repeating cycle..."
 done
