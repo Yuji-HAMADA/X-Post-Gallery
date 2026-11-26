@@ -26,6 +26,8 @@ from extract_instagram_media import AUTH_PATH as IG_AUTH_PATH, extract_posts_fro
 from extract_tiktok_media import (
     AUTH_PATH as TIKTOK_AUTH_PATH,
     OUTPUT_FILE as TIKTOK_OUTPUT_FILE,
+    USER_AGENT as TIKTOK_USER_AGENT,
+    advance_tiktok_feed,
     extract_items_from_payload as extract_tt_items_from_payload,
     is_allowed_tiktok_api_url,
     enable_fast_resource_blocking as enable_tt_resource_blocking,
@@ -383,14 +385,12 @@ async def collect_tiktok_batch_posts(page, tt_feed_posts, scroll_batch_size=10, 
     _drain()
 
     stalls = 0
-    MAX_STALLS = 3
+    MAX_STALLS = 6
     for scroll_idx in range(1, scroll_batch_size + 1):
         if len(collected) >= target_posts:
             break
-        for _ in range(3):
-            await page.keyboard.press("ArrowDown")
-            await asyncio.sleep(0.8)
-        await asyncio.sleep(1.8)
+        await advance_tiktok_feed(page, steps=5)
+        await asyncio.sleep(2.0)
         raw_seen = _drain()
         if raw_seen == 0:
             stalls += 1
@@ -453,11 +453,20 @@ async def run_expansion_loop(args, gist_id):
     total_processed = 0
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=not args.no_headless)
-        context = await browser.new_context(
-            storage_state=auth_path,
-            viewport={"width": 1280, "height": 900},
-        )
+        launch_kwargs = {"headless": not args.no_headless}
+        ctx_kwargs = {
+            "storage_state": auth_path,
+            "viewport": {"width": 1280, "height": 900},
+        }
+        if platform == "tiktok":
+            launch_kwargs["args"] = [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
+            ctx_kwargs["user_agent"] = TIKTOK_USER_AGENT
+        browser = await p.chromium.launch(**launch_kwargs)
+        context = await browser.new_context(**ctx_kwargs)
         if platform == "tiktok":
             await enable_tt_resource_blocking(context)
         page = await context.new_page()

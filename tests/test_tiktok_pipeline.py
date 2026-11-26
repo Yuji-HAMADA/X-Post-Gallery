@@ -211,6 +211,21 @@ class TestTikTokPipeline(unittest.TestCase):
         asyncio.run(handler(route))
         route.abort.assert_awaited_once()
 
+    def test_advance_tiktok_feed_uses_next_button_and_falls_back_to_keyboard(self):
+        """advance_tiktok_feed が次動画ボタン優先・未検出時は ArrowDown へフォールバックすること"""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        page = MagicMock()
+        page.evaluate = AsyncMock(side_effect=[True, False, None])
+        page.keyboard.press = AsyncMock()
+
+        with patch("extract_tiktok_media.asyncio.sleep", new=AsyncMock()):
+            asyncio.run(tt_ext.advance_tiktok_feed(page, steps=2))
+
+        self.assertEqual(page.evaluate.await_count, 3)
+        page.keyboard.press.assert_awaited_once_with("ArrowDown")
+
     def test_poc_parse_cookies_input(self):
         """Cookie ヘッダおよび JSON 配列が TikTok Playwright Cookie へ変換されること"""
         c1 = tt_poc.parse_cookies_input("Cookie: sessionid=s1; sid_tt=t1")

@@ -94,6 +94,52 @@ async def enable_fast_resource_blocking(context):
     await context.route("**/*", _route_handler)
 
 
+async def advance_tiktok_feed(page, steps=5):
+    """TikTok For You / Following フィードを確実に次動画へ進め、追加の recommend API を発火させる"""
+    for _ in range(steps):
+        moved = False
+        try:
+            moved = await page.evaluate("""() => {
+                const btn = document.querySelector(
+                    'button[data-e2e="feed-navigation-next"], button[aria-label*="next video" i], button[aria-label*="Go to next" i]'
+                );
+                if (btn && !btn.disabled) {
+                    btn.click();
+                    return true;
+                }
+                const sc = document.getElementById('column-list-container');
+                if (sc && sc.scrollHeight > sc.clientHeight) {
+                    const prev = sc.scrollTop;
+                    sc.scrollTop = Math.min(sc.scrollHeight, sc.scrollTop + Math.max(sc.clientHeight, 800));
+                    if (sc.scrollTop > prev) return true;
+                }
+                return false;
+            }""")
+        except Exception:
+            moved = False
+        if not moved:
+            try:
+                await page.keyboard.press("ArrowDown")
+            except Exception:
+                pass
+        await asyncio.sleep(0.55)
+
+    # 内部スクロールコンテナ末尾まで進めてプリフェッチ（次バッチ取得）を促す
+    try:
+        await page.evaluate("""() => {
+            const sc = document.getElementById('column-list-container') ||
+                Array.from(document.querySelectorAll('div, main')).find(el => {
+                    const st = getComputedStyle(el);
+                    return (st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 50;
+                });
+            if (sc) {
+                sc.scrollTop = sc.scrollHeight;
+            }
+        }""")
+    except Exception:
+        pass
+
+
 def _select_playable_url(urls):
     """UrlList から Cookie 不要で再生可能な URL（/aweme/v1/play/）を優先選出する"""
     if not isinstance(urls, list):
@@ -599,7 +645,7 @@ async def run():
 
         no_new_scrolls = 0
         stall_count = 0
-        MAX_STALLS = 4
+        MAX_STALLS = 6
         start_time = time.time()
 
         while len(new_tweets) < args.num and not hit_existing and not rate_limit_hit:
@@ -641,9 +687,7 @@ async def run():
                     break
 
             if source_mode in ("foryou", "following"):
-                for _ in range(3):
-                    await page.keyboard.press("ArrowDown")
-                    await asyncio.sleep(0.8)
+                await advance_tiktok_feed(page, steps=5)
             else:
                 try:
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
