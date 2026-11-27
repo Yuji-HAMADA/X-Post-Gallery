@@ -331,7 +331,8 @@ class _TweetGridItemState extends State<TweetGridItem> {
                     ? ThumbnailVideoPlayer(
                         videoUrl: item.videoUrl!,
                         thumbnailUrl: item.thumbnailUrl,
-                        bottomOffset: 8,
+                        bottomOffset: widget.columnCount == 1 ? 14.0 : 8.0,
+                        progressBarBottomOffset: 0.0,
                         enableAutoplay: widget.columnCount == 1,
                       )
                     : () {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
 import 'package:x_post_gallery/models/tweet_item.dart';
 import 'package:x_post_gallery/screens/gallery/components/thumbnail_video_player.dart';
 import 'package:x_post_gallery/screens/gallery/components/tweet_grid_view.dart';
@@ -216,6 +217,51 @@ void main() {
       expect(players.length, 2);
       expect(players[0].enableAutoplay, isFalse);
       expect(players[1].enableAutoplay, isFalse);
+      expect(find.byType(VideoProgressIndicator), findsNothing);
+    });
+
+    testWidgets('1列表示の UserCard と TweetGridItem は進捗バー配置オフセットを正しく設定する', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                SizedBox(
+                  width: 200,
+                  height: 200,
+                  child: UserCard(
+                    username: 'test_user',
+                    thumbItem: videoTweetItem,
+                    isFavorite: false,
+                    columnCount: 1,
+                    onTap: () {},
+                    onFavoriteTap: () {},
+                  ),
+                ),
+                SizedBox(
+                  width: 200,
+                  height: 200,
+                  child: TweetGridItem(
+                    items: [videoTweetItem],
+                    index: 0,
+                    selectedIds: const {},
+                    columnCount: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      final players = tester.widgetList<ThumbnailVideoPlayer>(find.byType(ThumbnailVideoPlayer)).toList();
+      expect(players.length, 2);
+      expect(players[0].enableAutoplay, isTrue);
+      expect(players[0].progressBarBottomOffset, 18.0);
+      expect(players[1].enableAutoplay, isTrue);
+      expect(players[1].progressBarBottomOffset, 0.0);
     });
   });
 }

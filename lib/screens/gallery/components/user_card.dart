@@ -47,7 +47,8 @@ class UserCard extends StatelessWidget {
                 ? ThumbnailVideoPlayer(
                     videoUrl: thumbItem.videoUrl!,
                     thumbnailUrl: thumbItem.thumbnailUrl,
-                    bottomOffset: 24.0, // 下部ユーザー名バーの上に配置
+                    bottomOffset: effectiveColumnCount == 1 ? 28.0 : 24.0, // 下部ユーザー名バー（＋進捗バー）の上に配置
+                    progressBarBottomOffset: 18.0, // @username バーの直上に配置
                     enableAutoplay: effectiveColumnCount == 1,
                   )
                 : (thumbItem.thumbnailUrl.isNotEmpty

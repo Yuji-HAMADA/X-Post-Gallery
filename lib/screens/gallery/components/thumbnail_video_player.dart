@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../../utils/video_http_headers.dart';
+import '../../../utils/video_wakelock_manager.dart';
 
 /// [JA] サムネイル上で画面の大部分を占めた際にミュート自動再生する動画ウィジェット
 /// [EN] Video thumbnail widget that automatically plays muted when occupying most of the screen
@@ -8,6 +9,7 @@ class ThumbnailVideoPlayer extends StatefulWidget {
   final String videoUrl;
   final String thumbnailUrl;
   final double bottomOffset;
+  final double progressBarBottomOffset;
   final bool enableAutoplay;
 
   const ThumbnailVideoPlayer({
@@ -15,6 +17,7 @@ class ThumbnailVideoPlayer extends StatefulWidget {
     required this.videoUrl,
     required this.thumbnailUrl,
     this.bottomOffset = 8.0,
+    this.progressBarBottomOffset = 0.0,
     this.enableAutoplay = true,
   });
 
@@ -28,6 +31,7 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
   bool _isMostlyVisible = false;
   bool _userPaused = false;
   bool _isDisposed = false;
+  bool _wasPlaying = false;
   final List<ScrollPosition> _attachedPositions = [];
 
   @override
@@ -76,12 +80,17 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
     }
     _attachedPositions.clear();
     _controller?.removeListener(_onControllerUpdate);
+    VideoWakelockManager.onDisposed(this);
     _controller?.dispose();
     super.dispose();
   }
 
   void _onControllerUpdate() {
-    if (mounted && !_isDisposed) {
+    if (!mounted || _isDisposed) return;
+    final isPlaying = _controller?.value.isPlaying ?? false;
+    if (_wasPlaying != isPlaying) {
+      _wasPlaying = isPlaying;
+      VideoWakelockManager.onPlaybackStateChanged(this, isPlaying);
       setState(() {});
     }
   }
@@ -211,6 +220,26 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
                     ? _controller!.value.size.height
                     : 1,
                 child: VideoPlayer(_controller!),
+              ),
+            ),
+          ),
+
+        // 1列自動再生時のみ下部に動画進捗バー（表示専用）を表示
+        if (widget.enableAutoplay && _isInitialized && _controller != null)
+          Positioned(
+            bottom: widget.progressBarBottomOffset,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: VideoProgressIndicator(
+                _controller!,
+                allowScrubbing: false,
+                padding: EdgeInsets.zero,
+                colors: const VideoProgressColors(
+                  playedColor: Colors.blueAccent,
+                  bufferedColor: Colors.white30,
+                  backgroundColor: Colors.white10,
+                ),
               ),
             ),
           ),
