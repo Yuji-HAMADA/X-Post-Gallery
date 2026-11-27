@@ -185,6 +185,75 @@ class _TweetGridItemState extends State<TweetGridItem> {
     }
   }
 
+  /// [JA] 複数画像 PageView の端オーバースクロールで前後アカウントへ遷移する処理
+  /// [EN] Handles edge overscroll on multi-image PageView to navigate prev/next account
+  bool _handleMultiImageScrollNotification(
+    ScrollNotification notification,
+    int mediaCount,
+  ) {
+    final lastIndex = mediaCount - 1;
+    void tryPrev(double over) {
+      if (!_navigated &&
+          _currentImageIndex == 0 &&
+          (widget.hasPreviousAccount ?? false) &&
+          over < -15.0) {
+        _navigated = true;
+        widget.onNavigatePreviousAccount?.call();
+      }
+    }
+
+    void tryNext(double over) {
+      if (!_navigated &&
+          _currentImageIndex == lastIndex &&
+          (widget.hasNextAccount ?? false) &&
+          over > 15.0) {
+        _navigated = true;
+        widget.onNavigateNextAccount?.call();
+      }
+    }
+
+    if (notification is ScrollStartNotification) {
+      _minOverscrollPixels = 0.0;
+      _maxOverscrollPixels = 0.0;
+      _navigated = false;
+    } else if (notification is OverscrollNotification) {
+      if (notification.overscroll < 0) {
+        _minOverscrollPixels += notification.overscroll;
+        tryPrev(_minOverscrollPixels);
+      } else if (notification.overscroll > 0) {
+        _maxOverscrollPixels += notification.overscroll;
+        tryNext(_maxOverscrollPixels);
+      }
+    } else if (notification is ScrollUpdateNotification) {
+      final px = notification.metrics.pixels;
+      final minExt = notification.metrics.minScrollExtent;
+      final maxExt = notification.metrics.maxScrollExtent;
+      if (px < minExt) {
+        final over = px - minExt;
+        if (over < _minOverscrollPixels) _minOverscrollPixels = over;
+        tryPrev(over);
+      } else if (px > maxExt) {
+        final over = px - maxExt;
+        if (over > _maxOverscrollPixels) _maxOverscrollPixels = over;
+        tryNext(over);
+      }
+    } else if (notification is ScrollEndNotification) {
+      const threshold = 20.0;
+      if (!_navigated) {
+        if (_currentImageIndex == 0 && _minOverscrollPixels < -threshold) {
+          widget.onNavigatePreviousAccount?.call();
+        } else if (_currentImageIndex == lastIndex &&
+            _maxOverscrollPixels > threshold) {
+          widget.onNavigateNextAccount?.call();
+        }
+      }
+      _minOverscrollPixels = 0.0;
+      _maxOverscrollPixels = 0.0;
+      _navigated = false;
+    }
+    return false;
+  }
+
   void _openDetail() {
     Navigator.push(
       context,
@@ -221,80 +290,11 @@ class _TweetGridItemState extends State<TweetGridItem> {
             decoration: BoxDecoration(color: Colors.grey[900]),
             child: isMultiImageInOneColumn
                 ? NotificationListener<ScrollNotification>(
-                    onNotification: (notification) {
-                      if (notification is ScrollStartNotification) {
-                        _minOverscrollPixels = 0.0;
-                        _maxOverscrollPixels = 0.0;
-                        _navigated = false;
-                      } else if (notification is OverscrollNotification) {
-                        if (notification.overscroll < 0) {
-                          _minOverscrollPixels += notification.overscroll;
-                          if (!_navigated &&
-                              _currentImageIndex == 0 &&
-                              (widget.hasPreviousAccount ?? false) &&
-                              _minOverscrollPixels < -15.0) {
-                            _navigated = true;
-                            widget.onNavigatePreviousAccount?.call();
-                          }
-                        } else if (notification.overscroll > 0) {
-                          _maxOverscrollPixels += notification.overscroll;
-                          if (!_navigated &&
-                              _currentImageIndex ==
-                                  item.mediaUrls.length - 1 &&
-                              (widget.hasNextAccount ?? false) &&
-                              _maxOverscrollPixels > 15.0) {
-                            _navigated = true;
-                            widget.onNavigateNextAccount?.call();
-                          }
-                        }
-                      } else if (notification is ScrollUpdateNotification) {
-                        final px = notification.metrics.pixels;
-                        final minExt = notification.metrics.minScrollExtent;
-                        final maxExt = notification.metrics.maxScrollExtent;
-                        if (px < minExt) {
-                          final over = px - minExt;
-                          if (over < _minOverscrollPixels) {
-                            _minOverscrollPixels = over;
-                          }
-                          if (!_navigated &&
-                              _currentImageIndex == 0 &&
-                              (widget.hasPreviousAccount ?? false) &&
-                              over < -15.0) {
-                            _navigated = true;
-                            widget.onNavigatePreviousAccount?.call();
-                          }
-                        } else if (px > maxExt) {
-                          final over = px - maxExt;
-                          if (over > _maxOverscrollPixels) {
-                            _maxOverscrollPixels = over;
-                          }
-                          if (!_navigated &&
-                              _currentImageIndex ==
-                                  item.mediaUrls.length - 1 &&
-                              (widget.hasNextAccount ?? false) &&
-                              over > 15.0) {
-                            _navigated = true;
-                            widget.onNavigateNextAccount?.call();
-                          }
-                        }
-                      } else if (notification is ScrollEndNotification) {
-                        const threshold = 20.0;
-                        if (!_navigated) {
-                          if (_currentImageIndex == 0 &&
-                              _minOverscrollPixels < -threshold) {
-                            widget.onNavigatePreviousAccount?.call();
-                          } else if (_currentImageIndex ==
-                                  item.mediaUrls.length - 1 &&
-                              _maxOverscrollPixels > threshold) {
-                            widget.onNavigateNextAccount?.call();
-                          }
-                        }
-                        _minOverscrollPixels = 0.0;
-                        _maxOverscrollPixels = 0.0;
-                        _navigated = false;
-                      }
-                      return false;
-                    },
+                    onNotification: (notification) =>
+                        _handleMultiImageScrollNotification(
+                      notification,
+                      item.mediaUrls.length,
+                    ),
                     child: PageView.builder(
                       controller: _imagePageController,
                       allowImplicitScrolling: true,

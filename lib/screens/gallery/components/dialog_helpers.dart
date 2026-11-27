@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../viewmodels/gallery_viewmodel.dart';
+import 'append_config_dialog.dart';
 
 /// [JA] 進捗表示ダイアログを表示する
 /// [EN] Displays a progress dialog with a message
@@ -142,37 +144,91 @@ Future<void> pinAccountToTop(
 ) =>
     togglePinAccount(context, vm, username);
 
-/// [JA] 列数選択ダイアログ（ラジオボタン）を表示する
-/// [EN] Displays a dialog with radio buttons to select the grid column count
-Future<void> showGridColumnsDialog(
-  BuildContext context, {
-  bool isAccountGallery = false,
+/// [JA] 外部URLをブラウザ/外部アプリで開く共通ヘルパー
+/// [EN] Shared helper to launch an external URL and report errors via SnackBar
+Future<void> launchExternalUrl(BuildContext context, String urlStr) async {
+  if (urlStr.isEmpty) return;
+  final url = Uri.parse(urlStr);
+  try {
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
+  } catch (e) {
+    if (context.mounted) {
+      showErrorSnackBar(
+        context,
+        AppLocalizations.of(context).linkOpenError(e.toString()),
+      );
+    }
+  }
+}
+
+/// [JA] 取得設定ダイアログを表示し、認証確認のうえユーザーをフェッチキューへ追加する共通フロー
+/// [EN] Shared flow: show append config dialog, check admin auth, and enqueue user fetch
+Future<bool> queueUserWithConfigDialog(
+  BuildContext context,
+  String username, {
+  bool registerOnSuccess = false,
 }) async {
+  if (username.isEmpty) return false;
+
+  final result = await AppendConfigDialog.show(context);
+  if (result == null || !context.mounted) return false;
+
   final l10n = AppLocalizations.of(context);
   final vm = context.read<GalleryViewModel>();
-  final current =
-      isAccountGallery ? vm.accountGridColumnCount : vm.mainGridColumnCount;
+  if (!await vm.isAdminAuthenticated()) {
+    if (context.mounted) {
+      showErrorSnackBar(context, l10n.pleaseLoginWithMasterGist);
+    }
+    return false;
+  }
 
+  final success = await vm.queueUserForFetch(
+    username,
+    count: result.count,
+    stopOnExisting: result.stopOnExisting,
+    fromScratch: result.fromScratch,
+  );
+  if (success && registerOnSuccess) {
+    await vm.registerUser(username);
+  }
+  if (context.mounted) {
+    if (success) {
+      showSuccessSnackBar(context, l10n.addedToQueue(username));
+    } else {
+      showErrorSnackBar(context, l10n.failedToAddToQueue);
+    }
+  }
+  return success;
+}
+
+/// [JA] ラジオボタン選択ダイアログの共通ヘルパー
+/// [EN] Shared radio selection dialog helper
+Future<void> _showRadioSelectionDialog<T>(
+  BuildContext context, {
+  required String title,
+  required T currentValue,
+  required List<({T value, String label})> options,
+  required void Function(T value) onSelected,
+}) async {
+  final l10n = AppLocalizations.of(context);
   await showDialog<void>(
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
-        title: Text(l10n.gridColumnsLabel),
+        title: Text(title),
         contentPadding: const EdgeInsets.symmetric(vertical: 16),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [1, 2, 3].map((count) {
-            return RadioListTile<int>(
-              title: Text(l10n.columnsCount(count)),
-              value: count,
-              groupValue: current,
+          children: options.map((opt) {
+            return RadioListTile<T>(
+              title: Text(opt.label),
+              value: opt.value,
+              groupValue: currentValue,
               onChanged: (val) {
                 if (val != null) {
-                  if (isAccountGallery) {
-                    vm.setAccountGridColumnCount(val);
-                  } else {
-                    vm.setMainGridColumnCount(val);
-                  }
+                  onSelected(val);
                   Navigator.pop(dialogContext);
                 }
               },
@@ -190,54 +246,72 @@ Future<void> showGridColumnsDialog(
   );
 }
 
+/// [JA] 列数選択ダイアログ（ラジオボタン）を表示する
+/// [EN] Displays a dialog with radio buttons to select the grid column count
+Future<void> showGridColumnsDialog(
+  BuildContext context, {
+  bool isAccountGallery = false,
+}) async {
+  final l10n = AppLocalizations.of(context);
+  final vm = context.read<GalleryViewModel>();
+  final current =
+      isAccountGallery ? vm.accountGridColumnCount : vm.mainGridColumnCount;
+
+  await _showRadioSelectionDialog<int>(
+    context,
+    title: l10n.gridColumnsLabel,
+    currentValue: current,
+    options: [
+      for (final count in [1, 2, 3])
+        (value: count, label: l10n.columnsCount(count)),
+    ],
+    onSelected: (val) {
+      if (isAccountGallery) {
+        vm.setAccountGridColumnCount(val);
+      } else {
+        vm.setMainGridColumnCount(val);
+      }
+    },
+  );
+}
+
 /// [JA] 行の高さ基準選択ダイアログ（ラジオボタン）を表示する
 /// [EN] Displays a dialog with radio buttons to select row height basis
 Future<void> showRowHeightDialog(BuildContext context) async {
   final l10n = AppLocalizations.of(context);
   final vm = context.read<GalleryViewModel>();
-  final current = vm.rowHeightMode;
 
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: Text(l10n.rowHeightStandardLabel),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<String>(
-              title: Text(l10n.rowHeightShortest),
-              value: 'shortest',
-              groupValue: current,
-              onChanged: (val) {
-                if (val != null) {
-                  vm.setRowHeightMode(val);
-                  Navigator.pop(dialogContext);
-                }
-              },
-            ),
-            RadioListTile<String>(
-              title: Text(l10n.rowHeightTallest),
-              value: 'tallest',
-              groupValue: current,
-              onChanged: (val) {
-                if (val != null) {
-                  vm.setRowHeightMode(val);
-                  Navigator.pop(dialogContext);
-                }
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(l10n.cancel),
+  await _showRadioSelectionDialog<String>(
+    context,
+    title: l10n.rowHeightStandardLabel,
+    currentValue: vm.rowHeightMode,
+    options: [
+      (value: 'shortest', label: l10n.rowHeightShortest),
+      (value: 'tallest', label: l10n.rowHeightTallest),
+    ],
+    onSelected: vm.setRowHeightMode,
+  );
+}
+
+PopupMenuItem<String> _buildIconMenuItem({
+  required String value,
+  required IconData icon,
+  required String label,
+}) {
+  return PopupMenuItem<String>(
+    value: value,
+    child: Row(
+      children: [
+        Icon(icon),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
           ),
-        ],
-      );
-    },
+        ),
+      ],
+    ),
   );
 }
 
@@ -245,20 +319,10 @@ Future<void> showRowHeightDialog(BuildContext context) async {
 /// [EN] Menu item to select grid column count
 PopupMenuItem<String> buildGridColumnsMenuItem(BuildContext context) {
   final l10n = AppLocalizations.of(context);
-  return PopupMenuItem<String>(
+  return _buildIconMenuItem(
     value: 'grid_columns',
-    child: Row(
-      children: [
-        const Icon(Icons.grid_view),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            l10n.gridColumnsLabel,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    ),
+    icon: Icons.grid_view,
+    label: l10n.gridColumnsLabel,
   );
 }
 
@@ -266,20 +330,10 @@ PopupMenuItem<String> buildGridColumnsMenuItem(BuildContext context) {
 /// [EN] Menu item to select row height basis
 PopupMenuItem<String> buildRowHeightMenuItem(BuildContext context) {
   final l10n = AppLocalizations.of(context);
-  return PopupMenuItem<String>(
+  return _buildIconMenuItem(
     value: 'row_height',
-    child: Row(
-      children: [
-        const Icon(Icons.height),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            l10n.rowHeightStandardLabel,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    ),
+    icon: Icons.height,
+    label: l10n.rowHeightStandardLabel,
   );
 }
 

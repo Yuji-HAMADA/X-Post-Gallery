@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/data_source.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
-import 'components/append_config_dialog.dart';
 import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
 
@@ -113,31 +111,8 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
 
   // --- ダイアログ系 [JA: ダイアログ系 / EN: Dialogs] ---
 
-  Future<void> _handleAppend(String username) async {
-    final result = await AppendConfigDialog.show(context);
-    if (result == null || !mounted) return;
-
-    final l10n = AppLocalizations.of(context);
-    final vm = context.read<GalleryViewModel>();
-    if (!await vm.isAdminAuthenticated()) {
-      if (mounted) showErrorSnackBar(context, l10n.pleaseLoginWithMasterGist);
-      return;
-    }
-
-    final success = await vm.queueUserForFetch(
-      username,
-      count: result.count,
-      stopOnExisting: result.stopOnExisting,
-      fromScratch: result.fromScratch,
-    );
-    if (mounted) {
-      if (success) {
-        showSuccessSnackBar(context, l10n.addedToQueue(username));
-      } else {
-        showErrorSnackBar(context, l10n.failedToAddToQueue);
-      }
-    }
-  }
+  Future<void> _handleAppend(String username) =>
+      queueUserWithConfigDialog(context, username);
 
   Future<void> _showDeleteConfirmDialog(String username) async {
     final l10n = AppLocalizations.of(context);
@@ -226,21 +201,9 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     }
   }
 
-  Future<void> _launchX(String username) async {
+  Future<void> _launchX(String username) {
     final source = context.read<GalleryViewModel>().currentSource;
-    final url = Uri.parse(source.profileUrl(username));
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      if (mounted) {
-        showErrorSnackBar(
-          context,
-          AppLocalizations.of(context).linkOpenError(e.toString()),
-        );
-      }
-    }
+    return launchExternalUrl(context, source.profileUrl(username));
   }
 
   // --- ビルド ---

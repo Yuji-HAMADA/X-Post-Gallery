@@ -1,12 +1,12 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/data_source.dart';
 import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import '../detail/detail_image_item.dart';
+import 'components/dialog_helpers.dart';
 import 'user_gallery_swipe_page.dart';
 
 /// ランダムに選んだユーザーの画像を左右スワイプで表示するページ
@@ -129,16 +129,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
       }
     }
     if (urlStr != null && urlStr.isNotEmpty) {
-      final url = Uri.parse(urlStr);
-      try {
-        if (await canLaunchUrl(url)) {
-          await launchUrl(url, mode: LaunchMode.externalApplication);
-        }
-      } catch (e) {
-        if (mounted) {
-          _showError(AppLocalizations.of(context).linkOpenError(e.toString()));
-        }
-      }
+      await launchExternalUrl(context, urlStr);
     }
   }
 
@@ -169,14 +160,6 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
         ),
       ),
     );
-  }
-
-  void _showError(String msg) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
-    }
   }
 
   void _handleZoomChanged(bool zoomed) {

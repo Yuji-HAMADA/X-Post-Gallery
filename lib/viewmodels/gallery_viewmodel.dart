@@ -124,20 +124,24 @@ class GalleryViewModel extends ChangeNotifier {
   Map<String, int> _userPriorities = {};
   Map<String, int> get userPriorities => _userPriorities;
 
-  Map<String, UserGistEntry> _userGistEntries = {};
-  Map<String, UserGistEntry> get userGistEntries => _userGistEntries;
-  bool isCandidate(String username) {
-    if (_userGistEntries.containsKey(username)) {
-      return _userGistEntries[username]?.isCandidate ?? false;
+  MapEntry<String, V>? _findEntryIgnoreCase<V>(Map<String, V> map, String key) {
+    if (map.containsKey(key)) {
+      return MapEntry(key, map[key] as V);
     }
-    final lower = username.toLowerCase();
-    for (final e in _userGistEntries.entries) {
-      if (e.key.toLowerCase() == lower) {
-        return e.value.isCandidate;
+    final lower = key.toLowerCase();
+    for (final entry in map.entries) {
+      if (entry.key.toLowerCase() == lower) {
+        return entry;
       }
     }
-    return false;
+    return null;
   }
+
+  Map<String, UserGistEntry> _userGistEntries = {};
+  Map<String, UserGistEntry> get userGistEntries => _userGistEntries;
+  bool isCandidate(String username) =>
+      _findEntryIgnoreCase(_userGistEntries, username)?.value.isCandidate ??
+      false;
 
   String _errorMessage = '';
   String get errorMessage => _errorMessage;
@@ -320,33 +324,13 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// 大文字小文字を問わずユーザーのGist IDを取得
   String? getGistIdForUser(String username) {
-    if (_userGists.containsKey(username)) {
-      final id = _userGists[username];
-      return (id != null && id.isNotEmpty) ? id : null;
-    }
-    final targetLower = username.toLowerCase();
-    for (final entry in _userGists.entries) {
-      if (entry.key.toLowerCase() == targetLower) {
-        final id = entry.value;
-        return (id.isNotEmpty) ? id : null;
-      }
-    }
-    return null;
+    final id = _findEntryIgnoreCase(_userGists, username)?.value;
+    return (id != null && id.isNotEmpty) ? id : null;
   }
 
   /// 大文字小文字を問わず登録されている正準アカウント名を取得
-  String? getCanonicalUsername(String username) {
-    if (_userGists.containsKey(username)) {
-      return username;
-    }
-    final targetLower = username.toLowerCase();
-    for (final key in _userGists.keys) {
-      if (key.toLowerCase() == targetLower) {
-        return key;
-      }
-    }
-    return null;
-  }
+  String? getCanonicalUsername(String username) =>
+      _findEntryIgnoreCase(_userGists, username)?.key;
 
   /// ユーザーの全ツイートを取得（Gist分割対応、大文字小文字不問、新しい順ソート）
   Future<List<TweetItem>> fetchUserItems(String username) async {
@@ -425,11 +409,6 @@ class GalleryViewModel extends ChangeNotifier {
       if (success) {
         _errorMessage = '';
         return gistId;
-      } else {
-        _errorMessage = _githubService.lastErrorMessage.isNotEmpty
-            ? _githubService.lastErrorMessage
-            : AppLocalizations.current.saveFailed;
-        return null;
       }
     } else {
       gistId = await _githubService.createGist(
@@ -442,11 +421,12 @@ class GalleryViewModel extends ChangeNotifier {
         _errorMessage = '';
         return gistId;
       }
-      _errorMessage = _githubService.lastErrorMessage.isNotEmpty
-          ? _githubService.lastErrorMessage
-          : AppLocalizations.current.saveFailed;
-      return null;
     }
+
+    _errorMessage = _githubService.lastErrorMessage.isNotEmpty
+        ? _githubService.lastErrorMessage
+        : AppLocalizations.current.saveFailed;
+    return null;
   }
 
   /// Gist IDを指定してお気に入りを読み込み、ローカルの SharedPreferences に上書きする
@@ -610,13 +590,7 @@ class GalleryViewModel extends ChangeNotifier {
   /// ユーザーを完全に削除する（子Gistから除外 + キューから除外 + お気に入り解除 + マスターから除去）
   Future<bool> deleteUser(String username) async {
     try {
-      final gistId = _userGists[username] ??
-          _userGists.entries
-              .firstWhere(
-                (e) => e.key.toLowerCase() == username.toLowerCase(),
-                orElse: () => const MapEntry('', ''),
-              )
-              .value;
+      final gistId = getGistIdForUser(username) ?? '';
 
       if (gistId.isNotEmpty) {
         try {
@@ -701,61 +675,43 @@ class GalleryViewModel extends ChangeNotifier {
 
   /// [JA] アカウントがピン留め（トップ固定）されているかを判定
   /// [EN] Checks whether the account is pinned to the top
-  bool isPinned(String username) {
-    if ((_userPriorities[username] ?? 0) > 0) return true;
-    final lower = username.toLowerCase();
-    for (final entry in _userPriorities.entries) {
-      if (entry.key.toLowerCase() == lower) {
-        return entry.value > 0;
-      }
-    }
-    return false;
+  bool isPinned(String username) =>
+      (_findEntryIgnoreCase(_userPriorities, username)?.value ?? 0) > 0;
+
+  /// [JA] ユーザーの優先順位タイムスタンプを更新してマスターGistへ反映する共通処理
+  /// [EN] Shared helper to update a user's priority timestamp and persist to master Gist
+  Future<bool> _setUserPriority(String username, int newPriority) async {
+    final canonical = getCanonicalUsername(username) ?? username;
+    final lower = canonical.toLowerCase();
+    _userPriorities = Map<String, int>.fromEntries(
+      _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
+    )..[canonical] = newPriority;
+
+    final currentEntry = _userGistEntries[canonical];
+    _userGistEntries = Map<String, UserGistEntry>.fromEntries(
+      _userGistEntries.entries.where((e) => e.key.toLowerCase() != lower),
+    )..[canonical] =
+        (currentEntry ?? UserGistEntry(gistId: _userGists[canonical] ?? ''))
+            .copyWith(priorityUpdatedAt: newPriority);
+
+    await _repository.saveUserPriorities(_userPriorities);
+    notifyListeners();
+    return await _saveMasterGist();
   }
 
   /// [JA] ピン留めのトグル処理: ピン留め中なら解除（0にリセット）、未ピン留めなら最上位に固定
   /// [EN] Toggles pin state: resets to 0 if already pinned, or updates timestamp to now if unpinned
   Future<bool> togglePin(String username) async {
     final canonical = getCanonicalUsername(username) ?? username;
-    final isCurrentlyPinned = isPinned(canonical);
-    final newPriority = isCurrentlyPinned ? 0 : DateTime.now().millisecondsSinceEpoch;
-    final lower = canonical.toLowerCase();
-    final updated = Map<String, int>.fromEntries(
-      _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
-    );
-    updated[canonical] = newPriority;
-    _userPriorities = updated;
-    final currentEntry = _userGistEntries[canonical];
-    _userGistEntries = Map<String, UserGistEntry>.fromEntries(
-      _userGistEntries.entries.where((e) => e.key.toLowerCase() != lower),
-    )..[canonical] = (currentEntry ?? UserGistEntry(gistId: _userGists[canonical] ?? '')).copyWith(
-      priorityUpdatedAt: newPriority,
-    );
-    await _repository.saveUserPriorities(_userPriorities);
-    notifyListeners();
-    return await _saveMasterGist();
+    final newPriority =
+        isPinned(canonical) ? 0 : DateTime.now().millisecondsSinceEpoch;
+    return _setUserPriority(canonical, newPriority);
   }
 
   /// [JA] ピン留め（最上位移動）時: 優先順位タイムスタンプを現在時刻に更新し、マスターGistに保存して一覧を更新
   /// [EN] Bumps user priority to now, saves to master Gist, and updates the list
-  Future<bool> bumpUserPriority(String username) async {
-    final canonical = getCanonicalUsername(username) ?? username;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final lower = canonical.toLowerCase();
-    final updated = Map<String, int>.fromEntries(
-      _userPriorities.entries.where((e) => e.key.toLowerCase() != lower),
-    );
-    updated[canonical] = now;
-    _userPriorities = updated;
-    final currentEntry = _userGistEntries[canonical];
-    _userGistEntries = Map<String, UserGistEntry>.fromEntries(
-      _userGistEntries.entries.where((e) => e.key.toLowerCase() != lower),
-    )..[canonical] = (currentEntry ?? UserGistEntry(gistId: _userGists[canonical] ?? '')).copyWith(
-      priorityUpdatedAt: now,
-    );
-    await _repository.saveUserPriorities(_userPriorities);
-    notifyListeners();
-    return await _saveMasterGist();
-  }
+  Future<bool> bumpUserPriority(String username) =>
+      _setUserPriority(username, DateTime.now().millisecondsSinceEpoch);
 
   /// [JA] 新規アカウント登録時: priority_updated_at は未操作（0）としてマスターGistを更新
   /// [EN] Registers a new user with priority_updated_at defaulting to 0 (unpinned)

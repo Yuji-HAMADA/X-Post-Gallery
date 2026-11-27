@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/data_source.dart';
 import '../../models/tweet_item.dart';
 import '../../utils/date_helper.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
-import 'components/append_config_dialog.dart';
 import 'components/aspect_ratio_grid_view.dart';
 import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
@@ -133,7 +131,7 @@ class _GalleryPageState extends State<GalleryPage> {
       if (gistIdInput.isNotEmpty) {
         _loadAndRestore(gistIdInput);
       } else {
-        _showErrorSnackBar(l10n.enterGistIdError);
+        showErrorSnackBar(context, l10n.enterGistIdError);
         if (mounted) _showPasswordDialog(canCancel: canCancel);
       }
     }
@@ -173,9 +171,10 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> _loadAndRestore(String gistId) async {
     final vm = context.read<GalleryViewModel>();
     await vm.loadGallery(gistId);
+    if (!mounted) return;
     if (vm.status == GalleryStatus.error) {
-      _showErrorSnackBar(vm.errorMessage);
-      if (mounted) _showPasswordDialog(canCancel: true);
+      showErrorSnackBar(context, vm.errorMessage);
+      _showPasswordDialog(canCancel: true);
     } else {
       _restoreScrollPosition();
     }
@@ -186,19 +185,7 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> _saveFavoritesToGist() async {
     final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Row(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Text(l10n.savingToGist),
-          ],
-        ),
-      ),
-    );
+    showProgressDialog(context, message: l10n.savingToGist);
 
     final gistId = await vm.saveFavoritesToGist();
     if (!mounted) return;
@@ -233,7 +220,7 @@ class _GalleryPageState extends State<GalleryPage> {
       final msg = vm.errorMessage.isNotEmpty
           ? vm.errorMessage
           : l10n.saveFailed;
-      _showErrorSnackBar(msg);
+      showErrorSnackBar(context, msg);
     }
   }
 
@@ -268,122 +255,36 @@ class _GalleryPageState extends State<GalleryPage> {
         ],
       ),
     );
+    controller.dispose();
 
     if (gistId == null || gistId.trim().isEmpty || !mounted) return;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Row(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Text(l10n.loadingFromGist),
-          ],
-        ),
-      ),
-    );
+    showProgressDialog(context, message: l10n.loadingFromGist);
 
     final success = await vm.loadFavoritesFromGist(gistId.trim());
     if (!mounted) return;
     Navigator.pop(context);
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.loadedFavoritesSuccess),
-          backgroundColor: Colors.green,
-        ),
-      );
+      showSuccessSnackBar(context, l10n.loadedFavoritesSuccess);
     } else {
-      _showErrorSnackBar(l10n.loadFailedCheckId);
+      showErrorSnackBar(context, l10n.loadFailedCheckId);
     }
   }
 
   // --- Append 関連 ---
 
-  Future<void> _handleAppend({String? user}) async {
-    final username = user ?? '';
-    if (username.isEmpty) return;
-
-    final l10n = AppLocalizations.of(context);
-    final vm = context.read<GalleryViewModel>();
-    final result = await AppendConfigDialog.show(context);
-    debugPrint('_handleAppend: AppendConfigDialog result=$result');
-    if (result == null) return;
-
-    if (!await vm.isAdminAuthenticated()) {
-      debugPrint('_handleAppend: Admin NOT authenticated');
-      if (mounted) _showErrorSnackBar(l10n.pleaseLoginWithMasterGist);
-      return;
-    }
-
-    debugPrint(
-      '_handleAppend: Queueing user @$username with count=${result.count}, stopOnExisting=${result.stopOnExisting}, fromScratch=${result.fromScratch}',
-    );
-    final success = await vm.queueUserForFetch(
-      username,
-      count: result.count,
-      stopOnExisting: result.stopOnExisting,
-      fromScratch: result.fromScratch,
-    );
-    debugPrint('_handleAppend: queueUserForFetch success=$success');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? l10n.addedToQueue(username) : l10n.failedToAddToQueue,
-          ),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
-  }
+  Future<void> _handleAppend({String? user}) =>
+      queueUserWithConfigDialog(context, user ?? '');
 
   Future<void> _showDeleteConfirmDialog() async {
     final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final count = vm.selectedCount;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.deleteConfirmTitle),
-        content: Text(l10n.deleteImagesConfirmMessage(count)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(l10n.cancel),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(l10n.delete),
-          ),
-        ],
-      ),
-    );
+    if (!await showDeleteConfirmDialog(context, count) || !mounted) return;
 
-    if (confirmed != true) return;
-
-    // 処理中インジケータ
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              Text(l10n.deletingProgress),
-            ],
-          ),
-        ),
-      );
-    }
+    showProgressDialog(context);
 
     final currentItems = _localItems ?? widget.initialItems ?? [];
     final deletedIds = Set<String>.from(vm.selectedIds); // 削除前にキャプチャ
@@ -414,22 +315,11 @@ class _GalleryPageState extends State<GalleryPage> {
         });
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.deletedCount(count)),
-            backgroundColor: Colors.green,
-          ),
-        );
+        showSuccessSnackBar(context, l10n.deletedCount(count));
       }
-    } else {
-      _showErrorSnackBar(vm.errorMessage);
+    } else if (mounted) {
+      showErrorSnackBar(context, vm.errorMessage);
     }
-  }
-
-  void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
-    );
   }
 
   /// 削除確認ダイアログの共通処理
@@ -526,38 +416,27 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    // 3. 見つからない場合 → Xで存在確認して新規追加
+    // 3. 見つからない場合 → 対象プラットフォームで存在確認して新規追加
     final l10n = AppLocalizations.of(context);
     final username = inputTrimmed;
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              Text(l10n.verifyingOnSource(vm.currentSource.displayName)),
-            ],
-          ),
-        ),
-      );
-    }
+    showProgressDialog(
+      context,
+      message: l10n.verifyingOnSource(vm.currentSource.displayName),
+    );
 
     final exists = await vm.checkUserExistsOnX(username);
     if (mounted) Navigator.pop(context);
     if (!mounted) return;
 
     if (!exists) {
-      _showErrorSnackBar(
+      showErrorSnackBar(
+        context,
         l10n.userNotFoundOnSource(username, vm.currentSource.displayName),
       );
       return;
     }
 
-    await _handleAddNewUser(username);
+    await queueUserWithConfigDialog(context, username, registerOnSuccess: true);
   }
 
   Future<void> _handleSwitchDataSource(DataSource newSource) async {
@@ -568,7 +447,7 @@ class _GalleryPageState extends State<GalleryPage> {
     if (!mounted) return;
     if (loaded) {
       if (vm.status == GalleryStatus.error) {
-        _showErrorSnackBar(vm.errorMessage);
+        showErrorSnackBar(context, vm.errorMessage);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -589,54 +468,10 @@ class _GalleryPageState extends State<GalleryPage> {
     await pinAccountToTop(context, vm, username);
   }
 
-  /// マスターGistに存在しない新規ユーザーを追加する
-  Future<void> _handleAddNewUser(String username) async {
-    final l10n = AppLocalizations.of(context);
-    final result = await AppendConfigDialog.show(context);
-    if (result == null || !mounted) return;
-
-    final vm = context.read<GalleryViewModel>();
-    if (!await vm.isAdminAuthenticated()) {
-      if (mounted) _showErrorSnackBar(l10n.pleaseLoginWithMasterGist);
-      return;
-    }
-
-    final success = await vm.queueUserForFetch(
-      username,
-      count: result.count,
-      stopOnExisting: result.stopOnExisting,
-      fromScratch: result.fromScratch,
-    );
-    if (success) {
-      await vm.registerUser(username);
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? l10n.addedToQueue(username) : l10n.failedToAddToQueue,
-          ),
-          backgroundColor: success ? Colors.green : Colors.redAccent,
-        ),
-      );
-    }
-  }
-
   // --- 外部連携 ---
-  Future<void> _launchX(String username) async {
+  Future<void> _launchX(String username) {
     final source = context.read<GalleryViewModel>().currentSource;
-    await _openUrl(Uri.parse(source.profileUrl(username)));
-  }
-  Future<void> _openUrl(Uri url) async {
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      if (mounted) {
-        _showErrorSnackBar(AppLocalizations.of(context).linkOpenError(e.toString()));
-      }
-    }
+    return launchExternalUrl(context, source.profileUrl(username));
   }
 
   @override
@@ -661,13 +496,63 @@ class _GalleryPageState extends State<GalleryPage> {
     return _buildRootScaffold(vm, isAuthenticated);
   }
 
+  int _toLogicalTab(int rawPage) =>
+      ((rawPage % _kTabCount) + _kTabCount) % _kTabCount;
+
+  Widget _buildDataSourceButton(GalleryViewModel vm, AppLocalizations l10n) {
+    final Color badgeFill;
+    final Color badgeBorder;
+    switch (vm.currentSource) {
+      case DataSource.instagram:
+        badgeFill = Colors.pinkAccent.withValues(alpha: 0.22);
+        badgeBorder = Colors.pinkAccent;
+        break;
+      case DataSource.tiktok:
+        badgeFill = Colors.cyanAccent.withValues(alpha: 0.22);
+        badgeBorder = Colors.cyanAccent;
+        break;
+      case DataSource.x:
+        badgeFill = Colors.white12;
+        badgeBorder = Colors.white30;
+        break;
+    }
+
+    return PopupMenuButton<DataSource>(
+      tooltip: l10n.tooltipSwitchDataSource,
+      onSelected: _handleSwitchDataSource,
+      itemBuilder: (_) => DataSource.values
+          .map(
+            (source) => CheckedPopupMenuItem<DataSource>(
+              value: source,
+              checked: vm.currentSource == source,
+              child: Text(source.displayName),
+            ),
+          )
+          .toList(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: badgeFill,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: badgeBorder),
+          ),
+          child: Text(
+            vm.currentSource.shortLabel,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildRootScaffold(GalleryViewModel vm, bool isAuthenticated) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _pageController.hasClients) {
         final currentRaw = _pageController.page?.round() ??
             (_kLoopCenter + _currentPage);
-        final currentLogical =
-            ((currentRaw % _kTabCount) + _kTabCount) % _kTabCount;
+        final currentLogical = _toLogicalTab(currentRaw);
         if (currentLogical != _currentPage) {
           final target = currentRaw - currentLogical + _currentPage;
           _pageController.jumpToPage(target);
@@ -705,61 +590,7 @@ class _GalleryPageState extends State<GalleryPage> {
           title: Text(currentTitle),
           actions: [
             if (!vm.isSelectionMode) ...[
-              PopupMenuButton<DataSource>(
-                tooltip: l10n.tooltipSwitchDataSource,
-                onSelected: _handleSwitchDataSource,
-                itemBuilder: (context) => [
-                  CheckedPopupMenuItem<DataSource>(
-                    value: DataSource.x,
-                    checked: vm.currentSource == DataSource.x,
-                    child: const Text('X'),
-                  ),
-                  CheckedPopupMenuItem<DataSource>(
-                    value: DataSource.instagram,
-                    checked: vm.currentSource == DataSource.instagram,
-                    child: const Text('Instagram'),
-                  ),
-                  CheckedPopupMenuItem<DataSource>(
-                    value: DataSource.tiktok,
-                    checked: vm.currentSource == DataSource.tiktok,
-                    child: const Text('TikTok'),
-                  ),
-                ],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: vm.currentSource == DataSource.instagram
-                          ? Colors.pinkAccent.withValues(alpha: 0.22)
-                          : vm.currentSource == DataSource.tiktok
-                          ? Colors.cyanAccent.withValues(alpha: 0.22)
-                          : Colors.white12,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: vm.currentSource == DataSource.instagram
-                            ? Colors.pinkAccent
-                            : vm.currentSource == DataSource.tiktok
-                            ? Colors.cyanAccent
-                            : Colors.white30,
-                      ),
-                    ),
-                    child: Text(
-                      vm.currentSource.shortLabel,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              _buildDataSourceButton(vm, l10n),
               if (isFavPage) ...[
                 IconButton(
                   icon: const Icon(Icons.cloud_upload),
@@ -865,15 +696,13 @@ class _GalleryPageState extends State<GalleryPage> {
             : PageView.builder(
                 controller: _pageController,
                 onPageChanged: (rawPage) {
-                  final logicalPage =
-                      ((rawPage % _kTabCount) + _kTabCount) % _kTabCount;
+                  final logicalPage = _toLogicalTab(rawPage);
                   if (_currentPage != logicalPage) {
                     setState(() => _currentPage = logicalPage);
                   }
                 },
                 itemBuilder: (context, index) {
-                  final logicalIndex =
-                      ((index % _kTabCount) + _kTabCount) % _kTabCount;
+                  final logicalIndex = _toLogicalTab(index);
                   final Widget content;
                   switch (logicalIndex) {
                     case 0:
@@ -1096,51 +925,34 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// ユーザーグループ化したグリッド（メイン / 候補ギャラリー用）
-  Widget _buildUserGroupedGrid(
-    List<TweetItem> items,
-    Map<String, String> userGists,
-    Set<String> favoriteUsers,
-    Map<String, int> userPriorities, {
-    bool isCandidateView = false,
+  /// [JA] ユーザーごとのグループ化＆ソート済みエントリを構築する共通ヘルパー
+  /// [EN] Shared helper to group items by user and sort entries consistently
+  List<MapEntry<String, List<TweetItem>>> _buildOrderedUserEntries({
+    required List<TweetItem> items,
+    required List<String> seedUsernames,
+    required Map<String, int> userPriorities,
+    required bool prioritizePinned,
+    bool includeEmptySeedUsers = true,
+    bool Function(String username)? userFilter,
   }) {
-    final vm = context.read<GalleryViewModel>();
     final Map<String, List<TweetItem>> grouped = {};
     for (final item in items) {
       final key = item.extractedUsername ?? '_unknown';
-      if (!isCandidateView) {
-        if (vm.isCandidate(key)) {
-          continue;
-        }
-      } else {
-        if (favoriteUsers.contains(key)) {
-          continue;
-        }
-        if (!vm.isCandidate(key)) {
-          continue;
-        }
-      }
+      if (userFilter != null && !userFilter(key)) continue;
       grouped.putIfAbsent(key, () => []).add(item);
     }
 
-    // 元の登録順序（userGists のキー順）のインデックスを保持
-    final originalKeys = userGists.keys.toList();
-    final Map<String, int> originalIndex = {};
-    for (int i = 0; i < originalKeys.length; i++) {
-      originalIndex[originalKeys[i]] = i;
-    }
+    final Map<String, int> originalIndex = {
+      for (int i = 0; i < seedUsernames.length; i++) seedUsernames[i]: i,
+    };
 
     final List<MapEntry<String, List<TweetItem>>> entries = [];
     final Set<String> addedUsers = {};
 
-    for (final username in originalKeys) {
-      if (!isCandidateView) {
-        if (vm.isCandidate(username)) continue;
-      } else {
-        if (favoriteUsers.contains(username)) continue;
-        if (!vm.isCandidate(username)) continue;
-      }
+    for (final username in seedUsernames) {
+      if (userFilter != null && !userFilter(username)) continue;
       final userItems = grouped[username] ?? [];
+      if (!includeEmptySeedUsers && userItems.isEmpty) continue;
       entries.add(MapEntry(username, userItems));
       addedUsers.add(username);
     }
@@ -1152,34 +964,37 @@ class _GalleryPageState extends State<GalleryPage> {
       }
     }
 
-    if (!isCandidateView) {
-      // Users ギャラリー: お気に入り登録・ピン留め問わず最新ポストの新しい順
-      entries.sort((a, b) {
-        final thumbA = _selectThumbnailItem(a.value);
-        final thumbB = _selectThumbnailItem(b.value);
-        final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
-        if (tweetCmp != 0) return tweetCmp;
+    entries.sort((a, b) {
+      if (prioritizePinned) {
+        return _compareUserEntries(a, b, userPriorities, originalIndex);
+      }
+      final tweetCmp = compareTweetsByNewest(
+        _selectThumbnailItem(a.value),
+        _selectThumbnailItem(b.value),
+      );
+      if (tweetCmp != 0) return tweetCmp;
+      final idxA = originalIndex[a.key] ?? -1;
+      final idxB = originalIndex[b.key] ?? -1;
+      return idxB.compareTo(idxA);
+    });
 
-        final idxA = originalIndex[a.key] ?? -1;
-        final idxB = originalIndex[b.key] ?? -1;
-        return idxB.compareTo(idxA);
-      });
-    } else {
-      // 候補ギャラリー: ピン留めグループ・非ピン留めグループそれぞれ「ポストされた時刻の新しい順」でソート
-      entries.sort((a, b) => _compareUserEntries(a, b, userPriorities, originalIndex));
-    }
+    return entries;
+  }
 
-    final userUsernames = entries.map((e) => e.key).toList();
-
-    if (entries.isEmpty && isCandidateView) {
-      final l10n = AppLocalizations.of(context);
-      return _buildScrollableEmptyPlaceholder(l10n.noCandidatesYet);
-    }
-
+  /// [JA] UserCard グリッドの共通レンダラー（Users / Candidate / Favorites 共通）
+  /// [EN] Shared AspectRatioGridView renderer for user cards
+  Widget _buildUserCardsGrid({
+    required List<MapEntry<String, List<TweetItem>>> entries,
+    required ScrollController scrollController,
+    required Set<String> favoriteUsers,
+    required Map<String, int> userPriorities,
+    bool forceFavorite = false,
+  }) {
+    final scopeUsernames = entries.map((e) => e.key).toList();
     final columnCount = context.watch<GalleryViewModel>().mainGridColumnCount;
+
     return AspectRatioGridView<MapEntry<String, List<TweetItem>>>(
-      scrollController:
-          isCandidateView ? _candidateGridController : _gridController,
+      scrollController: scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       columnCount: columnCount,
       padding: const EdgeInsets.all(4),
@@ -1190,23 +1005,54 @@ class _GalleryPageState extends State<GalleryPage> {
         final userItems = entry.value;
         final thumbItem = _selectThumbnailItem(userItems);
         final isPinned = (userPriorities[username] ?? 0) > 0;
-        final hasVideo =
-            (context.read<GalleryViewModel>().userGistEntries[username]?.hasVideo ??
-                    false) ||
-                userItems.any((i) => i.isVideo);
+        final vm = context.read<GalleryViewModel>();
+        final hasVideo = (vm.userGistEntries[username]?.hasVideo ?? false) ||
+            userItems.any((i) => i.isVideo);
         return UserCard(
           username: username,
           thumbItem: thumbItem,
-          isFavorite: favoriteUsers.contains(username),
+          isFavorite: forceFavorite || favoriteUsers.contains(username),
           isPinned: isPinned,
           columnCount: columnCount,
           hasVideo: hasVideo,
-          onTap: () => _openUserGallery(username, scope: userUsernames),
-          onFavoriteTap: () =>
-              context.read<GalleryViewModel>().toggleFavorite(username),
+          onTap: () => _openUserGallery(username, scope: scopeUsernames),
+          onFavoriteTap: () => vm.toggleFavorite(username),
           onLongPress: () => _confirmDeleteUser(username),
         );
       },
+    );
+  }
+
+  /// ユーザーグループ化したグリッド（メイン / 候補ギャラリー用）
+  Widget _buildUserGroupedGrid(
+    List<TweetItem> items,
+    Map<String, String> userGists,
+    Set<String> favoriteUsers,
+    Map<String, int> userPriorities, {
+    bool isCandidateView = false,
+  }) {
+    final vm = context.read<GalleryViewModel>();
+    final entries = _buildOrderedUserEntries(
+      items: items,
+      seedUsernames: userGists.keys.toList(),
+      userPriorities: userPriorities,
+      prioritizePinned: isCandidateView,
+      userFilter: (u) => isCandidateView
+          ? !favoriteUsers.contains(u) && vm.isCandidate(u)
+          : !vm.isCandidate(u),
+    );
+
+    if (entries.isEmpty && isCandidateView) {
+      final l10n = AppLocalizations.of(context);
+      return _buildScrollableEmptyPlaceholder(l10n.noCandidatesYet);
+    }
+
+    return _buildUserCardsGrid(
+      entries: entries,
+      scrollController:
+          isCandidateView ? _candidateGridController : _gridController,
+      favoriteUsers: favoriteUsers,
+      userPriorities: userPriorities,
     );
   }
 
@@ -1222,72 +1068,20 @@ class _GalleryPageState extends State<GalleryPage> {
       return _buildScrollableEmptyPlaceholder(l10n.noFavoritesYet);
     }
 
-    final Map<String, List<TweetItem>> grouped = {};
-    for (final item in favoriteItems) {
-      final key = item.extractedUsername ?? '_unknown';
-      grouped.putIfAbsent(key, () => []).add(item);
-    }
+    final entries = _buildOrderedUserEntries(
+      items: favoriteItems,
+      seedUsernames: favoriteUsers.toList(),
+      userPriorities: userPriorities,
+      prioritizePinned: true,
+      includeEmptySeedUsers: false,
+    );
 
-    final favList = favoriteUsers.toList();
-    final Map<String, int> originalIndex = {};
-    for (int i = 0; i < favList.length; i++) {
-      originalIndex[favList[i]] = i;
-    }
-
-    final List<MapEntry<String, List<TweetItem>>> entries = [];
-    final Set<String> addedUsers = {};
-
-    for (final username in favList) {
-      final userItems = grouped[username];
-      if (userItems != null && userItems.isNotEmpty) {
-        entries.add(MapEntry(username, userItems));
-        addedUsers.add(username);
-      }
-    }
-    // grouped に存在するが favoriteUsers に含まれない場合のフォールバック
-    for (final entry in grouped.entries) {
-      if (!addedUsers.contains(entry.key)) {
-        entries.add(entry);
-        addedUsers.add(entry.key);
-      }
-    }
-
-    // ピン留めグループ・非ピン留めグループそれぞれ「ポストされた時刻の新しい順」でソート
-    entries.sort((a, b) => _compareUserEntries(a, b, userPriorities, originalIndex));
-
-    // お気に入りページ内でのスワイプスコープ（このグリッドに表示される順）
-    final favUsernames = entries.map((e) => e.key).toList();
-
-    final columnCount = context.watch<GalleryViewModel>().mainGridColumnCount;
-    return AspectRatioGridView<MapEntry<String, List<TweetItem>>>(
+    return _buildUserCardsGrid(
+      entries: entries,
       scrollController: _favGridController,
-      physics: const AlwaysScrollableScrollPhysics(),
-      columnCount: columnCount,
-      padding: const EdgeInsets.all(4),
-      items: entries,
-      getImageUrl: (entry) => _selectThumbnailItem(entry.value).thumbnailUrl,
-      itemBuilder: (context, entry, index) {
-        final username = entry.key;
-        final userItems = entry.value;
-        final thumbItem = _selectThumbnailItem(userItems);
-        final isPinned = (userPriorities[username] ?? 0) > 0;
-        final hasVideo =
-            (context.read<GalleryViewModel>().userGistEntries[username]?.hasVideo ??
-                    false) ||
-                userItems.any((i) => i.isVideo);
-        return UserCard(
-          username: username,
-          thumbItem: thumbItem,
-          isFavorite: true,
-          isPinned: isPinned,
-          columnCount: columnCount,
-          hasVideo: hasVideo,
-          onTap: () => _openUserGallery(username, scope: favUsernames),
-          onFavoriteTap: () =>
-              context.read<GalleryViewModel>().toggleFavorite(username),
-          onLongPress: () => _confirmDeleteUser(username),
-        );
-      },
+      favoriteUsers: favoriteUsers,
+      userPriorities: userPriorities,
+      forceFavorite: true,
     );
   }
 
@@ -1302,71 +1096,65 @@ class _GalleryPageState extends State<GalleryPage> {
     return usernames.toList();
   }
 
-  Future<void> _toggleFavRandomMode() async {
+  Future<void> _openRandomMode({
+    required List<String> usernames,
+    required String emptyMessage,
+    required String tabTitle,
+    required void Function(bool checked) setChecked,
+  }) async {
     final l10n = AppLocalizations.of(context);
-    final vm = context.read<GalleryViewModel>();
-    final usernames = vm.favoriteUsers.toList();
     if (usernames.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.noFavoriteUsersRegistered)),
+          SnackBar(content: Text(emptyMessage)),
         );
       }
       return;
     }
 
-    setState(() => _isFavRandomChecked = true);
+    setState(() => setChecked(true));
 
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => RandomGallerySwipePage(
           usernames: usernames,
-          title: '${l10n.randomSelection} (${l10n.tabFavorites})',
+          title: '${l10n.randomSelection} ($tabTitle)',
         ),
       ),
     );
 
     if (mounted) {
-      setState(() => _isFavRandomChecked = false);
+      setState(() => setChecked(false));
     }
   }
 
-  Future<void> _toggleUserRandomMode() async {
+  Future<void> _toggleFavRandomMode() {
+    final l10n = AppLocalizations.of(context);
+    final vm = context.read<GalleryViewModel>();
+    return _openRandomMode(
+      usernames: vm.favoriteUsers.toList(),
+      emptyMessage: l10n.noFavoriteUsersRegistered,
+      tabTitle: l10n.tabFavorites,
+      setChecked: (v) => _isFavRandomChecked = v,
+    );
+  }
+
+  Future<void> _toggleUserRandomMode() {
     final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final usernames = _getAllUsernames(vm.items)
-        .where(
-          (username) => !vm.isCandidate(username),
-        )
+        .where((username) => !vm.isCandidate(username))
         .toList();
-    if (usernames.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.userNotFound)),
-        );
-      }
-      return;
-    }
-
-    setState(() => _isUserRandomChecked = true);
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RandomGallerySwipePage(
-          usernames: usernames,
-          title: '${l10n.randomSelection} (${l10n.tabUsers})',
-        ),
-      ),
+    return _openRandomMode(
+      usernames: usernames,
+      emptyMessage: l10n.userNotFound,
+      tabTitle: l10n.tabUsers,
+      setChecked: (v) => _isUserRandomChecked = v,
     );
-
-    if (mounted) {
-      setState(() => _isUserRandomChecked = false);
-    }
   }
 
-  Future<void> _toggleCandidateRandomMode() async {
+  Future<void> _toggleCandidateRandomMode() {
     final l10n = AppLocalizations.of(context);
     final vm = context.read<GalleryViewModel>();
     final usernames = _getAllUsernames(vm.items)
@@ -1375,30 +1163,12 @@ class _GalleryPageState extends State<GalleryPage> {
               !vm.favoriteUsers.contains(username) && vm.isCandidate(username),
         )
         .toList();
-    if (usernames.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.noCandidatesYet)),
-        );
-      }
-      return;
-    }
-
-    setState(() => _isCandidateRandomChecked = true);
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RandomGallerySwipePage(
-          usernames: usernames,
-          title: '${l10n.randomSelection} (${l10n.tabCandidate})',
-        ),
-      ),
+    return _openRandomMode(
+      usernames: usernames,
+      emptyMessage: l10n.noCandidatesYet,
+      tabTitle: l10n.tabCandidate,
+      setChecked: (v) => _isCandidateRandomChecked = v,
     );
-
-    if (mounted) {
-      setState(() => _isCandidateRandomChecked = false);
-    }
   }
 
   Future<void> _openUserGallery(String username, {List<String>? scope}) async {
@@ -1409,45 +1179,14 @@ class _GalleryPageState extends State<GalleryPage> {
       // お気に入りなど呼び出し元が既に順序を決めているケース
       sortedUsernames = scope;
     } else {
-      // グリッドと同じ優先順位降順（最新ポスト順）でユーザー一覧を構築
-      final originalKeys = vm.userGists.keys.toList();
-      final Map<String, int> originalIndex = {};
-      for (int i = 0; i < originalKeys.length; i++) {
-        originalIndex[originalKeys[i]] = i;
-      }
-
-      final Set<String> registered = {};
-      final List<String> list = [];
-      for (final u in originalKeys) {
-        if (!vm.isCandidate(u)) {
-          list.add(u);
-          registered.add(u);
-        }
-      }
-      final Map<String, List<TweetItem>> grouped = {};
-      for (final item in vm.items) {
-        final key = item.extractedUsername ?? '_unknown';
-        grouped.putIfAbsent(key, () => []).add(item);
-        if (!vm.isCandidate(key) && !registered.contains(key)) {
-          list.add(key);
-          registered.add(key);
-        }
-      }
-
-      list.sort((a, b) {
-        final itemsA = grouped[a] ?? [];
-        final itemsB = grouped[b] ?? [];
-        final thumbA = _selectThumbnailItem(itemsA);
-        final thumbB = _selectThumbnailItem(itemsB);
-        final tweetCmp = compareTweetsByNewest(thumbA, thumbB);
-        if (tweetCmp != 0) return tweetCmp;
-
-        final idxA = originalIndex[a] ?? -1;
-        final idxB = originalIndex[b] ?? -1;
-        return idxB.compareTo(idxA);
-      });
-
-      sortedUsernames = list;
+      // グリッドと同じ最新ポスト順でユーザー一覧を構築
+      sortedUsernames = _buildOrderedUserEntries(
+        items: vm.items,
+        seedUsernames: vm.userGists.keys.toList(),
+        userPriorities: vm.userPriorities,
+        prioritizePinned: false,
+        userFilter: (u) => !vm.isCandidate(u),
+      ).map((e) => e.key).toList();
     }
 
     int initialIndex = sortedUsernames.indexWhere(
