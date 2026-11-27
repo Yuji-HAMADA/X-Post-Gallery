@@ -32,6 +32,7 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
   bool _userPaused = false;
   bool _isDisposed = false;
   bool _wasPlaying = false;
+  int _initGeneration = 0;
   final List<ScrollPosition> _attachedPositions = [];
 
   @override
@@ -73,15 +74,39 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
   }
 
   @override
+  void didUpdateWidget(covariant ThumbnailVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl ||
+        (oldWidget.enableAutoplay && !widget.enableAutoplay)) {
+      _userPaused = false;
+      _disposeController();
+      if (widget.enableAutoplay && _isMostlyVisible) {
+        _initAndPlay();
+      }
+    }
+  }
+
+  void _disposeController() {
+    _initGeneration++;
+    final controller = _controller;
+    _controller = null;
+    _isInitialized = false;
+    _wasPlaying = false;
+    VideoWakelockManager.onDisposed(this);
+    if (controller != null) {
+      controller.removeListener(_onControllerUpdate);
+      controller.dispose();
+    }
+  }
+
+  @override
   void dispose() {
     _isDisposed = true;
     for (final pos in _attachedPositions) {
       pos.removeListener(_checkVisibility);
     }
     _attachedPositions.clear();
-    _controller?.removeListener(_onControllerUpdate);
-    VideoWakelockManager.onDisposed(this);
-    _controller?.dispose();
+    _disposeController();
     super.dispose();
   }
 
@@ -115,17 +140,14 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
     if (isMostlyVisible != _isMostlyVisible) {
       _isMostlyVisible = isMostlyVisible;
       if (_isMostlyVisible) {
-        if (widget.enableAutoplay) {
-          if (_controller == null) {
-            _initAndPlay();
-          } else if (!_userPaused && _isInitialized) {
-            _controller?.play();
-          }
+        if (widget.enableAutoplay && !_userPaused && _controller == null) {
+          _initAndPlay();
         }
       } else {
-        if (_isInitialized) {
-          _controller?.pause();
-        }
+        // 画面中央から外れたらデコーダ資源（MediaCodec / Surface）を即解放し、
+        // 同時稼働するコントローラを常に1本に抑える
+        _userPaused = false;
+        _disposeController();
       }
       if (mounted) setState(() {});
     }
@@ -133,6 +155,8 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
 
   Future<void> _initAndPlay({bool forcePlay = false}) async {
     if (widget.videoUrl.isEmpty) return;
+    _disposeController();
+    final gen = ++_initGeneration;
     final controller = VideoPlayerController.networkUrl(
       Uri.parse(widget.videoUrl),
       httpHeaders: buildVideoHttpHeaders(widget.videoUrl),
@@ -141,11 +165,12 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
 
     try {
       await controller.initialize();
-      if (_isDisposed) {
+      if (_isDisposed || gen != _initGeneration) {
         await controller.dispose();
         return;
       }
       await controller.setVolume(0.0); // 常にミュート
+      // 個別表示 (VideoPlayerItem) と同じネイティブループを使用
       await controller.setLooping(true);
       controller.addListener(_onControllerUpdate);
 
@@ -155,15 +180,17 @@ class _ThumbnailVideoPlayerState extends State<ThumbnailVideoPlayer> {
         await controller.play();
       }
 
-      if (mounted && !_isDisposed) {
+      if (mounted && !_isDisposed && gen == _initGeneration) {
         setState(() {
           _isInitialized = true;
         });
       }
     } catch (e) {
       debugPrint('[ThumbnailVideoPlayer] Init error: $e');
-      if (_isDisposed) {
+      if (_isDisposed || gen != _initGeneration) {
         await controller.dispose();
+      } else if (_controller == controller) {
+        _disposeController();
       }
     }
   }
