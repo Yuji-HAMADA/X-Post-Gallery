@@ -18,10 +18,22 @@ else
   exit 1
 fi
 
-# --- 引数の先読み（--platform 対応） ---
+# --- 引数の先読み（--help / --slot / --platform 対応） ---
 TARGET_SLOT="auto"
 while [[ $# -gt 0 ]]; do
   case $1 in
+    -h|--help)
+      cat <<'EOF'
+Usage: run_scheduled_fetch_local.sh [OPTIONS]
+
+Options:
+  -h, --help                Show this help message and exit
+  --slot <0|1|auto>         Target queue slot (default: auto)
+  --platform <x|instagram|tiktok>
+                            Target platform (default: $PLATFORM or x)
+EOF
+      exit 0
+      ;;
     --slot)
       TARGET_SLOT="$2"
       shift 2

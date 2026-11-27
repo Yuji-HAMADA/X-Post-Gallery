@@ -85,6 +85,22 @@ class TestMasterLoopScript(unittest.TestCase):
             )
             self.assertNotEqual(res.returncode, 0)
 
+    def test_help_flag_exits_zero_without_running_steps(self):
+        """--help / -h 指定時にヘルプを表示して即終了し、Step 1〜3 を一切実行しないこと"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path, log_path = self._setup_stub_project(tmpdir)
+            for flag in ("--help", "-h"):
+                res = subprocess.run(
+                    ["bash", script_path, flag],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertEqual(res.returncode, 0, msg=res.stderr)
+                self.assertIn("Usage:", res.stdout)
+                self.assertIn("--max-cycles", res.stdout)
+                self.assertFalse(os.path.exists(log_path))
+
     def test_auth_error_exit_41_stops_master_loop_immediately(self):
         """Step 1 が認証切れ (exit 41) を返したら Step 2/3 や次巡回に進まず即終了すること"""
         with tempfile.TemporaryDirectory() as tmpdir:

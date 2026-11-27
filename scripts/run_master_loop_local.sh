@@ -10,11 +10,37 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-# --platform / --max-cycles 引数を解析し、残りを子スクリプトへ引き継ぐ
+show_usage() {
+  cat <<'EOF'
+Usage: run_master_loop_local.sh [OPTIONS] [EXPAND_TIMELINE_OPTIONS...]
+       run_master_loop_instagram_local.sh [OPTIONS] [EXPAND_TIMELINE_OPTIONS...]
+       run_master_loop_tiktok_local.sh [OPTIONS] [EXPAND_TIMELINE_OPTIONS...]
+
+Master Loop Options:
+  -h, --help                Show this help message and exit
+  --platform <x|instagram|tiktok>
+                            Target platform (default: $PLATFORM or x)
+  --max-cycles <N>          Stop master loop after N full cycles (0 = unlimited)
+
+All other options (e.g., -n, --num-existing, --scroll-batch-size, --rate-limit-wait,
+--slot, --no-headless) are forwarded to run_expand_timeline_local.sh / run_scheduled_fetch_local.sh.
+EOF
+  if [ -x "$PROJECT_DIR/venv/bin/python" ] && [ -f "$PROJECT_DIR/scripts/expand_timeline_candidates.py" ]; then
+    echo ""
+    echo "--- expand_timeline_candidates.py options ---"
+    "$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/scripts/expand_timeline_candidates.py" --help
+  fi
+}
+
+# --platform / --max-cycles / --help 引数を解析し、残りを子スクリプトへ引き継ぐ
 PASS_ARGS=()
 MAX_CYCLES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      show_usage
+      exit 0
+      ;;
     --platform)
       export PLATFORM="$2"
       shift 2
