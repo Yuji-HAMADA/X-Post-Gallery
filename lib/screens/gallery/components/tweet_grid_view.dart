@@ -88,6 +88,36 @@ class _TweetGridItemState extends State<TweetGridItem> {
   double _minOverscrollPixels = 0.0;
   double _maxOverscrollPixels = 0.0;
   bool _navigated = false;
+  final Set<String> _precachedUrls = {};
+
+  bool _isMultiImageInOneColumn(TweetItem item) =>
+      widget.columnCount == 1 && !item.isVideo && item.mediaUrls.length > 1;
+
+  /// [JA] 複数画像の前後ページを先読みしてスワイプ時の黒画面ちらつきを防ぐ
+  /// [EN] Precache adjacent images in a multi-image post to avoid black flashes on swipe
+  void _precacheNearbyImages({int? centerIndex, int lookAhead = 2}) {
+    if (!mounted) return;
+    final item = widget.items[widget.index];
+    if (!_isMultiImageInOneColumn(item)) return;
+
+    final base = centerIndex ?? _currentImageIndex;
+    final count = item.mediaUrls.length;
+    final start = (base - 1).clamp(0, count - 1);
+    final end = (base + lookAhead).clamp(0, count - 1);
+
+    for (int i = start; i <= end; i++) {
+      if (i == base) continue;
+      final url = item.imageUrlAt(i, columnCount: widget.columnCount);
+      if (url.isEmpty || !_precachedUrls.add(url)) continue;
+      precacheImage(
+        NetworkImage(url),
+        context,
+        onError: (_, _) {
+          _precachedUrls.remove(url);
+        },
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -95,7 +125,23 @@ class _TweetGridItemState extends State<TweetGridItem> {
     _imagePageController = PageController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkVisibility();
+      // マウント時点で最低でも2枚目を先読みしておく
+      _precacheNearbyImages(lookAhead: 1);
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant TweetGridItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldItem = oldWidget.items[oldWidget.index];
+    final newItem = widget.items[widget.index];
+    if (oldWidget.columnCount != widget.columnCount ||
+        oldItem.id != newItem.id) {
+      _precachedUrls.clear();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _precacheNearbyImages(lookAhead: _isMostlyVisible ? 2 : 1);
+      });
+    }
   }
 
   @override
@@ -133,6 +179,9 @@ class _TweetGridItemState extends State<TweetGridItem> {
       setState(() {
         _isMostlyVisible = isCenter;
       });
+      if (isCenter) {
+        _precacheNearbyImages(lookAhead: 2);
+      }
     }
   }
 
@@ -153,8 +202,7 @@ class _TweetGridItemState extends State<TweetGridItem> {
     final item = widget.items[widget.index];
     final isSelected = widget.selectedIds.contains(item.id);
     final isSelectionMode = widget.selectedIds.isNotEmpty;
-    final isMultiImageInOneColumn =
-        widget.columnCount == 1 && !item.isVideo && item.mediaUrls.length > 1;
+    final isMultiImageInOneColumn = _isMultiImageInOneColumn(item);
 
     return GestureDetector(
       onTap: () {
@@ -249,6 +297,7 @@ class _TweetGridItemState extends State<TweetGridItem> {
                     },
                     child: PageView.builder(
                       controller: _imagePageController,
+                      allowImplicitScrolling: true,
                       physics: _isMostlyVisible
                           ? const BouncingScrollPhysics(
                               parent: PageScrollPhysics(),
@@ -257,6 +306,10 @@ class _TweetGridItemState extends State<TweetGridItem> {
                       itemCount: item.mediaUrls.length,
                       onPageChanged: (pageIndex) {
                         setState(() => _currentImageIndex = pageIndex);
+                        _precacheNearbyImages(
+                          centerIndex: pageIndex,
+                          lookAhead: 2,
+                        );
                       },
                       itemBuilder: (context, imgIndex) {
                         final url = item.imageUrlAt(imgIndex,
@@ -265,6 +318,7 @@ class _TweetGridItemState extends State<TweetGridItem> {
                           url,
                           fit: BoxFit.cover,
                           alignment: Alignment.topCenter,
+                          gaplessPlayback: true,
                           errorBuilder: (c, e, s) => const Center(
                             child:
                                 Icon(Icons.broken_image, color: Colors.grey),
