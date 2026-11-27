@@ -456,6 +456,16 @@ async def detect_block_status(page):
     if "/accounts/suspended" in url:
         return "account_dead"
     try:
+        has_login_form = await page.evaluate("""() => {
+            return !!document.querySelector('input[type="password"], input[name="password"]')
+                && !!document.querySelector('input[name="username"], input[name="email"]');
+        }""")
+    except Exception:
+        has_login_form = False
+    if has_login_form:
+        return "auth_error"
+
+    try:
         body_text = await page.inner_text("body")
     except Exception:
         body_text = ""

@@ -68,11 +68,25 @@ while true; do
 
   # 1. タイムライン収集（1巡分）の実行
   echo "▶️ [Step 1/3] Running run_expand_timeline_local.sh (--max-cycles 1)..."
-  "$SCRIPT_DIR/run_expand_timeline_local.sh" --max-cycles 1 "${PASS_ARGS[@]}" || true
+  set +e
+  "$SCRIPT_DIR/run_expand_timeline_local.sh" --max-cycles 1 "${PASS_ARGS[@]}"
+  STEP1_RC=$?
+  set -e
+  if [[ "$STEP1_RC" -eq 41 ]]; then
+    echo "🚨 [$(date '+%Y-%m-%d %H:%M:%S')] Auth session expired for $PLATFORM_LABEL (exit 41). Stopping master loop immediately." >&2
+    exit 41
+  fi
 
   # 2. 続けてスケジュール・キューフェッチを実行
   echo "▶️ [Step 2/3] Running run_scheduled_fetch_local.sh..."
-  "$SCRIPT_DIR/run_scheduled_fetch_local.sh" "${PASS_ARGS[@]}" || true
+  set +e
+  "$SCRIPT_DIR/run_scheduled_fetch_local.sh" "${PASS_ARGS[@]}"
+  STEP2_RC=$?
+  set -e
+  if [[ "$STEP2_RC" -eq 41 ]]; then
+    echo "🚨 [$(date '+%Y-%m-%d %H:%M:%S')] Auth session expired for $PLATFORM_LABEL (exit 41). Stopping master loop immediately." >&2
+    exit 41
+  fi
 
   # 3. タイムライン収集および詳細取得完了後のギャラリーソート実行
   echo "▶️ [Step 3/3] Running run_sort_master_local.sh (Sorting Master Gallery)..."

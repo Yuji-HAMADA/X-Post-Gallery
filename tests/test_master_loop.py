@@ -1,9 +1,22 @@
+import asyncio
 import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, MagicMock
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
+try:
+    import playwright  # noqa: F401
+except ImportError:
+    mock_pw = MagicMock()
+    sys.modules["playwright"] = mock_pw
+    sys.modules["playwright.async_api"] = mock_pw.async_api
+
+import expand_timeline_candidates as etc
 
 
 class TestMasterLoopScript(unittest.TestCase):
@@ -71,6 +84,57 @@ class TestMasterLoopScript(unittest.TestCase):
                 timeout=10,
             )
             self.assertNotEqual(res.returncode, 0)
+
+    def test_auth_error_exit_41_stops_master_loop_immediately(self):
+        """Step 1 が認証切れ (exit 41) を返したら Step 2/3 や次巡回に進まず即終了すること"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            script_path, log_path = self._setup_stub_project(tmpdir)
+            expand_stub = os.path.join(tmpdir, "scripts", "run_expand_timeline_local.sh")
+            with open(expand_stub, "w", encoding="utf-8") as f:
+                f.write(f'#!/bin/bash\necho "run_expand_timeline_local.sh:41" >> "{log_path}"\nexit 41\n')
+            os.chmod(expand_stub, os.stat(expand_stub).st_mode | stat.S_IXUSR)
+
+            res = subprocess.run(
+                ["bash", script_path, "--platform", "instagram", "--max-cycles", "3"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(res.returncode, 41)
+            self.assertIn("Auth session expired", res.stderr)
+            with open(log_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+            self.assertEqual(lines, ["run_expand_timeline_local.sh:41"])
+
+    def test_detect_timeline_auth_error_catches_instagram_root_login_form(self):
+        """Instagram ルートURL上のログイン画面を認証切れとして検知し、正常フィードは誤検知しないこと"""
+        login_page = MagicMock()
+        login_page.url = "https://www.instagram.com/"
+        login_page.evaluate = AsyncMock(return_value={
+            "hasPassword": True,
+            "hasLoginInput": True,
+            "articles": 0,
+            "hasInbox": False,
+            "text": "log into instagram forgot password?",
+        })
+        reason = asyncio.run(etc.detect_timeline_auth_error(login_page, "instagram"))
+        self.assertIsNotNone(reason)
+        self.assertIn("session expired", reason.lower())
+
+        ok_page = MagicMock()
+        ok_page.url = "https://www.instagram.com/"
+        ok_page.evaluate = AsyncMock(return_value={
+            "hasPassword": False,
+            "hasLoginInput": False,
+            "articles": 5,
+            "hasInbox": True,
+            "text": "home feed posts",
+        })
+        self.assertIsNone(asyncio.run(etc.detect_timeline_auth_error(ok_page, "instagram")))
+
+        x_login_page = MagicMock()
+        x_login_page.url = "https://x.com/i/flow/login"
+        self.assertIsNotNone(asyncio.run(etc.detect_timeline_auth_error(x_login_page, "x")))
 
 
 if __name__ == "__main__":

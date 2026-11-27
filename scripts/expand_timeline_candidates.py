@@ -292,6 +292,65 @@ async def _collect_instagram_ssr_usernames(page, ig_feed_usernames):
         pass
 
 
+AUTH_RECOVERY_HINTS = {
+    "instagram": "./venv/bin/python scripts/poc_extract_instagram.py --save-auth",
+    "tiktok": "./venv/bin/python scripts/poc_extract_tiktok.py --save-auth",
+    "x": "Re-generate data/auth.json with a logged-in X session",
+}
+
+
+async def detect_timeline_auth_error(page, platform):
+    """タイムライン読み込み直後にセッション切れ・ログイン画面・認証チャレンジを検知して理由文字列を返す"""
+    url = (getattr(page, "url", "") or "").lower()
+    if platform == "instagram":
+        if any(tok in url for tok in ("/accounts/login", "/challenge/", "/checkpoint/")):
+            return f"Instagram login/challenge redirect detected ({page.url})"
+        try:
+            dom = await page.evaluate("""() => {
+                const hasPassword = !!document.querySelector('input[type="password"], input[name="password"]');
+                const hasLoginInput = !!document.querySelector('input[name="username"], input[name="email"]');
+                const articles = document.querySelectorAll('article').length;
+                const hasInbox = !!document.querySelector('a[href*="/direct/inbox"]');
+                const text = (document.body ? document.body.innerText : '').toLowerCase();
+                return { hasPassword, hasLoginInput, articles, hasInbox, text: text.slice(0, 600) };
+            }""")
+        except Exception:
+            dom = {}
+        if isinstance(dom, dict):
+            text = dom.get("text") or ""
+            has_login_copy = any(
+                k in text
+                for k in ("log into instagram", "instagramにログイン", "forgot password?", "パスワードを忘れた場合")
+            )
+            if (dom.get("hasPassword") and (dom.get("hasLoginInput") or has_login_copy)) and not dom.get("articles") and not dom.get("hasInbox"):
+                return f"Instagram login screen detected on root URL ({page.url}) - session expired"
+    elif platform == "tiktok":
+        if "/login" in url:
+            return f"TikTok login redirect detected ({page.url})"
+        try:
+            has_captcha = await page.evaluate("""() => {
+                const t = (document.body ? document.body.innerText : '').toLowerCase();
+                return t.includes('verify to continue') || t.includes('drag the slider')
+                    || t.includes('認証を完了') || !!document.querySelector('[id*="captcha"], [class*="captcha-verify"]');
+            }""")
+        except Exception:
+            has_captcha = False
+        if has_captcha:
+            return f"TikTok CAPTCHA/verification challenge detected ({page.url})"
+    else:
+        if "/i/flow/login" in url or url.rstrip("/").endswith("/login"):
+            return f"X login redirect detected ({page.url})"
+    return None
+
+
+def _print_auth_error_banner(platform, reason):
+    hint = AUTH_RECOVERY_HINTS.get(platform, "Refresh the platform auth JSON file")
+    print("\n" + "!" * 60, file=sys.stderr)
+    print(f"🚨 AUTH / SESSION EXPIRED ({platform.upper()}): {reason}", file=sys.stderr)
+    print(f"🔑 Re-authenticate and update auth session: {hint}", file=sys.stderr)
+    print("!" * 60 + "\n", file=sys.stderr)
+
+
 async def collect_instagram_batch_accounts(page, ig_feed_usernames, scroll_batch_size=10, excluded_accounts_lower=None):
     """Instagram ホームフィードの SSR JSON + GraphQL 応答からアカウントを収集する"""
     excluded = excluded_accounts_lower or set()
@@ -451,6 +510,7 @@ async def run_expansion_loop(args, gist_id):
 
     cycle = 0
     total_processed = 0
+    auth_error_reason = None
 
     async with async_playwright() as p:
         launch_kwargs = {"headless": not args.no_headless}
@@ -541,6 +601,12 @@ async def run_expansion_loop(args, gist_id):
                 except Exception as e:
                     print(f"⚠️ Page load warning: {e}")
 
+                auth_err = await detect_timeline_auth_error(page, platform)
+                if auth_err:
+                    auth_error_reason = auth_err
+                    _print_auth_error_banner(platform, auth_error_reason)
+                    break
+
                 # --- TikTok: For You タイムラインから取得済みのフル投稿を直接一括投入 ---
                 if platform == "tiktok":
                     print(f"\n📜 [Cycle {cycle}] Collecting TikTok timeline posts (target={args.num}, steps={args.scroll_batch_size})...")
@@ -605,6 +671,11 @@ async def run_expansion_loop(args, gist_id):
                         print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
                         ret_code = await asyncio.to_thread(process_account, gist_id, account, fetch_num, is_existing, platform)
 
+                        if ret_code == 41:
+                            auth_error_reason = f"Extractor reported session expired (exit 41) on @{account}"
+                            _print_auth_error_banner(platform, auth_error_reason)
+                            break
+
                         # レート制限 (code 42) 検知時の自動待機＆リトライ
                         if ret_code == 42:
                             wait_mins = round(args.rate_limit_wait / 60, 1)
@@ -630,6 +701,9 @@ async def run_expansion_loop(args, gist_id):
                 else:
                     print(f"ℹ️ No new accounts found in this {args.scroll_batch_size}-scroll batch.")
 
+                if auth_error_reason:
+                    break
+
                 if args.max_total_accounts and total_processed >= args.max_total_accounts:
                     break
 
@@ -654,6 +728,9 @@ async def run_expansion_loop(args, gist_id):
                     await closable.close()
                 except Exception:
                     pass
+
+    if auth_error_reason:
+        sys.exit(41)
 
     print("\n==================================================")
     print("Timeline Expansion Loop Finished")
