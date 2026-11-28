@@ -207,6 +207,15 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     return launchExternalUrl(context, source.profileUrl(username));
   }
 
+  void _handleSingleItemDeleted(String username, String deletedId) {
+    final currentItems = _loadedItems[username];
+    if (currentItems == null || !mounted) return;
+    setState(() {
+      _loadedItems[username] =
+          currentItems.where((item) => item.id != deletedId).toList();
+    });
+  }
+
   /// [JA] 現在表示中アカウントの投稿からランダム選択画面を開く（すべて / 動画のみ）
   /// [EN] Opens random selection view for the currently displayed account (all or videos only)
   Future<void> _openAccountRandomMode(
@@ -239,9 +248,15 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
           videosOnly: videosOnly,
           preloadedItems: candidates,
           allowOpenUserGallery: false,
+          onItemDeleted: (deletedId, remainingCount) {
+            _handleSingleItemDeleted(username, deletedId);
+          },
         ),
       ),
     );
+    if (mounted && (_loadedItems[username]?.isEmpty ?? false)) {
+      Navigator.pop(context);
+    }
   }
 
   // --- ビルド ---
@@ -422,6 +437,13 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                 onNavigateNextAccount: _navigateToNextAccount,
                 hasPreviousAccount: index > 0,
                 hasNextAccount: index < widget.usernames.length - 1,
+                username: uname,
+                userGistId: widget.userGistIds[index],
+                onItemDeleted: (deletedId, _) =>
+                    _handleSingleItemDeleted(uname, deletedId),
+                onUserEmptied: () {
+                  if (mounted) Navigator.pop(context);
+                },
               );
             },
           ),

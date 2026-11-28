@@ -15,6 +15,10 @@ class TweetGridView extends StatelessWidget {
   final VoidCallback? onNavigateNextAccount;
   final bool? hasPreviousAccount;
   final bool? hasNextAccount;
+  final String? username;
+  final String? userGistId;
+  final void Function(String deletedId, int remainingCount)? onItemDeleted;
+  final VoidCallback? onUserEmptied;
 
   const TweetGridView({
     super.key,
@@ -25,6 +29,10 @@ class TweetGridView extends StatelessWidget {
     this.onNavigateNextAccount,
     this.hasPreviousAccount,
     this.hasNextAccount,
+    this.username,
+    this.userGistId,
+    this.onItemDeleted,
+    this.onUserEmptied,
   });
 
   @override
@@ -48,6 +56,10 @@ class TweetGridView extends StatelessWidget {
         onNavigateNextAccount: onNavigateNextAccount,
         hasPreviousAccount: hasPreviousAccount,
         hasNextAccount: hasNextAccount,
+        username: username,
+        userGistId: userGistId,
+        onItemDeleted: onItemDeleted,
+        onUserEmptied: onUserEmptied,
       ),
     );
   }
@@ -63,6 +75,10 @@ class TweetGridItem extends StatefulWidget {
   final VoidCallback? onNavigateNextAccount;
   final bool? hasPreviousAccount;
   final bool? hasNextAccount;
+  final String? username;
+  final String? userGistId;
+  final void Function(String deletedId, int remainingCount)? onItemDeleted;
+  final VoidCallback? onUserEmptied;
 
   const TweetGridItem({
     super.key,
@@ -74,6 +90,10 @@ class TweetGridItem extends StatefulWidget {
     this.onNavigateNextAccount,
     this.hasPreviousAccount,
     this.hasNextAccount,
+    this.username,
+    this.userGistId,
+    this.onItemDeleted,
+    this.onUserEmptied,
   });
 
   @override
@@ -254,16 +274,22 @@ class _TweetGridItemState extends State<TweetGridItem> {
     return false;
   }
 
-  void _openDetail() {
-    Navigator.push(
+  Future<void> _openDetail() async {
+    final userBecameEmpty = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => DetailPage(
           items: widget.items,
           initialIndex: widget.index,
+          username: widget.username,
+          userGistId: widget.userGistId,
+          onItemDeleted: widget.onItemDeleted,
         ),
       ),
     );
+    if (userBecameEmpty == true && mounted) {
+      widget.onUserEmptied?.call();
+    }
   }
 
   @override

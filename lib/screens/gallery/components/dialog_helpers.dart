@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../models/tweet_item.dart';
 import '../../../viewmodels/gallery_viewmodel.dart';
 import 'append_config_dialog.dart';
 
@@ -64,6 +65,41 @@ void showSuccessSnackBar(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(content: Text(message), backgroundColor: Colors.green),
   );
+}
+
+/// [JA] 単一ポスト削除の確認ダイアログ〜削除実行〜結果通知までの共通フロー
+/// [EN] Shared flow to confirm, delete a single post, and display the result SnackBar
+Future<int?> confirmAndDeleteSingleTweet(
+  BuildContext context,
+  TweetItem item, {
+  String? username,
+  String? gistId,
+  List<TweetItem>? allUserItems,
+}) async {
+  final l10n = AppLocalizations.of(context);
+  final vm = context.read<GalleryViewModel?>();
+  if (vm == null) return null;
+
+  if (!await showDeleteConfirmDialog(context, 1) || !context.mounted) {
+    return null;
+  }
+
+  showProgressDialog(context);
+  final remainingCount = await vm.deleteSingleTweetItem(
+    item,
+    username: username,
+    gistId: gistId,
+    allUserItems: allUserItems,
+  );
+  if (context.mounted) Navigator.pop(context);
+
+  if (!context.mounted) return remainingCount;
+  if (remainingCount != null) {
+    showSuccessSnackBar(context, l10n.deletedCount(1));
+  } else {
+    showErrorSnackBar(context, vm.errorMessage);
+  }
+  return remainingCount;
 }
 
 /// [JA] 画面下部からスッとせり出すトースト通知を表示する（2〜3秒で自動消去）

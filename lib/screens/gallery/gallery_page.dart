@@ -848,6 +848,22 @@ class _GalleryPageState extends State<GalleryPage> {
                     items: items,
                     selectedIds: selectedIds,
                     scrollController: _gridController,
+                    username: widget.userGistUsername,
+                    userGistId: widget.userGistId,
+                    onItemDeleted: (deletedId, _) {
+                      final currentItems =
+                          _localItems ?? widget.initialItems ?? [];
+                      setState(() {
+                        _localItems = currentItems
+                            .where((item) => item.id != deletedId)
+                            .toList();
+                      });
+                    },
+                    onUserEmptied: () {
+                      if (widget.userGistUsername != null && mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
                   )),
     );
   }

@@ -555,14 +555,16 @@ class GalleryViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Gistから選択中アイテムを削除する共通ヘルパー
-  Future<int?> _deleteSelectedFromGist({
+  /// Gistから指定ID群を削除する共通ヘルパー
+  Future<int?> _deleteItemsFromGist({
     required String gistId,
     required List<TweetItem> currentItems,
+    required Set<String> targetIds,
     required Future<String> Function() buildJson,
+    bool clearSelection = false,
   }) async {
     final remainingCount = currentItems
-        .where((item) => !_selectedIds.contains(item.id))
+        .where((item) => !targetIds.contains(item.id))
         .length;
     try {
       final jsonStr = await buildJson();
@@ -572,7 +574,11 @@ class GalleryViewModel extends ChangeNotifier {
         content: jsonStr,
       );
       if (success) {
-        _selectedIds.clear();
+        if (clearSelection) {
+          _selectedIds.clear();
+        } else {
+          _selectedIds.removeAll(targetIds);
+        }
         notifyListeners();
         return remainingCount;
       } else {
@@ -582,28 +588,32 @@ class GalleryViewModel extends ChangeNotifier {
         return null;
       }
     } catch (e) {
-      debugPrint('_deleteSelectedFromGist error: $e');
+      debugPrint('_deleteItemsFromGist error: $e');
       _setError(AppLocalizations.current.gistUpdateFailed(e.toString()));
       return null;
     }
   }
 
-  /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
-  /// 代表サムネイル（1枚目等）が削除された場合は Master Gist の代表アイテムも最新へ同期する
-  Future<int?> deleteSelectedFromUserGist(
-    String gistId,
-    String username,
-    List<TweetItem> currentItems,
-  ) async {
-    final deletedIds = Set<String>.from(_selectedIds);
+  /// [JA] 指定ID群をユーザーGist（バッチ形式）から削除して更新する
+  /// [EN] Deletes specified item IDs from a user's batch Gist and syncs Master Gist thumbnail if needed
+  Future<int?> deleteItemsFromUserGist({
+    required String gistId,
+    required String username,
+    required List<TweetItem> currentItems,
+    required Set<String> targetIds,
+    bool clearSelection = false,
+  }) async {
+    final deletedIds = Set<String>.from(targetIds);
     final remainingItems = currentItems
         .where((item) => !deletedIds.contains(item.id))
         .toList()
       ..sort(compareTweetsByNewest);
 
-    final remainingCount = await _deleteSelectedFromGist(
+    final remainingCount = await _deleteItemsFromGist(
       gistId: gistId,
       currentItems: currentItems,
+      targetIds: deletedIds,
+      clearSelection: clearSelection,
       buildJson: () async {
         final freshJson = await _fetchFreshChildGistContent(gistId);
         if (freshJson != null && freshJson.isNotEmpty) {
@@ -652,6 +662,62 @@ class GalleryViewModel extends ChangeNotifier {
       }
     }
 
+    return remainingCount;
+  }
+
+  /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
+  /// 代表サムネイル（1枚目等）が削除された場合は Master Gist の代表アイテムも最新へ同期する
+  Future<int?> deleteSelectedFromUserGist(
+    String gistId,
+    String username,
+    List<TweetItem> currentItems,
+  ) =>
+      deleteItemsFromUserGist(
+        gistId: gistId,
+        username: username,
+        currentItems: currentItems,
+        targetIds: Set<String>.from(_selectedIds),
+        clearSelection: true,
+      );
+
+  /// [JA] 単一ポストをユーザーGistから削除する（残件0件時はマスターGistからもユーザーを除去）
+  /// [EN] Deletes a single post from its user's Gist (removes user from Master Gist if 0 remain)
+  Future<int?> deleteSingleTweetItem(
+    TweetItem item, {
+    String? username,
+    String? gistId,
+    List<TweetItem>? allUserItems,
+  }) async {
+    final rawUsername = username ?? item.extractedUsername;
+    if (rawUsername == null || rawUsername.isEmpty) {
+      _setError(AppLocalizations.current.deleteFailedGeneric);
+      return null;
+    }
+    final canonical = getCanonicalUsername(rawUsername) ?? rawUsername;
+    final targetGistId = (gistId != null && gistId.isNotEmpty)
+        ? gistId
+        : getGistIdForUser(canonical);
+    if (targetGistId == null || targetGistId.isEmpty) {
+      _setError(AppLocalizations.current.deleteFailedGeneric);
+      return null;
+    }
+
+    final currentItems = allUserItems ?? await fetchUserItems(canonical);
+    // ランダム表示等から一覧を再取得した場合、取得失敗（空配列）による誤全削除を防ぐ
+    if (allUserItems == null && currentItems.isEmpty) {
+      _setError(AppLocalizations.current.deleteFailedGeneric);
+      return null;
+    }
+
+    final remainingCount = await deleteItemsFromUserGist(
+      gistId: targetGistId,
+      username: canonical,
+      currentItems: currentItems,
+      targetIds: {item.id},
+    );
+    if (remainingCount == 0) {
+      await removeUserFromMaster(canonical);
+    }
     return remainingCount;
   }
 

@@ -17,6 +17,7 @@ class RandomGallerySwipePage extends StatefulWidget {
   final bool videosOnly;
   final List<TweetItem>? preloadedItems;
   final bool allowOpenUserGallery;
+  final void Function(String deletedId, int remainingCount)? onItemDeleted;
 
   const RandomGallerySwipePage({
     super.key,
@@ -25,6 +26,7 @@ class RandomGallerySwipePage extends StatefulWidget {
     this.videosOnly = false,
     this.preloadedItems,
     this.allowOpenUserGallery = true,
+    this.onItemDeleted,
   });
 
   @override
@@ -36,7 +38,9 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
   final List<TweetItem> _historyItems = [];
   final Set<String> _emptyUsers = {};
   final ValueNotifier<bool> _firstVideoMutedNotifier = ValueNotifier<bool>(true);
+  List<TweetItem>? _preloadedPool;
   int _historyIndex = 0;
+  int _deleteGeneration = 0;
   bool _isZoomed = false;
   bool _initialized = false;
   bool _initError = false;
@@ -46,6 +50,9 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
   void initState() {
     super.initState();
     _pageController = PageController();
+    _preloadedPool = widget.preloadedItems != null
+        ? List<TweetItem>.from(widget.preloadedItems!)
+        : null;
     // preloadedItems がある場合は同期的に precacheImage(..., context) へ到達するため、
     // initState 完了後（初回フレーム後）に初期化を開始する
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -146,8 +153,8 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     final random = math.Random();
 
     // アカウント単位など、既に読み込み済みリストが渡されている場合は即座に抽選
-    if (widget.preloadedItems != null) {
-      final eligible = _filterEligibleItems(widget.preloadedItems!);
+    if (_preloadedPool != null) {
+      final eligible = _filterEligibleItems(_preloadedPool!);
       if (eligible.isNotEmpty) {
         final randomItem = _pickRandomItem(eligible, random);
         if (!randomItem.isVideo && randomItem.origUrls.isNotEmpty && mounted) {
@@ -274,6 +281,69 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     // 新しい動画へ切り替わった際は意図しない音声出力を防ぐため必ずMUTE ONへ戻す
     _firstVideoMutedNotifier.value = true;
 
+    _checkAndLoadMore();
+  }
+
+  bool _canDeleteItem(GalleryViewModel vm, TweetItem item) {
+    final uname = item.extractedUsername ??
+        (widget.usernames.length == 1 ? widget.usernames.first : null);
+    if (uname == null || uname.isEmpty) return false;
+    return (vm.getGistIdForUser(uname) ?? '').isNotEmpty;
+  }
+
+  Future<void> _handleDeleteCurrentItem(TweetItem item) async {
+    final fallbackUsername =
+        item.extractedUsername ??
+            (widget.usernames.length == 1 ? widget.usernames.first : null);
+    final remainingCount = await confirmAndDeleteSingleTweet(
+      context,
+      item,
+      username: fallbackUsername,
+    );
+    if (remainingCount == null) return;
+
+    widget.onItemDeleted?.call(item.id, remainingCount);
+    if (!mounted) return;
+
+    if (remainingCount == 0 && fallbackUsername != null) {
+      _emptyUsers.add(fallbackUsername.toLowerCase());
+    }
+    _preloadedPool?.removeWhere((e) => e.id == item.id);
+    _historyItems.removeWhere((e) => e.id == item.id);
+    _deleteGeneration++;
+
+    if (_historyItems.isEmpty) {
+      setState(() {
+        _historyIndex = 0;
+        _isZoomed = false;
+      });
+      await _loadNextRandomItem();
+      if (!mounted) return;
+      if (_historyItems.isEmpty) {
+        setState(() => _initError = true);
+        return;
+      }
+      _firstVideoMutedNotifier.value = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pageController.hasClients) {
+          _pageController.jumpToPage(0);
+        }
+      });
+      _checkAndLoadMore();
+      return;
+    }
+
+    final nextIndex = _historyIndex.clamp(0, _historyItems.length - 1);
+    setState(() {
+      _historyIndex = nextIndex;
+      _isZoomed = false;
+    });
+    _firstVideoMutedNotifier.value = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(_historyIndex);
+      }
+    });
     _checkAndLoadMore();
   }
 
@@ -412,6 +482,12 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
                   tooltip: l10n.tooltipOpenOriginalPost,
                   onPressed: () => _launchTweet(currentItem),
                 ),
+              if (currentItem != null && _canDeleteItem(vm, currentItem))
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: l10n.delete,
+                  onPressed: () => _handleDeleteCurrentItem(currentItem),
+                ),
             ],
           ),
           body: PageView.builder(
@@ -424,6 +500,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
             itemBuilder: (context, index) {
               if (index < _historyItems.length) {
                 return DetailImageItem(
+                  key: ValueKey('${_historyItems[index].id}_$_deleteGeneration'),
                   item: _historyItems[index],
                   onZoomChanged: _handleZoomChanged,
                   muteNotifier:

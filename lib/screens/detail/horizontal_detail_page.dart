@@ -7,11 +7,14 @@ import '../../models/tweet_item.dart';
 class HorizontalDetailPage extends StatefulWidget {
   final List<TweetItem> items;
   final int initialIndex;
+  final Future<bool> Function(BuildContext context, TweetItem item)?
+      onDeleteItem;
 
   const HorizontalDetailPage({
     super.key,
     required this.items,
     this.initialIndex = 0,
+    this.onDeleteItem,
   });
 
   /// [JA] 単一アイテム表示用の簡易ファクトリ
@@ -32,14 +35,18 @@ class HorizontalDetailPage extends StatefulWidget {
 
 class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
   late PageController _verticalPageController;
+  late List<TweetItem> _items;
   late int _currentIndex;
   bool _zeroGap = false;
 
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex;
-    _verticalPageController = PageController(initialPage: widget.initialIndex);
+    _items = List<TweetItem>.from(widget.items);
+    _currentIndex = _items.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, _items.length - 1);
+    _verticalPageController = PageController(initialPage: _currentIndex);
   }
 
   @override
@@ -55,6 +62,37 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
   void _toggleGap() {
     setState(() {
       _zeroGap = !_zeroGap;
+    });
+  }
+
+  Future<void> _handleDeleteCurrent() async {
+    if (widget.onDeleteItem == null ||
+        _currentIndex < 0 ||
+        _currentIndex >= _items.length) {
+      return;
+    }
+    final target = _items[_currentIndex];
+    final deleted = await widget.onDeleteItem!(context, target);
+    if (!deleted || !mounted) return;
+
+    final removedIdx = _items.indexWhere((e) => e.id == target.id);
+    if (removedIdx >= 0) {
+      _items.removeAt(removedIdx);
+    }
+
+    if (_items.isEmpty) {
+      Navigator.pop(context, null);
+      return;
+    }
+
+    final nextIndex = _currentIndex.clamp(0, _items.length - 1);
+    setState(() {
+      _currentIndex = nextIndex;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _verticalPageController.hasClients) {
+        _verticalPageController.jumpToPage(_currentIndex);
+      }
     });
   }
 
@@ -88,6 +126,26 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
               tooltip: l10n.back,
             ),
           ),
+          actions: [
+            if (widget.onDeleteItem != null && _items.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: Colors.black38,
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  onPressed: _handleDeleteCurrent,
+                  padding: EdgeInsets.zero,
+                  tooltip: l10n.delete,
+                ),
+              ),
+          ],
           title: null,
         ),
         // [JA] 上下スワイプで前後の投稿へシームレスに切り替える垂直 PageView
@@ -97,14 +155,14 @@ class _HorizontalDetailPageState extends State<HorizontalDetailPage> {
             PageView.builder(
               controller: _verticalPageController,
               scrollDirection: Axis.vertical,
-              itemCount: widget.items.length,
+              itemCount: _items.length,
               onPageChanged: (index) {
                 setState(() => _currentIndex = index);
               },
               itemBuilder: (context, index) {
                 return _HorizontalPostImagesView(
-                  key: ValueKey(widget.items[index].id),
-                  item: widget.items[index],
+                  key: ValueKey(_items[index].id),
+                  item: _items[index],
                   zeroGap: _zeroGap,
                 );
               },

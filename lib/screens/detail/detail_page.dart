@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/tweet_item.dart';
+import '../../viewmodels/gallery_viewmodel.dart';
+import '../gallery/components/dialog_helpers.dart';
 import 'detail_image_item.dart';
 import 'horizontal_detail_page.dart';
 
@@ -9,11 +12,17 @@ import 'horizontal_detail_page.dart';
 class DetailPage extends StatefulWidget {
   final List<TweetItem> items;
   final int initialIndex;
+  final String? username;
+  final String? userGistId;
+  final void Function(String deletedId, int remainingCount)? onItemDeleted;
 
   const DetailPage({
     super.key,
     required this.items,
     required this.initialIndex,
+    this.username,
+    this.userGistId,
+    this.onItemDeleted,
   });
 
   @override
@@ -22,6 +31,7 @@ class DetailPage extends StatefulWidget {
 
 class _DetailPageState extends State<DetailPage> {
   late PageController _pageController;
+  late List<TweetItem> _items;
   late int _currentIndex;
   bool _isZoomed = false;
   final ValueNotifier<bool> _firstVideoMutedNotifier = ValueNotifier<bool>(true);
@@ -29,10 +39,13 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex;
-    _pageController = PageController(initialPage: widget.initialIndex);
+    _items = List<TweetItem>.from(widget.items);
+    _currentIndex = _items.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, _items.length - 1);
+    _pageController = PageController(initialPage: _currentIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _preloadAdjacent(widget.initialIndex);
+      if (mounted) _preloadAdjacent(_currentIndex);
     });
   }
 
@@ -41,8 +54,8 @@ class _DetailPageState extends State<DetailPage> {
   void _preloadAdjacent(int index) {
     for (final offset in [-1, 1]) {
       final i = index + offset;
-      if (i < 0 || i >= widget.items.length) continue;
-      for (final url in widget.items[i].origUrls) {
+      if (i < 0 || i >= _items.length) continue;
+      for (final url in _items[i].origUrls) {
         precacheImage(NetworkImage(url), context);
       }
     }
@@ -64,8 +77,8 @@ class _DetailPageState extends State<DetailPage> {
   /// [JA] 現在のポストが画像のみ（動画を含まない）を持つかどうかを判定
   /// [EN] Determines whether the current post contains images without videos
   bool get _hasImages {
-    if (_currentIndex < 0 || _currentIndex >= widget.items.length) return false;
-    final item = widget.items[_currentIndex];
+    if (_currentIndex < 0 || _currentIndex >= _items.length) return false;
+    final item = _items[_currentIndex];
     // 動画を含むポストは横方向表示モードへの遷移ボタンは不要
     if (item.isVideo) return false;
     return item.origUrls.isNotEmpty;
@@ -74,13 +87,79 @@ class _DetailPageState extends State<DetailPage> {
   /// [JA] 現在のポストが動画を含むかどうかを判定
   /// [EN] Determines whether the current post contains a video
   bool get _hasVideo {
-    if (_currentIndex < 0 || _currentIndex >= widget.items.length) return false;
-    return widget.items[_currentIndex].isVideo;
+    if (_currentIndex < 0 || _currentIndex >= _items.length) return false;
+    return _items[_currentIndex].isVideo;
+  }
+
+  /// [JA] 現在表示中のポストを削除可能かどうかを判定
+  /// [EN] Determines whether the currently displayed post can be deleted
+  bool _canDeleteCurrentItem(GalleryViewModel? vm) {
+    if (vm == null || _currentIndex < 0 || _currentIndex >= _items.length) {
+      return false;
+    }
+    if (widget.userGistId != null && widget.userGistId!.isNotEmpty) {
+      return true;
+    }
+    final uname = widget.username ?? _items[_currentIndex].extractedUsername;
+    if (uname == null || uname.isEmpty) return false;
+    return (vm.getGistIdForUser(uname) ?? '').isNotEmpty;
+  }
+
+  /// [JA] 指定ポストを確認ダイアログ付きで削除し、一覧状態を更新する
+  /// [EN] Confirms and deletes the specified post, updating local items state
+  Future<bool> _handleDeleteItem(
+    BuildContext dialogContext,
+    TweetItem item,
+  ) async {
+    final remainingCount = await confirmAndDeleteSingleTweet(
+      dialogContext,
+      item,
+      username: widget.username,
+      gistId: widget.userGistId,
+      allUserItems:
+          (widget.userGistId != null && widget.userGistId!.isNotEmpty)
+              ? List<TweetItem>.from(_items)
+              : null,
+    );
+    if (remainingCount == null) return false;
+
+    widget.onItemDeleted?.call(item.id, remainingCount);
+    if (!mounted) return true;
+
+    final removedIdx = _items.indexWhere((e) => e.id == item.id);
+    if (removedIdx >= 0) {
+      _items.removeAt(removedIdx);
+    }
+
+    if (_items.isEmpty) {
+      // HorizontalDetailPage 側が上に積まれている場合はそちらが戻った後に閉じる
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.pop(context, remainingCount == 0);
+      }
+      return true;
+    }
+
+    final nextIndex = _currentIndex.clamp(0, _items.length - 1);
+    setState(() {
+      _currentIndex = nextIndex;
+      _isZoomed = false;
+    });
+    _firstVideoMutedNotifier.value = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_currentIndex);
+      }
+      _preloadAdjacent(_currentIndex);
+    });
+    return true;
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final vm = context.read<GalleryViewModel?>();
+    final canDelete = _canDeleteCurrentItem(vm);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -100,16 +179,27 @@ class _DetailPageState extends State<DetailPage> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => HorizontalDetailPage(
-                      items: widget.items,
+                      items: List<TweetItem>.from(_items),
                       initialIndex: _currentIndex,
+                      onDeleteItem: canDelete
+                          ? (hContext, item) => _handleDeleteItem(hContext, item)
+                          : null,
                     ),
                   ),
                 );
-                if (newIndex != null && newIndex != _currentIndex && mounted) {
-                  _pageController.jumpToPage(newIndex);
-                  setState(() {
-                    _currentIndex = newIndex;
-                  });
+                if (!context.mounted) return;
+                if (_items.isEmpty) {
+                  Navigator.pop(context, true);
+                  return;
+                }
+                if (newIndex != null) {
+                  final clamped = newIndex.clamp(0, _items.length - 1);
+                  if (clamped != _currentIndex) {
+                    _pageController.jumpToPage(clamped);
+                    setState(() {
+                      _currentIndex = clamped;
+                    });
+                  }
                 }
               },
             ),
@@ -132,6 +222,13 @@ class _DetailPageState extends State<DetailPage> {
                 );
               },
             ),
+          if (canDelete)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.white),
+              tooltip: l10n.delete,
+              onPressed: () =>
+                  _handleDeleteItem(context, _items[_currentIndex]),
+            ),
         ],
       ),
       body: PageView.builder(
@@ -139,7 +236,7 @@ class _DetailPageState extends State<DetailPage> {
         physics: _isZoomed
             ? const NeverScrollableScrollPhysics()
             : const BouncingScrollPhysics(),
-        itemCount: widget.items.length,
+        itemCount: _items.length,
         onPageChanged: (index) {
           setState(() {
             _currentIndex = index;
@@ -150,7 +247,8 @@ class _DetailPageState extends State<DetailPage> {
         },
         itemBuilder: (context, index) {
           return DetailImageItem(
-            item: widget.items[index],
+            key: ValueKey(_items[index].id),
+            item: _items[index],
             onZoomChanged: _handleZoomChanged,
             muteNotifier:
                 index == _currentIndex ? _firstVideoMutedNotifier : null,
