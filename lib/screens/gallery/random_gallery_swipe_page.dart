@@ -9,15 +9,22 @@ import '../detail/detail_image_item.dart';
 import 'components/dialog_helpers.dart';
 import 'user_gallery_swipe_page.dart';
 
-/// ランダムに選んだユーザーの画像を左右スワイプで表示するページ
+/// [JA] ランダムに選んだ投稿（すべて / 動画のみ）を左右スワイプで表示するページ
+/// [EN] Page that displays randomly selected posts (all or videos only) via horizontal swipe
 class RandomGallerySwipePage extends StatefulWidget {
   final List<String> usernames;
   final String title;
+  final bool videosOnly;
+  final List<TweetItem>? preloadedItems;
+  final bool allowOpenUserGallery;
 
   const RandomGallerySwipePage({
     super.key,
     required this.usernames,
     required this.title,
+    this.videosOnly = false,
+    this.preloadedItems,
+    this.allowOpenUserGallery = true,
   });
 
   @override
@@ -27,6 +34,8 @@ class RandomGallerySwipePage extends StatefulWidget {
 class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
   late final PageController _pageController;
   final List<TweetItem> _historyItems = [];
+  final Set<String> _emptyUsers = {};
+  final ValueNotifier<bool> _firstVideoMutedNotifier = ValueNotifier<bool>(true);
   int _historyIndex = 0;
   bool _isZoomed = false;
   bool _initialized = false;
@@ -37,17 +46,68 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    _initRandomGallery();
+    // preloadedItems がある場合は同期的に precacheImage(..., context) へ到達するため、
+    // initState 完了後（初回フレーム後）に初期化を開始する
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _initRandomGallery();
+    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    _firstVideoMutedNotifier.dispose();
     super.dispose();
   }
 
+  List<TweetItem> _filterEligibleItems(List<TweetItem> items) {
+    if (widget.videosOnly) {
+      return items
+          .where((item) => item.isVideo && item.videoUrl != null)
+          .toList();
+    }
+    return items.where((item) => item.mediaUrls.isNotEmpty).toList();
+  }
+
+  TweetItem _pickRandomItem(List<TweetItem> pool, math.Random random) {
+    if (pool.length >= 2 && _historyItems.isNotEmpty) {
+      final lastId = _historyItems.last.id;
+      final nonRepeat = pool.where((item) => item.id != lastId).toList();
+      if (nonRepeat.isNotEmpty) {
+        return nonRepeat[random.nextInt(nonRepeat.length)];
+      }
+    }
+    return pool[random.nextInt(pool.length)];
+  }
+
+  List<String> _resolveCandidateUsernames(GalleryViewModel vm) {
+    final available = widget.usernames
+        .where((u) => !_emptyUsers.contains(u.toLowerCase()))
+        .toList();
+    if (available.isEmpty) return [];
+    if (!widget.videosOnly) return available;
+
+    // 動画限定時は hasVideo=true または代表アイテムが動画のアカウントを優先して無駄なフェッチを減らす
+    final videoUsersFromMaster = vm.items
+        .where((item) => item.isVideo && item.extractedUsername != null)
+        .map((item) => item.extractedUsername!.toLowerCase())
+        .toSet();
+    final prioritized = available.where((u) {
+      final lower = u.toLowerCase();
+      if (videoUsersFromMaster.contains(lower)) return true;
+      final entry = vm.userGistEntries[u];
+      if (entry != null) return entry.hasVideo;
+      for (final e in vm.userGistEntries.entries) {
+        if (e.key.toLowerCase() == lower) return e.value.hasVideo;
+      }
+      return false;
+    }).toList();
+
+    return prioritized.isNotEmpty ? prioritized : available;
+  }
+
   Future<void> _initRandomGallery() async {
-    if (widget.usernames.isEmpty) {
+    if (widget.preloadedItems == null && widget.usernames.isEmpty) {
       if (mounted) {
         setState(() {
           _initError = true;
@@ -83,21 +143,57 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
     if (_isLoadingNext) return;
     _isLoadingNext = true;
 
-    final vm = context.read<GalleryViewModel>();
     final random = math.Random();
+
+    // アカウント単位など、既に読み込み済みリストが渡されている場合は即座に抽選
+    if (widget.preloadedItems != null) {
+      final eligible = _filterEligibleItems(widget.preloadedItems!);
+      if (eligible.isNotEmpty) {
+        final randomItem = _pickRandomItem(eligible, random);
+        if (!randomItem.isVideo && randomItem.origUrls.isNotEmpty && mounted) {
+          precacheImage(
+            NetworkImage(randomItem.origUrls.first),
+            context,
+            onError: (_, _) {},
+          );
+        }
+        if (mounted) {
+          setState(() {
+            _historyItems.add(randomItem);
+            _isLoadingNext = false;
+          });
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _isLoadingNext = false;
+        });
+      }
+      return;
+    }
+
+    final vm = context.read<GalleryViewModel>();
 
     // 無限ループを防ぐため試行回数を制限
     for (int retry = 0; retry < 15; retry++) {
-      if (widget.usernames.isEmpty) break;
-      final username = widget.usernames[random.nextInt(widget.usernames.length)];
+      final candidateUsers = _resolveCandidateUsernames(vm);
+      if (candidateUsers.isEmpty) break;
+      final username = candidateUsers[random.nextInt(candidateUsers.length)];
       try {
         final items = await vm.fetchUserItems(username);
-        final imageItems = items.where((item) => item.mediaUrls.isNotEmpty).toList();
-        if (imageItems.isNotEmpty) {
-          final randomItem = imageItems[random.nextInt(imageItems.length)];
-          // 次の画像をプリキャッシュ
-          if (randomItem.origUrls.isNotEmpty && mounted) {
-            precacheImage(NetworkImage(randomItem.origUrls.first), context);
+        final eligible = _filterEligibleItems(items);
+        if (eligible.isNotEmpty) {
+          final randomItem = _pickRandomItem(eligible, random);
+          // 次の静止画像をプリキャッシュ
+          if (!randomItem.isVideo &&
+              randomItem.origUrls.isNotEmpty &&
+              mounted) {
+            precacheImage(
+              NetworkImage(randomItem.origUrls.first),
+              context,
+              onError: (_, _) {},
+            );
           }
           if (mounted) {
             setState(() {
@@ -106,6 +202,8 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
             });
           }
           return;
+        } else {
+          _emptyUsers.add(username.toLowerCase());
         }
       } catch (e) {
         debugPrint("Error loading random user items: $e");
@@ -173,6 +271,8 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
       _isZoomed = false;
       _historyIndex = index;
     });
+    // 新しい動画へ切り替わった際は意図しない音声出力を防ぐため必ずMUTE ONへ戻す
+    _firstVideoMutedNotifier.value = true;
 
     _checkAndLoadMore();
   }
@@ -226,7 +326,9 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
         ),
         body: Center(
           child: Text(
-            l10n.failedToLoadImagesCheckUser,
+            widget.videosOnly
+                ? l10n.noVideosFound
+                : l10n.failedToLoadImagesCheckUser,
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.grey),
           ),
@@ -236,6 +338,7 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
 
     final currentItem = _historyIndex < _historyItems.length ? _historyItems[_historyIndex] : null;
     final currentUsername = currentItem?.extractedUsername;
+    final hasVideo = currentItem?.isVideo ?? false;
 
     return Consumer<GalleryViewModel>(
       builder: (context, vm, _) {
@@ -249,29 +352,52 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
             elevation: 0,
             foregroundColor: Colors.white,
             title: currentUsername != null
-                ? GestureDetector(
-                    onTap: () => _openUserGallery(currentUsername),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '@$currentUsername',
-                            style: const TextStyle(fontSize: 16),
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                ? (widget.allowOpenUserGallery
+                    ? GestureDetector(
+                        onTap: () => _openUserGallery(currentUsername),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '@$currentUsername',
+                                style: const TextStyle(fontSize: 16),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.chevron_right,
+                              size: 18,
+                              color: Colors.white70,
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.chevron_right,
-                          size: 18,
-                          color: Colors.white70,
-                        ),
-                      ],
-                    ),
-                  )
+                      )
+                    : Text(
+                        '@$currentUsername',
+                        style: const TextStyle(fontSize: 16),
+                        overflow: TextOverflow.ellipsis,
+                      ))
                 : Text(widget.title),
             actions: [
+              if (hasVideo)
+                ValueListenableBuilder<bool>(
+                  valueListenable: _firstVideoMutedNotifier,
+                  builder: (context, isMuted, _) {
+                    return IconButton(
+                      icon: Icon(
+                        isMuted ? Icons.volume_off : Icons.volume_up,
+                        color: Colors.white,
+                      ),
+                      tooltip: isMuted ? l10n.tooltipUnmute : l10n.tooltipMute,
+                      onPressed: () {
+                        _firstVideoMutedNotifier.value =
+                            !_firstVideoMutedNotifier.value;
+                      },
+                    );
+                  },
+                ),
               if (currentUsername != null)
                 IconButton(
                   icon: Icon(
@@ -300,6 +426,8 @@ class _RandomGallerySwipePageState extends State<RandomGallerySwipePage> {
                 return DetailImageItem(
                   item: _historyItems[index],
                   onZoomChanged: _handleZoomChanged,
+                  muteNotifier:
+                      index == _historyIndex ? _firstVideoMutedNotifier : null,
                 );
               } else {
                 return const Center(

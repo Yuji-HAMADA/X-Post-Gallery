@@ -53,6 +53,9 @@ void main() {
       expect(l10n.tooltipUnmute, '消音解除');
       expect(l10n.tooltipOpenOriginalPost, '元の投稿を開く');
       expect(l10n.videoLoadFailed, '動画の読み込みに失敗しました');
+      expect(l10n.randomSelectionAll, 'ランダム選択（すべて）');
+      expect(l10n.randomSelectionVideos, 'ランダム選択（動画のみ）');
+      expect(l10n.noVideosFound, '動画が見つかりませんでした');
       expect(l10n.invalidGistIdError, '無効なパスワード（Gist ID）です');
       expect(l10n.networkOrInvalidIdError, '通信エラーまたは無効なIDです');
       expect(l10n.gistUpdateFailed(null), 'Gist の更新に失敗しました');
@@ -128,6 +131,9 @@ void main() {
       expect(l10n.tooltipUnmute, 'Unmute');
       expect(l10n.tooltipOpenOriginalPost, 'Open original post');
       expect(l10n.videoLoadFailed, 'Failed to load video');
+      expect(l10n.randomSelectionAll, 'Random selection (All)');
+      expect(l10n.randomSelectionVideos, 'Random selection (Videos)');
+      expect(l10n.noVideosFound, 'No videos found');
       expect(l10n.invalidGistIdError, 'Invalid Password (ID)');
       expect(l10n.networkOrInvalidIdError, 'Network error or invalid ID');
       expect(l10n.gistUpdateFailed(null), 'Failed to update Gist');

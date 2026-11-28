@@ -81,6 +81,10 @@ class AppLocalizations {
   String get tabUsers => isJapanese ? 'ユーザー' : 'Users';
   String get tabCandidate => isJapanese ? '候補' : 'Candidates';
   String get randomSelection => isJapanese ? 'ランダム選択' : 'Random selection';
+  String get randomSelectionAll =>
+      isJapanese ? 'ランダム選択（すべて）' : 'Random selection (All)';
+  String get randomSelectionVideos =>
+      isJapanese ? 'ランダム選択（動画のみ）' : 'Random selection (Videos)';
   String get userSearch => isJapanese ? 'ユーザー検索' : 'User Search';
   String get noFavoritesYet =>
       isJapanese ? 'お気に入りはまだありません\nユーザーカードのハートをタップして追加' : 'No favorites yet\nTap the heart icon on a user card to add';
@@ -88,6 +92,8 @@ class AppLocalizations {
       isJapanese ? '候補はまだありません' : 'No candidates yet';
   String get noPostsFound =>
       isJapanese ? 'ポストが見つかりませんでした' : 'No posts found';
+  String get noVideosFound =>
+      isJapanese ? '動画が見つかりませんでした' : 'No videos found';
   String get noFavoriteUsersRegistered =>
       isJapanese ? 'お気に入りユーザーが登録されていません' : 'No favorite users registered';
   String get userNotFound => isJapanese ? 'ユーザーが見つかりません' : 'User not found';

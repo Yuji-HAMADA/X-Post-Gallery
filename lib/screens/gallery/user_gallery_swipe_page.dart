@@ -6,6 +6,7 @@ import '../../models/tweet_item.dart';
 import '../../viewmodels/gallery_viewmodel.dart';
 import 'components/dialog_helpers.dart';
 import 'components/tweet_grid_view.dart';
+import 'random_gallery_swipe_page.dart';
 
 /// [JA] 単一ユーザーまたは全ユーザーのスワイプ表示画面
 /// [EN] Swipeable gallery screen for a single user or all users
@@ -206,6 +207,43 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
     return launchExternalUrl(context, source.profileUrl(username));
   }
 
+  /// [JA] 現在表示中アカウントの投稿からランダム選択画面を開く（すべて / 動画のみ）
+  /// [EN] Opens random selection view for the currently displayed account (all or videos only)
+  Future<void> _openAccountRandomMode(
+    String username, {
+    required bool videosOnly,
+  }) async {
+    final l10n = AppLocalizations.of(context);
+    final items = _loadedItems[username] ?? const [];
+    final candidates = videosOnly
+        ? items.where((item) => item.isVideo && item.videoUrl != null).toList()
+        : items.where((item) => item.mediaUrls.isNotEmpty).toList();
+
+    if (candidates.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(videosOnly ? l10n.noVideosFound : l10n.noPostsFound),
+          ),
+        );
+      }
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RandomGallerySwipePage(
+          usernames: [username],
+          title: '@$username',
+          videosOnly: videosOnly,
+          preloadedItems: candidates,
+          allowOpenUserGallery: false,
+        ),
+      ),
+    );
+  }
+
   // --- ビルド ---
 
   @override
@@ -282,6 +320,12 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                       case 'append':
                         _handleAppend(username);
                         break;
+                      case 'random_all':
+                        _openAccountRandomMode(username, videosOnly: false);
+                        break;
+                      case 'random_video':
+                        _openAccountRandomMode(username, videosOnly: true);
+                        break;
                       case 'grid_columns':
                         showGridColumnsDialog(context, isAccountGallery: true);
                         break;
@@ -301,6 +345,36 @@ class _UserGallerySwipePageState extends State<UserGallerySwipePage> {
                           const Icon(Icons.add),
                           const SizedBox(width: 8),
                           Text(l10n.fetchImages),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'random_all',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.shuffle),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              l10n.randomSelectionAll,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'random_video',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.videocam_outlined),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              l10n.randomSelectionVideos,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                     ),

@@ -46,9 +46,6 @@ class _GalleryPageState extends State<GalleryPage> {
   late final PageController _pageController;
   int _currentPage = 0;
   List<TweetItem>? _localItems; // Append後の再フィルタ結果を保持
-  bool _isFavRandomChecked = false;
-  bool _isUserRandomChecked = false;
-  bool _isCandidateRandomChecked = false;
 
   @override
   void initState() {
@@ -562,8 +559,6 @@ class _GalleryPageState extends State<GalleryPage> {
 
     final l10n = AppLocalizations.of(context);
     final isFavPage = _currentPage == 0;
-    final isUserPage = _currentPage == 1;
-    final isCandidatePage = _currentPage == 2;
     final favoriteItems = vm.items.where((item) {
       final key = item.extractedUsername;
       return key != null && vm.isFavorite(key);
@@ -629,14 +624,11 @@ class _GalleryPageState extends State<GalleryPage> {
                     case 'search_user':
                       _handleSearchUser();
                       break;
-                    case 'random_fav':
-                      _toggleFavRandomMode();
+                    case 'random_all':
+                      _openCurrentTabRandomMode(videosOnly: false);
                       break;
-                    case 'random_user':
-                      _toggleUserRandomMode();
-                      break;
-                    case 'random_candidate':
-                      _toggleCandidateRandomMode();
+                    case 'random_video':
+                      _openCurrentTabRandomMode(videosOnly: true);
                       break;
                     case 'grid_columns':
                       showGridColumnsDialog(context);
@@ -647,24 +639,22 @@ class _GalleryPageState extends State<GalleryPage> {
                   }
                 },
                 itemBuilder: (context) => [
-                  if (isFavPage)
-                    CheckedPopupMenuItem<String>(
-                      value: 'random_fav',
-                      checked: _isFavRandomChecked,
-                      child: Text(l10n.randomSelection),
+                  PopupMenuItem(
+                    value: 'random_all',
+                    child: ListTile(
+                      leading: const Icon(Icons.shuffle),
+                      title: Text(l10n.randomSelectionAll),
+                      dense: true,
                     ),
-                  if (isUserPage)
-                    CheckedPopupMenuItem<String>(
-                      value: 'random_user',
-                      checked: _isUserRandomChecked,
-                      child: Text(l10n.randomSelection),
+                  ),
+                  PopupMenuItem(
+                    value: 'random_video',
+                    child: ListTile(
+                      leading: const Icon(Icons.videocam_outlined),
+                      title: Text(l10n.randomSelectionVideos),
+                      dense: true,
                     ),
-                  if (isCandidatePage)
-                    CheckedPopupMenuItem<String>(
-                      value: 'random_candidate',
-                      checked: _isCandidateRandomChecked,
-                      child: Text(l10n.randomSelection),
-                    ),
+                  ),
                   PopupMenuItem(
                     value: 'search_user',
                     child: ListTile(
@@ -1100,7 +1090,7 @@ class _GalleryPageState extends State<GalleryPage> {
     required List<String> usernames,
     required String emptyMessage,
     required String tabTitle,
-    required void Function(bool checked) setChecked,
+    required bool videosOnly,
   }) async {
     final l10n = AppLocalizations.of(context);
     if (usernames.isEmpty) {
@@ -1112,51 +1102,44 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    setState(() => setChecked(true));
-
+    final modeLabel =
+        videosOnly ? l10n.randomSelectionVideos : l10n.randomSelectionAll;
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => RandomGallerySwipePage(
           usernames: usernames,
-          title: '${l10n.randomSelection} ($tabTitle)',
+          title: '$modeLabel ($tabTitle)',
+          videosOnly: videosOnly,
         ),
       ),
     );
+  }
 
-    if (mounted) {
-      setState(() => setChecked(false));
+  /// [JA] 現在アクティブなタブ（Favorites / Users / Candidates）のユーザーからランダム選択を開く
+  /// [EN] Opens random selection scoped to the currently active root gallery tab
+  Future<void> _openCurrentTabRandomMode({required bool videosOnly}) {
+    final l10n = AppLocalizations.of(context);
+    final vm = context.read<GalleryViewModel>();
+    if (_currentPage == 0) {
+      return _openRandomMode(
+        usernames: vm.favoriteUsers.toList(),
+        emptyMessage: l10n.noFavoriteUsersRegistered,
+        tabTitle: l10n.tabFavorites,
+        videosOnly: videosOnly,
+      );
     }
-  }
-
-  Future<void> _toggleFavRandomMode() {
-    final l10n = AppLocalizations.of(context);
-    final vm = context.read<GalleryViewModel>();
-    return _openRandomMode(
-      usernames: vm.favoriteUsers.toList(),
-      emptyMessage: l10n.noFavoriteUsersRegistered,
-      tabTitle: l10n.tabFavorites,
-      setChecked: (v) => _isFavRandomChecked = v,
-    );
-  }
-
-  Future<void> _toggleUserRandomMode() {
-    final l10n = AppLocalizations.of(context);
-    final vm = context.read<GalleryViewModel>();
-    final usernames = _getAllUsernames(vm.items)
-        .where((username) => !vm.isCandidate(username))
-        .toList();
-    return _openRandomMode(
-      usernames: usernames,
-      emptyMessage: l10n.userNotFound,
-      tabTitle: l10n.tabUsers,
-      setChecked: (v) => _isUserRandomChecked = v,
-    );
-  }
-
-  Future<void> _toggleCandidateRandomMode() {
-    final l10n = AppLocalizations.of(context);
-    final vm = context.read<GalleryViewModel>();
+    if (_currentPage == 1) {
+      final usernames = _getAllUsernames(vm.items)
+          .where((username) => !vm.isCandidate(username))
+          .toList();
+      return _openRandomMode(
+        usernames: usernames,
+        emptyMessage: l10n.userNotFound,
+        tabTitle: l10n.tabUsers,
+        videosOnly: videosOnly,
+      );
+    }
     final usernames = _getAllUsernames(vm.items)
         .where(
           (username) =>
@@ -1167,7 +1150,7 @@ class _GalleryPageState extends State<GalleryPage> {
       usernames: usernames,
       emptyMessage: l10n.noCandidatesYet,
       tabTitle: l10n.tabCandidate,
-      setChecked: (v) => _isCandidateRandomChecked = v,
+      videosOnly: videosOnly,
     );
   }
 
