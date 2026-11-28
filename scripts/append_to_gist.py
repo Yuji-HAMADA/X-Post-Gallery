@@ -648,6 +648,7 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
         print(f"⚠️  Warning: Target Gist {promote_gist_id} is not in multi-user format. Converting...")
         promote_data = {"users": {}}
 
+    existing_deleted_ids = list(promote_data.get("deleted_ids") or [])
     users_data = dict(promote_data.get("users", {}))
     # 他の全ユーザの全ポスト数を合計
     current_total = sum(
@@ -663,14 +664,19 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
         # 移行元のGistからユーザのデータを削除（メモリ上）
         if user in users_data:
             del users_data[user]
-            # 移行元Gistの更新をキューに積む
-            gist_cache[promote_gist_id]["data"] = {"users": users_data}
+            # 移行元Gistの更新をキューに積む（deleted_ids を保持）
+            source_payload = {"users": users_data}
+            if existing_deleted_ids:
+                source_payload["deleted_ids"] = existing_deleted_ids
+            gist_cache[promote_gist_id]["data"] = source_payload
             gist_cache[promote_gist_id]["is_modified"] = True
         return new_id, {"users": {user: {"tweets": merged_tweets}}}
 
-    # 追記保存（メモリ上）
+    # 追記保存（メモリ上、既存の deleted_ids を必ず保持する）
     users_data[user] = {"tweets": merged_tweets}
     updated_data = {"users": users_data}
+    if existing_deleted_ids:
+        updated_data["deleted_ids"] = existing_deleted_ids
     return promote_gist_id, updated_data
 
 # ---------------------------------------------------------------------------
@@ -720,6 +726,15 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             p_filename, p_data = fetch_gist_data(promote_gist_id)
             gist_cache[promote_gist_id] = {"filename": p_filename, "data": p_data, "is_modified": False}
 
+        # アプリ側で削除済みのID (deleted_ids) が再取得・復活するのを防止
+        deleted_ids_set = {str(x) for x in (p_data.get("deleted_ids") or []) if x}
+        if deleted_ids_set and not from_scratch:
+            before_cnt = len(tweets)
+            tweets = [t for t in tweets if str(t.get("id_str") or t.get("id") or "") not in deleted_ids_set]
+            filtered_cnt = before_cnt - len(tweets)
+            if filtered_cnt > 0:
+                print(f"🛡️ Filtered {filtered_cnt} previously deleted post(s) for @{user}.")
+
         if from_scratch:
             # 既存データを削除して取得データで丸ごと置き換え
             merged = tweets
@@ -728,6 +743,8 @@ def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=
             master_tweets = [t for t in master_tweets if extract_username(t).lower() != user.lower()]
         else:
             existing = get_user_tweets(p_data, user)
+            if deleted_ids_set:
+                existing = [t for t in existing if str(t.get("id_str") or t.get("id") or "") not in deleted_ids_set]
             merged = append_tweets(existing, tweets, refresh_urls=refresh_urls)
             if merged == existing:
                 continue

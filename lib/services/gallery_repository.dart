@@ -181,56 +181,58 @@ class GalleryRepository {
     );
   }
 
-  /// ユーザー別Gistからツイートを取得（階層構造: users -> username -> tweets）
-  Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
-    debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
+  /// ユーザー別GistのJSON文字列から対象ユーザーのツイート一覧をパースする
+  List<TweetItem> parseUserGistJson(String jsonStr, String username) {
+    final data = json.decode(jsonStr);
 
-    final response = await _fetchGistRaw(gistId);
-
-    if (response.statusCode == 200) {
-      final data = json.decode(utf8.decode(response.bodyBytes));
-
-      // 1. 標準の子Gist形式 (users -> username -> tweets)
-      final users = data['users'] as Map<String, dynamic>?;
-      if (users != null) {
-        Map<String, dynamic>? userData;
-        if (users.containsKey(username)) {
-          userData = users[username] as Map<String, dynamic>?;
-        } else {
-          final targetLower = username.toLowerCase();
-          for (final entry in users.entries) {
-            if (entry.key.toLowerCase() == targetLower) {
-              userData = entry.value as Map<String, dynamic>?;
-              break;
-            }
+    // 1. 標準の子Gist形式 (users -> username -> tweets)
+    final users = data['users'] as Map<String, dynamic>?;
+    if (users != null) {
+      Map<String, dynamic>? userData;
+      if (users.containsKey(username)) {
+        userData = users[username] as Map<String, dynamic>?;
+      } else {
+        final targetLower = username.toLowerCase();
+        for (final entry in users.entries) {
+          if (entry.key.toLowerCase() == targetLower) {
+            userData = entry.value as Map<String, dynamic>?;
+            break;
           }
-        }
-
-        if (userData != null) {
-          final tweets = (userData['tweets'] as List? ?? [])
-              .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
-              .where((item) => item.mediaUrls.isNotEmpty)
-              .toList();
-          tweets.sort(compareTweetsByNewest);
-          return tweets;
         }
       }
 
-      // 2. フォールバック: 直下に 'tweets' がある形式
-      if (data is Map<String, dynamic> && data.containsKey('tweets')) {
-        final tweets = (data['tweets'] as List? ?? [])
+      if (userData != null) {
+        final tweets = (userData['tweets'] as List? ?? [])
             .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
             .where((item) => item.mediaUrls.isNotEmpty)
             .toList();
         tweets.sort(compareTweetsByNewest);
         return tweets;
       }
-
-      debugPrint('[fetchUserGist] ERROR: User $username not found in Gist ($gistId)');
-      return [];
     }
 
-    throw Exception(AppLocalizations.current.failedToLoadUserGallery(gistId));
+    // 2. フォールバック: 直下に 'tweets' がある形式
+    if (data is Map<String, dynamic> && data.containsKey('tweets')) {
+      final tweets = (data['tweets'] as List? ?? [])
+          .map((e) => TweetItem.fromJson(e as Map<String, dynamic>))
+          .where((item) => item.mediaUrls.isNotEmpty)
+          .toList();
+      tweets.sort(compareTweetsByNewest);
+      return tweets;
+    }
+
+    debugPrint('[fetchUserGist] ERROR: User $username not found in Gist JSON');
+    return [];
+  }
+
+  /// ユーザー別Gistからツイートを取得（階層構造: users -> username -> tweets）
+  Future<List<TweetItem>> fetchUserGist(String gistId, String username) async {
+    debugPrint('[fetchUserGist] START: username=$username, gistId=$gistId');
+    final response = await _fetchGistRaw(gistId);
+    if (response.statusCode != 200) {
+      throw Exception(AppLocalizations.current.failedToLoadUserGallery(gistId));
+    }
+    return parseUserGistJson(utf8.decode(response.bodyBytes), username);
   }
 
   /// Gist内の全ユーザーのツイートを結合して返す（キーワード検索用）
@@ -310,28 +312,32 @@ class GalleryRepository {
     });
   }
 
-  /// バッチGist内の対象ユーザーのツイートを更新した全体JSONを返す
-  Future<String> buildUserBatchGistJson(
-    String gistId,
+  /// 既存のバッチGist JSON文字列をベースに、対象ユーザーのツイートを更新した全体JSONを構築する
+  String buildUserBatchGistJsonFromRaw(
+    String rawJsonContent,
     String username,
     List<TweetItem> remainingItems, {
     Set<String> deletedIds = const {},
-  }) async {
-    final baseUrl = _gistRawBaseUrl(gistId);
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
-    final response = await http.get(
-      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(AppLocalizations.current.failedToFetchBatchGist(gistId));
-    }
-    final data =
-        json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }) {
+    final data = json.decode(rawJsonContent) as Map<String, dynamic>;
     final users = (data['users'] as Map<String, dynamic>?) ?? {};
+
+    // 大文字小文字の揺れで重複キーができないよう既存キーを解決
+    String targetKey = username;
+    if (!users.containsKey(username)) {
+      final targetLower = username.toLowerCase();
+      for (final existingKey in users.keys) {
+        if (existingKey.toLowerCase() == targetLower) {
+          targetKey = existingKey;
+          break;
+        }
+      }
+    }
+
     if (remainingItems.isEmpty) {
-      users.remove(username);
+      users.remove(targetKey);
     } else {
-      users[username] = {
+      users[targetKey] = {
         'tweets': remainingItems.map((item) => item.toJson()).toList(),
       };
     }
@@ -347,6 +353,29 @@ class GalleryRepository {
     }
 
     return json.encode(data);
+  }
+
+  /// バッチGist内の対象ユーザーのツイートを更新した全体JSONを返す
+  Future<String> buildUserBatchGistJson(
+    String gistId,
+    String username,
+    List<TweetItem> remainingItems, {
+    Set<String> deletedIds = const {},
+  }) async {
+    final baseUrl = _gistRawBaseUrl(gistId);
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+    final response = await http.get(
+      Uri.parse('${baseUrl}data.json?t=$cacheBuster'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(AppLocalizations.current.failedToFetchBatchGist(gistId));
+    }
+    return buildUserBatchGistJsonFromRaw(
+      utf8.decode(response.bodyBytes),
+      username,
+      remainingItems,
+      deletedIds: deletedIds,
+    );
   }
 
   // --- SharedPreferences ヘルパー ---

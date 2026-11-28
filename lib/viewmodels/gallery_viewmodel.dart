@@ -157,6 +157,9 @@ class GalleryViewModel extends ChangeNotifier {
   bool get isSelectionMode => _selectedIds.isNotEmpty;
   int get selectedCount => _selectedIds.length;
 
+  /// [JA] 同一セッション内で更新した子Gist ID（CDNキャッシュの巻き戻りを防ぐためAPI経由で最新を取得）
+  final Set<String> _recentlyModifiedChildGists = {};
+
   // --- Helper ---
   String get defaultMasterGistId {
     switch (_currentSource) {
@@ -207,6 +210,7 @@ class GalleryViewModel extends ChangeNotifier {
     _userGistEntries = {};
     _favoriteUsers = {};
     _selectedIds.clear();
+    _recentlyModifiedChildGists.clear();
     _errorMessage = '';
 
     final savedId = await _repository.getSavedGistId();
@@ -332,13 +336,31 @@ class GalleryViewModel extends ChangeNotifier {
   String? getCanonicalUsername(String username) =>
       _findEntryIgnoreCase(_userGists, username)?.key;
 
+  /// GitHub API 経由で子Gistの最新JSONを取得（CDNキャッシュ回避用、失敗時は null でフォールバック）
+  Future<String?> _fetchFreshChildGistContent(String gistId) async {
+    if (gistId.isEmpty || _githubService.token.isEmpty) return null;
+    try {
+      return await _githubService.fetchGistContent(gistId, 'data.json');
+    } catch (e) {
+      debugPrint('_fetchFreshChildGistContent fallback ($gistId): $e');
+      return null;
+    }
+  }
+
   /// ユーザーの全ツイートを取得（Gist分割対応、大文字小文字不問、新しい順ソート）
   Future<List<TweetItem>> fetchUserItems(String username) async {
     final gistId = getGistIdForUser(username);
     final canonicalName = getCanonicalUsername(username) ?? username;
     List<TweetItem> items;
     if (gistId != null) {
-      items = await _repository.fetchUserGist(gistId, canonicalName);
+      final freshJson = _recentlyModifiedChildGists.contains(gistId)
+          ? await _fetchFreshChildGistContent(gistId)
+          : null;
+      if (freshJson != null && freshJson.isNotEmpty) {
+        items = _repository.parseUserGistJson(freshJson, canonicalName);
+      } else {
+        items = await _repository.fetchUserGist(gistId, canonicalName);
+      }
     } else {
       // マスターデータからフィルタ（1件のみユーザー等）
       items = _items.where((item) {
@@ -567,24 +589,70 @@ class GalleryViewModel extends ChangeNotifier {
   }
 
   /// ユーザーGist（バッチ形式）から選択中アイテムを削除して更新
+  /// 代表サムネイル（1枚目等）が削除された場合は Master Gist の代表アイテムも最新へ同期する
   Future<int?> deleteSelectedFromUserGist(
     String gistId,
     String username,
     List<TweetItem> currentItems,
-  ) {
+  ) async {
+    final deletedIds = Set<String>.from(_selectedIds);
     final remainingItems = currentItems
-        .where((item) => !_selectedIds.contains(item.id))
-        .toList();
-    return _deleteSelectedFromGist(
+        .where((item) => !deletedIds.contains(item.id))
+        .toList()
+      ..sort(compareTweetsByNewest);
+
+    final remainingCount = await _deleteSelectedFromGist(
       gistId: gistId,
       currentItems: currentItems,
-      buildJson: () => _repository.buildUserBatchGistJson(
-        gistId,
-        username,
-        remainingItems,
-        deletedIds: _selectedIds,
-      ),
+      buildJson: () async {
+        final freshJson = await _fetchFreshChildGistContent(gistId);
+        if (freshJson != null && freshJson.isNotEmpty) {
+          return _repository.buildUserBatchGistJsonFromRaw(
+            freshJson,
+            username,
+            remainingItems,
+            deletedIds: deletedIds,
+          );
+        }
+        return _repository.buildUserBatchGistJson(
+          gistId,
+          username,
+          remainingItems,
+          deletedIds: deletedIds,
+        );
+      },
     );
+
+    if (remainingCount != null) {
+      _recentlyModifiedChildGists.add(gistId);
+
+      // Master Gist の代表サムネイルが削除対象に含まれていた場合、残存する最新アイテムへ差し替え
+      if (remainingItems.isNotEmpty) {
+        final lower = username.toLowerCase();
+        final masterNeedsSync = _items.any(
+          (item) =>
+              item.extractedUsername?.toLowerCase() == lower &&
+              deletedIds.contains(item.id),
+        );
+        if (masterNeedsSync) {
+          final canonical = getCanonicalUsername(username) ?? username;
+          final nextThumb = remainingItems
+              .firstWhere(
+                (i) => i.thumbnailUrl.isNotEmpty,
+                orElse: () => remainingItems.first,
+              )
+              .copyWith(username: canonical);
+          _items = _items
+              .where((item) => item.extractedUsername?.toLowerCase() != lower)
+              .toList()
+            ..insert(0, nextThumb);
+          notifyListeners();
+          await _saveMasterGist();
+        }
+      }
+    }
+
+    return remainingCount;
   }
 
   /// ユーザーを完全に削除する（子Gistから除外 + キューから除外 + お気に入り解除 + マスターから除去）
@@ -594,17 +662,27 @@ class GalleryViewModel extends ChangeNotifier {
 
       if (gistId.isNotEmpty) {
         try {
+          final freshJson = await _fetchFreshChildGistContent(gistId);
           // 子Gist（マルチユーザー形式）から対象ユーザーのみを安全に除外
-          final updatedBatchJson = await _repository.buildUserBatchGistJson(
-            gistId,
-            username,
-            const [], // remainingItems が空のとき users.remove(username) が実行される
-          );
-          await _githubService.updateGistFile(
+          final updatedBatchJson = (freshJson != null && freshJson.isNotEmpty)
+              ? _repository.buildUserBatchGistJsonFromRaw(
+                  freshJson,
+                  username,
+                  const [],
+                )
+              : await _repository.buildUserBatchGistJson(
+                  gistId,
+                  username,
+                  const [], // remainingItems が空のとき users.remove(username) が実行される
+                );
+          final updated = await _githubService.updateGistFile(
             gistId: gistId,
             filename: 'data.json',
             content: updatedBatchJson,
           );
+          if (updated) {
+            _recentlyModifiedChildGists.add(gistId);
+          }
         } catch (e) {
           debugPrint('deleteUser child gist update error: $e');
         }
