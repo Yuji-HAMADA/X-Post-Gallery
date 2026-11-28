@@ -307,5 +307,50 @@ class TestExtractMediaGuards(unittest.TestCase):
         self.assertEqual(video["origin_status_id"], "400")
         self.assertTrue(video["has_video"])
 
+    def test_dismiss_modals_skips_hidden_buttons_and_uses_short_timeout(self):
+        """dismiss_modals が非表示ボタンのクリックをスキップし、可視ボタンには短い timeout を渡すこと"""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        hidden_btn = MagicMock()
+        hidden_btn.is_visible = AsyncMock(return_value=False)
+        hidden_btn.click = AsyncMock()
+
+        visible_btn = MagicMock()
+        visible_btn.is_visible = AsyncMock(return_value=True)
+        visible_btn.click = AsyncMock()
+
+        async def _qs(selector):
+            if "プロフィールを表示" in selector:
+                return hidden_btn
+            if "app-bar-close" in selector:
+                return visible_btn
+            return None
+
+        page = MagicMock()
+        page.query_selector = AsyncMock(side_effect=_qs)
+        page.keyboard.press = AsyncMock()
+        page.evaluate = AsyncMock()
+
+        with patch("extract_media.asyncio.sleep", new=AsyncMock()):
+            asyncio.run(extract_media.dismiss_modals(page, click_timeout_ms=1500))
+
+        hidden_btn.click.assert_not_awaited()
+        visible_btn.click.assert_awaited_once_with(timeout=1500)
+
+    def test_wait_for_timeline_returns_immediately_when_graphql_ready(self):
+        """GraphQL 直接抽出が既にデータ受信済みなら DOM 待機せず即 ready を返すこと"""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=None)
+        res = asyncio.run(
+            extract_media.wait_for_timeline(page, timeout=25, is_ready_fn=lambda: True)
+        )
+        self.assertEqual(res, "ready")
+        page.query_selector.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

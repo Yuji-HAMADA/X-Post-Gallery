@@ -9,6 +9,13 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import quote, urlsplit, urlunsplit, parse_qs, urlencode
 from playwright.async_api import async_playwright
 
+# 非TTY（リダイレクト・パイプ・サブプロセス）実行時でも進捗ログを即時出力する
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
 # --- 設定・定数 ---
 DATA_DIR = "data"
 OUTPUT_FILE = os.path.join(DATA_DIR, "tweets.js")
@@ -724,10 +731,10 @@ async def extract_tweet_data(page, article):
     except Exception:
         return None
 
-async def dismiss_modals(page):
+async def dismiss_modals(page, click_timeout_ms=2000):
     """ログインダイアログ、センシティブ警告、シートダイアログ等を自動解除する"""
     try:
-        # 1. センシティブ警告・プロファイル閲覧確認ボタンの自動クリック
+        # 1. センシティブ警告・プロファイル閲覧確認ボタンの自動クリック（可視要素のみ・短いタイムアウト）
         sensitive_btn_texts = [
             "プロフィールを表示", "表示する", "プロフィールを見る",
             "View profile", "Yes, view profile", "Show profile", "Show warning",
@@ -736,7 +743,9 @@ async def dismiss_modals(page):
             btn = await page.query_selector(f'div[role="button"]:has-text("{txt}"), button:has-text("{txt}")')
             if btn:
                 try:
-                    await btn.click()
+                    if not await btn.is_visible():
+                        continue
+                    await btn.click(timeout=click_timeout_ms)
                     print(f"🔓 Dismissed profile warning banner: '{txt}'")
                     await asyncio.sleep(1)
                     break
@@ -748,7 +757,9 @@ async def dismiss_modals(page):
             btn = await page.query_selector(f'div[role="button"]:text-is("{txt}"), button:text-is("{txt}")')
             if btn:
                 try:
-                    await btn.click()
+                    if not await btn.is_visible():
+                        continue
+                    await btn.click(timeout=click_timeout_ms)
                     print(f"🔓 Dismissed profile warning banner: '{txt}'")
                     await asyncio.sleep(1)
                     break
@@ -759,9 +770,10 @@ async def dismiss_modals(page):
         close_btn = await page.query_selector('div[role="dialog"] [aria-label="閉じる"], div[role="dialog"] [aria-label="Close"], [data-testid="app-bar-close"]')
         if close_btn:
             try:
-                await close_btn.click()
-                print("🔓 Clicked dialog close button.")
-                await asyncio.sleep(0.5)
+                if await close_btn.is_visible():
+                    await close_btn.click(timeout=click_timeout_ms)
+                    print("🔓 Clicked dialog close button.")
+                    await asyncio.sleep(0.5)
             except Exception:
                 pass
 
@@ -783,8 +795,8 @@ async def dismiss_modals(page):
     except Exception:
         pass
 
-async def wait_for_timeline(page, timeout=25):
-    """タイムライン（articleまたは空状態）がDOMに現れるまでモーダル解除や微小スクロールを挟みながら待機"""
+async def wait_for_timeline(page, timeout=25, is_ready_fn=None):
+    """タイムライン（GraphQL応答・article・空状態）が揃うまでモーダル解除や微小スクロールを挟みながら待機"""
     tweet_selectors = ['article', '[data-testid="tweet"]']
     empty_selectors = ['[data-testid="emptyState"]', '[data-testid="empty_timeline"]']
     empty_phrases = [
@@ -800,6 +812,10 @@ async def wait_for_timeline(page, timeout=25):
     scrolled = False
 
     while asyncio.get_event_loop().time() - start_time < timeout:
+        # 0. GraphQL 直接抽出が既にデータ受信済みなら DOM 描画待ちをスキップして即時返却
+        if is_ready_fn is not None and is_ready_fn():
+            return "ready"
+
         # 1. 記事要素の確認
         for sel in tweet_selectors:
             el = await page.query_selector(sel)
@@ -813,7 +829,7 @@ async def wait_for_timeline(page, timeout=25):
                 return "empty"
 
         try:
-            body_text = await page.inner_text("body")
+            body_text = await page.inner_text("body", timeout=3000)
             if any(phrase in body_text for phrase in empty_phrases):
                 return "empty"
         except Exception:
@@ -833,9 +849,11 @@ async def wait_for_timeline(page, timeout=25):
             except Exception:
                 pass
 
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5)
 
     # タイムアウト後の最終チェック
+    if is_ready_fn is not None and is_ready_fn():
+        return "ready"
     for sel in tweet_selectors:
         if await page.query_selector(sel):
             return "ready"
@@ -849,7 +867,7 @@ async def check_account_status(page):
     """アカウントが存在しない、凍結、非公開、閲覧制限（年齢制限等）、認証エラー、またはサーバ障害かを早期チェック"""
     try:
         current_url = page.url
-        body_text = (await page.inner_text("body")).strip()
+        body_text = (await page.inner_text("body", timeout=3000)).strip()
         page_title = await page.title()
     except Exception:
         return None
@@ -1148,10 +1166,12 @@ async def run():
                 await browser.close()
                 sys.exit(41)
 
-        # タイムラインの初期記事が現れるまで待機
+        # タイムラインの初期記事（または GraphQL 応答）が現れるまで待機
         articles_ready = False
         timeline_empty = False
-        status = await wait_for_timeline(page, timeout=25)
+        status = await wait_for_timeline(
+            page, timeout=25, is_ready_fn=lambda: graphql_mode_active
+        )
         if status == "ready":
             articles_ready = True
         elif status == "empty":
@@ -1173,7 +1193,9 @@ async def run():
             try:
                 await page.goto(url, wait_until="domcontentloaded")
                 await dismiss_modals(page)
-                status = await wait_for_timeline(page, timeout=25)
+                status = await wait_for_timeline(
+                    page, timeout=25, is_ready_fn=lambda: graphql_mode_active
+                )
                 if status == "ready":
                     articles_ready = True
                 elif status == "empty":
@@ -1210,7 +1232,9 @@ async def run():
             try:
                 await page.reload(wait_until="domcontentloaded")
                 await dismiss_modals(page)
-                status = await wait_for_timeline(page, timeout=20)
+                status = await wait_for_timeline(
+                    page, timeout=20, is_ready_fn=lambda: graphql_mode_active
+                )
                 if status == "ready":
                     articles_ready = True
                 elif status == "empty":
@@ -1267,12 +1291,13 @@ async def run():
                 await browser.close()
                 sys.exit(0)
 
-        await asyncio.sleep(0.5)
-        await dismiss_modals(page)
+        if not graphql_mode_active:
+            await asyncio.sleep(0.5)
+            await dismiss_modals(page)
 
         # ページ全体のテキストからレート制限をチェック
         try:
-            body_text = await page.inner_text("body")
+            body_text = await page.inner_text("body", timeout=3000)
             if any(msg in body_text for msg in ["Rate limit exceeded", "レート制限", "レート制限を超えました"]):
                 rate_limit_hit = True
         except Exception:
