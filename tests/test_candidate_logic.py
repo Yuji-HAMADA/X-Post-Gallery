@@ -105,17 +105,19 @@ class TestCandidateLogic(unittest.TestCase):
     def test_process_account_command_args(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
 
-        # 既存ユーザーの場合: -s が付くこと、および500件渡せること
+        # 既存ユーザーの場合: -s と --skip-queue-check が付くこと、および500件渡せること
         process_account("dummy_gist", "existing_user", 500, is_existing=True)
         call_args_existing = mock_run.call_args[0][0]
         self.assertIn("-s", call_args_existing)
+        self.assertIn("--skip-queue-check", call_args_existing)
         self.assertNotIn("--is-candidate", call_args_existing)
         self.assertIn("500", call_args_existing)
 
-        # 新規ユーザーの場合: --is-candidate が付き、-s は付かないこと、および300件渡せること
+        # 新規ユーザーの場合: --is-candidate と --skip-queue-check が付き、-s は付かないこと、および300件渡せること
         process_account("dummy_gist", "new_user", 300, is_existing=False)
         call_args_new = mock_run.call_args[0][0]
         self.assertIn("--is-candidate", call_args_new)
+        self.assertIn("--skip-queue-check", call_args_new)
         self.assertNotIn("-s", call_args_new)
         self.assertIn("300", call_args_new)
 
@@ -290,6 +292,52 @@ class TestCandidateLogic(unittest.TestCase):
         self.assertTrue(entry.get("is_candidate"))
         # ピン留め解除状態（0）が維持されていること！
         self.assertEqual(entry.get("priority_updated_at"), 0)
+
+    def test_collect_batch_accounts_dismisses_modals_only_initially_and_on_stall(self):
+        """通常スクロール中は dismiss_modals を毎スクロール呼ばず、初回と停止時のみ呼ぶこと"""
+        import asyncio
+        from unittest.mock import AsyncMock
+        import expand_timeline_candidates
+
+        class FakePage:
+            def __init__(self, scroll_ys, extracted_seq):
+                self._scroll_ys = list(scroll_ys)
+                self._extracted_seq = list(extracted_seq)
+                self.mouse = MagicMock()
+                self.mouse.wheel = AsyncMock()
+
+            async def evaluate(self, expr):
+                if expr == "window.scrollY":
+                    return self._scroll_ys.pop(0) if self._scroll_ys else 0
+                return self._extracted_seq.pop(0) if self._extracted_seq else []
+
+        # 正常に3スクロール進行するケース: dismiss_modals は初回のみ (1回)
+        page_ok = FakePage(
+            scroll_ys=[0, 1000, 1000, 2000, 2000, 3000],
+            extracted_seq=[["u0"], ["u1"], ["u2"], ["u3"]],
+        )
+        with patch.object(expand_timeline_candidates, "dismiss_modals", new_callable=AsyncMock) as mock_dismiss:
+            accounts = asyncio.run(
+                expand_timeline_candidates.collect_batch_accounts(
+                    page_ok, scroll_batch_size=3, scroll_delay=0
+                )
+            )
+            self.assertEqual(accounts, ["u0", "u1", "u2", "u3"])
+            self.assertEqual(mock_dismiss.call_count, 1)
+
+        # スクロール停止したケース: 初回 + 停止時の計2回呼んで break すること
+        page_stall = FakePage(
+            scroll_ys=[0, 0, 0],
+            extracted_seq=[["u0"], []],
+        )
+        with patch.object(expand_timeline_candidates, "dismiss_modals", new_callable=AsyncMock) as mock_dismiss:
+            accounts = asyncio.run(
+                expand_timeline_candidates.collect_batch_accounts(
+                    page_stall, scroll_batch_size=3, scroll_delay=0
+                )
+            )
+            self.assertEqual(accounts, ["u0"])
+            self.assertEqual(mock_dismiss.call_count, 2)
 
 if __name__ == "__main__":
     unittest.main()

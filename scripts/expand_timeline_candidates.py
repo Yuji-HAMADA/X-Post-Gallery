@@ -21,7 +21,7 @@ import subprocess
 from playwright.async_api import async_playwright
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from extract_media import AUTH_PATH, DATA_DIR, dismiss_modals
+from extract_media import AUTH_PATH, DATA_DIR, dismiss_modals, enable_fast_resource_blocking
 from extract_instagram_media import AUTH_PATH as IG_AUTH_PATH, extract_posts_from_payload as extract_ig_posts_from_payload
 from extract_tiktok_media import (
     AUTH_PATH as TIKTOK_AUTH_PATH,
@@ -128,9 +128,19 @@ def fetch_master_user_gists(gist_id):
         gist_meta = json.loads(res.stdout)
         files = gist_meta.get("files", {})
         for fn in candidate_files:
-            if fn in files and files[fn].get("raw_url"):
+            if fn not in files:
+                continue
+            file_info = files[fn] or {}
+            if not file_info.get("truncated") and isinstance(file_info.get("content"), str):
+                try:
+                    data = json.loads(file_info["content"])
+                    if data:
+                        break
+                except Exception:
+                    pass
+            if file_info.get("raw_url"):
                 dl = subprocess.run(
-                    ["curl", "-sf", "-L", files[fn]["raw_url"]],
+                    ["curl", "-sf", "-L", file_info["raw_url"]],
                     capture_output=True, text=True, check=True
                 )
                 data = json.loads(dl.stdout.strip())
@@ -193,8 +203,8 @@ def parse_args():
             args.timeline_url = "https://x.com/home"
     return args
 
-async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_lower=None):
-    """10スクロール分のアカウントを広告除外しながら収集して返す"""
+async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_lower=None, scroll_delay=1.5):
+    """指定スクロール回数分のアカウントを広告除外しながら収集して返す"""
     excluded = excluded_accounts_lower or set()
     batch_accounts = []
     batch_set = set()
@@ -214,12 +224,10 @@ async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_l
         print(f"⚠️ Initial extraction warning: {e}")
 
     for scroll_idx in range(1, scroll_batch_size + 1):
-        await dismiss_modals(page)
-
         # スクロール実行
         prev_scroll_y = await page.evaluate("window.scrollY")
         await page.mouse.wheel(0, 2000)
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(scroll_delay)
         curr_scroll_y = await page.evaluate("window.scrollY")
 
         # 広告除外してアカウント抽出
@@ -240,8 +248,14 @@ async def collect_batch_accounts(page, scroll_batch_size=10, excluded_accounts_l
                 print(f"  🎯 Found account (scroll {scroll_idx}/{scroll_batch_size}): @{acc_clean} (Batch total: {len(batch_accounts)})")
 
         if curr_scroll_y == prev_scroll_y and new_count == 0:
-            print(f"⏳ Cannot scroll down further at scroll {scroll_idx}/{scroll_batch_size}.")
-            break
+            # スクロール停止時のみモーダル解除を試みて再スクロール確認
+            await dismiss_modals(page)
+            await page.mouse.wheel(0, 2000)
+            await asyncio.sleep(scroll_delay)
+            retry_scroll_y = await page.evaluate("window.scrollY")
+            if retry_scroll_y == curr_scroll_y:
+                print(f"⏳ Cannot scroll down further at scroll {scroll_idx}/{scroll_batch_size}.")
+                break
 
     return batch_accounts
 
@@ -254,7 +268,7 @@ def process_account(gist_id, username, num, is_existing, platform="x"):
     python_bin = sys.executable
     append_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "append_to_gist.py")
 
-    cmd = [python_bin, append_script, "-g", gist_id, "-u", username, "-n", str(num)]
+    cmd = [python_bin, append_script, "-g", gist_id, "-u", username, "-n", str(num), "--skip-queue-check"]
     if platform in ("instagram", "tiktok"):
         cmd.extend(["--platform", platform])
     if is_existing:
@@ -529,6 +543,8 @@ async def run_expansion_loop(args, gist_id):
         context = await browser.new_context(**ctx_kwargs)
         if platform == "tiktok":
             await enable_tt_resource_blocking(context)
+        elif platform == "x":
+            await enable_fast_resource_blocking(context)
         page = await context.new_page()
 
         ig_feed_usernames = []
@@ -667,9 +683,10 @@ async def run_expansion_loop(args, gist_id):
                             continue
 
                         is_existing = acc_lower in existing_users_lower
+                        target_account = existing_users_lower[acc_lower] if is_existing else account
                         fetch_num = args.num_existing if is_existing else args.num
-                        print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
-                        ret_code = await asyncio.to_thread(process_account, gist_id, account, fetch_num, is_existing, platform)
+                        print(f"\n--- [Cycle {cycle} | Account {idx}/{len(batch_accounts)}] @{target_account} (Existing: {is_existing}, Fetch Count: {fetch_num}) ---")
+                        ret_code = await asyncio.to_thread(process_account, gist_id, target_account, fetch_num, is_existing, platform)
 
                         if ret_code == 41:
                             auth_error_reason = f"Extractor reported session expired (exit 41) on @{account}"
@@ -682,8 +699,8 @@ async def run_expansion_loop(args, gist_id):
                             print(f"\n🚨 Rate limit detected from {platform} (exit code 42) while processing @{account}.")
                             print(f"⏳ Pausing for {args.rate_limit_wait}s (~{wait_mins} min) until rate limit resets...")
                             await asyncio.sleep(args.rate_limit_wait)
-                            print(f"🔄 Retrying @{account} after cooldown...")
-                            ret_code = await asyncio.to_thread(process_account, gist_id, account, fetch_num, is_existing, platform)
+                            print(f"🔄 Retrying @{target_account} after cooldown...")
+                            ret_code = await asyncio.to_thread(process_account, gist_id, target_account, fetch_num, is_existing, platform)
 
                         if ret_code == 0:
                             total_processed += 1

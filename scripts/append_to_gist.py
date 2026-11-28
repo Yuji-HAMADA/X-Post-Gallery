@@ -80,6 +80,8 @@ def parse_args():
                         help="抽出スクリプトの実行をスキップし、既存の tweets.js から直接 Gist へ追記する（タイムライン一括投入用）")
     parser.add_argument("--max-no-new-scrolls", type=int, default=None, help="新規未検出連続スクロール上限（未指定時はextract_media.py既定値）")
     parser.add_argument("--max-runtime", type=int, default=None, help="最大実行秒数（未指定時はextract_media.py既定値）")
+    parser.add_argument("--skip-queue-check", action="store_true",
+                        help="キューGistの削除検知チェックをスキップ（タイムライン収集経由などキュー外呼び出し用）")
     args = parser.parse_args()
     if args.num > GIST_MAX_TWEETS:
         print(f"⚠️  --num {args.num} exceeds limit. Capping at {GIST_MAX_TWEETS}.")
@@ -355,6 +357,18 @@ def has_master_tweets_changed(initial_tweets, new_tweets, target_user):
             return True
     return False
 
+def find_user_gist_entry(user_gists, user):
+    """user_gists から大文字・小文字を区別せずエントリを検索し (canonical_user, entry) を返す"""
+    if not user or not isinstance(user_gists, dict):
+        return user, None
+    if user in user_gists:
+        return user, user_gists[user]
+    user_lower = user.lower()
+    for k, v in user_gists.items():
+        if k.lower() == user_lower:
+            return k, v
+    return user, None
+
 def get_user_tweets(data, user):
     """データからユーザのツイートを取得"""
     if is_master_gist_format(data):
@@ -362,18 +376,27 @@ def get_user_tweets(data, user):
             return data.get("tweets", [])
         return [t for t in data.get("tweets", []) if _tweet_belongs_to_user(t, user)]
     if is_multi_user_format(data):
-        return data.get("users", {}).get(user, {}).get("tweets", [])
+        users_map = data.get("users", {})
+        if user in users_map:
+            return users_map[user].get("tweets", [])
+        if user:
+            user_lower = user.lower()
+            for k, v in users_map.items():
+                if k.lower() == user_lower:
+                    return v.get("tweets", [])
+        return []
     # fallback
     if isinstance(data, dict) and "tweets" in data:
         return data["tweets"]
     return data if isinstance(data, list) else []
 
 def _tweet_belongs_to_user(tweet, user):
-    if tweet.get("username") == user:
+    user_lower = user.lower() if user else ""
+    if (tweet.get("username") or "").lower() == user_lower:
         return True
-    if f"x.com/{user}/status/" in tweet.get("post_url", ""):
+    if f"x.com/{user_lower}/status/" in (tweet.get("post_url") or "").lower():
         return True
-    if tweet.get("full_text", "").startswith(f"@{user}:"):
+    if (tweet.get("full_text") or "").lower().startswith(f"@{user_lower}:"):
         return True
     return False
 
@@ -396,7 +419,14 @@ def fetch_gist_data(gist_id):
     for filename in candidate_files:
         if filename not in files:
             continue
-        raw_url = files[filename].get("raw_url")
+        file_info = files[filename] or {}
+        # truncated でない場合は gh api 応答内の content を直接使用し curl 往復を省略
+        if not file_info.get("truncated") and isinstance(file_info.get("content"), str):
+            try:
+                return filename, json.loads(file_info["content"])
+            except Exception:
+                pass
+        raw_url = file_info.get("raw_url")
         if not raw_url:
             continue
         try:
@@ -683,13 +713,13 @@ def update_or_migrate_user_gist_in_memory(promote_gist_id, promote_data, user, m
 # メイン
 # ---------------------------------------------------------------------------
 
-def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False, is_candidate=False, refresh_urls=False):
+def process_multi_user_append(master_data, new_tweets, promote_gist_id_override=None, from_scratch=False, is_candidate=False, refresh_urls=False, initial_gist_cache=None):
     user_groups = group_tweets_by_user(new_tweets)
     user_gists_map = master_data.get("user_gists", {})
     master_tweets = master_data.get("tweets", [])
 
     # Gistの取得結果と更新状態をキャッシュして、最後に一括で書き込む
-    gist_cache = {}  # { gist_id: {"filename": str, "data": dict, "is_modified": bool} }
+    gist_cache = dict(initial_gist_cache) if initial_gist_cache else {}  # { gist_id: {"filename": str, "data": dict, "is_modified": bool} }
 
     migrated_count = 0
 
@@ -913,15 +943,22 @@ def main():
     # skip_ids 作成（Instagram / TikTok 定期URLリフレッシュ判定含む）
     refresh_urls = False
     skip_ids_file = None
+    prefetched_child_gists = {}
     if not skip_extract:
         if args.from_scratch:
             args.stop_on_existing = False
             skip_ids_file = write_skip_ids_file([])
         elif args.user:
-            ug_id = get_gist_id_from_entry(full_data.get("user_gists", {}).get(args.user))
+            canonical_user, user_entry = find_user_gist_entry(full_data.get("user_gists", {}), args.user)
+            ug_id = get_gist_id_from_entry(user_entry)
             if ug_id:
-                _, p_data = fetch_gist_data(ug_id)
-                existing = get_user_tweets(p_data, args.user)
+                p_filename, p_data = fetch_gist_data(ug_id)
+                prefetched_child_gists[ug_id] = {
+                    "filename": p_filename,
+                    "data": p_data,
+                    "is_modified": False,
+                }
+                existing = get_user_tweets(p_data, canonical_user)
             else:
                 existing = []
             if args.platform == "instagram" and needs_instagram_url_refresh(existing, check_limit=args.num):
@@ -951,7 +988,8 @@ def main():
         if user_lower
         else False
     )
-    initial_queue_users = fetch_all_queue_users() if user_lower else None
+    skip_queue_check = getattr(args, "skip_queue_check", False) is True
+    initial_queue_users = fetch_all_queue_users() if (user_lower and not skip_queue_check) else None
     initial_had_queue_user = (
         (user_lower in initial_queue_users)
         if initial_queue_users is not None
@@ -1015,6 +1053,7 @@ def main():
         from_scratch=args.from_scratch,
         is_candidate=args.is_candidate,
         refresh_urls=refresh_urls,
+        initial_gist_cache=prefetched_child_gists,
     )
     if platform == "instagram":
         output_file = "assets/data/data_instagram.json"
